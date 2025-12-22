@@ -188,12 +188,7 @@ export default function CsvPdfUpload() {
     <div className="container py-4" style={{ maxWidth: 900 }}>
       {/* Header with Back Button */}
       <div className="d-flex align-items-center mb-4">
-        <button 
-          className="btn btn-outline-secondary me-3"
-          onClick={() => navigate('/')}
-        >
-          ← Back to Home
-        </button>
+
         <div>
           <h1 className="h3 mb-1">Import Statements</h1>
           <p className="text-muted mb-0">Upload your bank statements in CSV or PDF format</p>
