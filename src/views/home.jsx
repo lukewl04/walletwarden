@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import warden from "../../public/warden.jpg";
+import Navbar from "../components/navbar.jsx";
 export default function Home() {
   const { isAuthenticated, isLoading, loginWithRedirect } = useAuth0();
 
@@ -100,13 +101,9 @@ export default function Home() {
   return (
     <div className="container py-4" style={{ maxWidth: 900 }}>
       {/* Header */}
+      <Navbar />
         <header className="text-center mb-4">
-        <img
-            src={warden}
-            alt="Wallet Warden logo"
-            className="mb-3"
-            style={{ width: 150, height: 150 }}
-        />
+
         <h1 className="h3 mb-1">Wallet Warden</h1>
         <p className="text-muted">
             Track your money before it mysteriously disappears
