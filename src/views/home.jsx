@@ -2,20 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import warden from "../../public/warden.jpg";
 import Navbar from "../components/navbar.jsx";
+import CsvPdfUpload from "../components/csv-pdf-upload.jsx";
 export default function Home() {
   const { isAuthenticated, isLoading, loginWithRedirect } = useAuth0();
 
-  // Auto-redirect to Auth0 if not logged in
-  useEffect(() => {
-    if (!isLoading && !isAuthenticated) {
-      loginWithRedirect({
-        authorizationParams: {
-            connection: "google-oauth2",
-            prompt: "select_account",
-        },
-    });
-}
-  }, [isLoading, isAuthenticated, loginWithRedirect]);
 
   const [balance, setBalance] = useState(0);
   const [transactions, setTransactions] = useState([]);
@@ -180,10 +170,9 @@ export default function Home() {
           <div className="card shadow-sm h-100">
             <div className="card-body">
               <h2 className="h5 mb-2">Upload CSV</h2>
-              <p className="text-muted mb-3">
-                Format: <code>type, amount, date</code> (date optional). Type should be <code>income</code> or <code>expense</code>.
-              </p>
-              <input className="form-control" type="file" accept=".csv" onChange={handleCSVUpload} />
+
+                    <CsvPdfUpload/>
+
             </div>
           </div>
         </div>

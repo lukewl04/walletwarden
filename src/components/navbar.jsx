@@ -43,6 +43,12 @@ const Navbar = () => {
               </a>
             </li>
 
+            <li className="nav-item">
+              <a className="nav-link" href="import">
+                Upload Bank Statement
+              </a>
+            </li>
+
             {/* Call to Action */}
             <li className="nav-item">
               <a className="btn btn-primary px-4 rounded-pill" href="#">

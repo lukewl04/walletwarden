@@ -5,7 +5,7 @@ export default function ProtectedRoute(Component) {
     onRedirecting: () => (
       <div className="container py-5">
         <div className="alert alert-info mb-0">
-          Redirecting to login…
+          Signing you in…
         </div>
       </div>
     ),

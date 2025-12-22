@@ -100,25 +100,75 @@ export default function CsvPdfUpload() {
     const reader = new FileReader();
 
     reader.onload = (event) => {
-      const lines = String(event.target?.result ?? "").split(/\r?\n/).filter(Boolean);
+      const text = String(event.target?.result ?? "");
+      const lines = text.split(/\r?\n/).filter(line => line.trim());
+      
+      if (lines.length === 0) return;
 
-      const parsed = lines
-        .map((line) => line.split(","))
-        .filter((row) => row.length >= 2)
-        .map(([type, amount, date]) => {
-          const value = parseFloat(amount);
-          if (isNaN(value)) return null;
+      // Check if it's a Monzo-style CSV (with headers)
+      const firstLine = lines[0].toLowerCase();
+      const isMonzoFormat = firstLine.includes('transaction id') || 
+                           firstLine.includes('money out') || 
+                           firstLine.includes('money in');
 
-          const normalizedType = String(type).trim().toLowerCase() === "income" ? "income" : "expense";
+      let parsed = [];
 
-          return {
+      if (isMonzoFormat) {
+        // Parse Monzo CSV format
+        const headers = lines[0].split(',');
+        const dateIndex = headers.findIndex(h => h.toLowerCase().includes('date'));
+        const nameIndex = headers.findIndex(h => h.toLowerCase().includes('name'));
+        const moneyOutIndex = headers.findIndex(h => h.toLowerCase().includes('money out'));
+        const moneyInIndex = headers.findIndex(h => h.toLowerCase().includes('money in'));
+        const categoryIndex = headers.findIndex(h => h.toLowerCase().includes('category'));
+
+        for (let i = 1; i < lines.length; i++) {
+          const row = lines[i].split(',');
+          if (row.length < headers.length - 5) continue; // Skip incomplete rows
+
+          const moneyOut = parseFloat(row[moneyOutIndex]) || 0;
+          const moneyIn = parseFloat(row[moneyInIndex]) || 0;
+          
+          // Skip if both are 0
+          if (moneyOut === 0 && moneyIn === 0) continue;
+
+          const isIncome = moneyIn > 0;
+          const amount = isIncome ? moneyIn : Math.abs(moneyOut);
+          
+          parsed.push({
             id: Date.now() + Math.random(),
-            type: normalizedType,
-            amount: value,
-            date: date ? String(date).trim() : new Date().toLocaleDateString('en-GB'),
-          };
-        })
-        .filter(Boolean);
+            type: isIncome ? "income" : "expense",
+            amount: amount,
+            date: row[dateIndex] || new Date().toLocaleDateString('en-GB'),
+            description: (row[nameIndex] || 'Transaction').substring(0, 60)
+          });
+        }
+      } else {
+        // Parse simple CSV format (type, amount, date)
+        parsed = lines
+          .map((line) => line.split(","))
+          .filter((row) => row.length >= 2)
+          .map(([type, amount, date]) => {
+            const value = parseFloat(amount);
+            if (isNaN(value)) return null;
+
+            const normalizedType = String(type).trim().toLowerCase() === "income" ? "income" : "expense";
+
+            return {
+              id: Date.now() + Math.random(),
+              type: normalizedType,
+              amount: Math.abs(value),
+              date: date ? String(date).trim() : new Date().toLocaleDateString('en-GB'),
+            };
+          })
+          .filter(Boolean);
+      }
+
+      if (parsed.length === 0) {
+        alert('No transactions found in CSV. Please check the format.');
+        e.target.value = "";
+        return;
+      }
 
       setUploadedTransactions(parsed);
       alert(`Successfully imported ${parsed.length} transactions!`);
@@ -157,9 +207,9 @@ export default function CsvPdfUpload() {
             <div className="card-body">
               <h2 className="h5 mb-3">📄 CSV Upload</h2>
               <p className="text-muted small mb-3">
-                <strong>Format:</strong> <code>type, amount, date</code><br/>
-                Type should be <code>income</code> or <code>expense</code><br/>
-                Date is optional
+                <strong>Supports two formats:</strong><br/>
+                <strong>1. Simple:</strong> <code>type, amount, date</code><br/>
+                <strong>2. Bank export:</strong> Monzo, Starling, etc. (with headers)
               </p>
               <input 
                 className="form-control" 
@@ -170,7 +220,7 @@ export default function CsvPdfUpload() {
               />
               <div className="mt-3 p-2 bg-light rounded">
                 <small className="text-muted">
-                  <strong>Example:</strong><br/>
+                  <strong>Simple format example:</strong><br/>
                   income, 1000.00, 1st Jan<br/>
                   expense, 25.50, 2nd Jan
                 </small>
