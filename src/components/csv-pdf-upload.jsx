@@ -2,8 +2,8 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import * as pdfjsLib from 'pdfjs-dist';
 
-// Configure PDF.js worker
-pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+// Configure PDF.js worker - use unpkg as it's more reliable
+pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
 
 export default function CsvPdfUpload() {
   const navigate = useNavigate();
@@ -11,44 +11,38 @@ export default function CsvPdfUpload() {
   const [uploadedTransactions, setUploadedTransactions] = useState([]);
 
   const parseBankStatement = (text) => {
-    const lines = text.split('\n');
     const parsed = [];
     
-    const datePattern = /(\d{1,2}(?:st|nd|rd|th)?\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec))/i;
+    // More flexible pattern that works with PDF text extraction
+    // Matches: "date description amount balance" or "date description moneyIn/moneyOut balance"
+    const transactionPattern = /(\d{1,2}(?:st|nd|rd|th)?\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec))\s+(.+?)\s+(\d+\.\d{2})\s+(\d+\.\d{2})/gi;
     
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i].trim();
-      if (!line || line.length < 20) continue;
+    let match;
+    while ((match = transactionPattern.exec(text)) !== null) {
+      const [, date, description, amount1, amount2] = match;
       
-      const dateMatch = line.match(datePattern);
-      if (!dateMatch) continue;
-      
-      const date = dateMatch[1];
-      const restOfLine = line.substring(dateMatch.index + date.length).trim();
-      
-      // Match two amounts at the end (transaction amount and balance)
-      const amounts = restOfLine.match(/(\d+\.\d{2})\s+(\d+\.\d{2})$/);
-      if (!amounts) continue;
-      
-      const transactionAmount = parseFloat(amounts[1]);
+      // amount1 is the transaction amount, amount2 is the balance
+      const transactionAmount = parseFloat(amount1);
       if (isNaN(transactionAmount) || transactionAmount === 0) continue;
       
-      const description = restOfLine.substring(0, restOfLine.lastIndexOf(amounts[1])).trim();
-      if (!description) continue;
+      const cleanDesc = description.trim();
+      if (!cleanDesc || cleanDesc.length < 3) continue;
       
-      const descLower = description.toLowerCase();
+      // Determine if it's income based on keywords
+      const descLower = cleanDesc.toLowerCase();
       const isIncome = descLower.includes('receipt') || 
                       descLower.includes('payment from') || 
                       descLower.includes('transfer from') ||
                       descLower.includes('allowance') ||
-                      descLower.includes('bill payment from');
+                      descLower.includes('bill payment from') ||
+                      descLower.includes('faster payments receipt');
       
       parsed.push({
         id: Date.now() + Math.random(),
         type: isIncome ? "income" : "expense",
         amount: transactionAmount,
-        date: date,
-        description: description.substring(0, 60)
+        date: date.trim(),
+        description: cleanDesc.substring(0, 60)
       });
     }
     
@@ -70,13 +64,17 @@ export default function CsvPdfUpload() {
       for (let i = 1; i <= pdf.numPages; i++) {
         const page = await pdf.getPage(i);
         const textContent = await page.getTextContent();
-        const pageText = textContent.items.map(item => item.str).join(' ');
+        // Join with newlines to preserve some structure
+        const pageText = textContent.items.map(item => item.str).join('\n');
         fullText += pageText + '\n';
       }
+
+      console.log('Extracted PDF text:', fullText.substring(0, 500)); // Debug log
 
       const parsed = parseBankStatement(fullText);
       
       if (parsed.length === 0) {
+        console.error('No transactions parsed from text');
         alert('No transactions found in PDF. Please check the format or try a different file.');
         e.target.value = "";
         return;
@@ -87,7 +85,7 @@ export default function CsvPdfUpload() {
       e.target.value = "";
     } catch (error) {
       console.error('Error reading PDF:', error);
-      alert('Error reading PDF file. Please try again or check the file format.');
+      alert(`Error reading PDF file: ${error.message}. Please try again or check the file format.`);
     } finally {
       setLoading(false);
     }
@@ -188,7 +186,6 @@ export default function CsvPdfUpload() {
     <div className="container py-4" style={{ maxWidth: 900 }}>
       {/* Header with Back Button */}
       <div className="d-flex align-items-center mb-4">
-
         <div>
           <h1 className="h3 mb-1">Import Statements</h1>
           <p className="text-muted mb-0">Upload your bank statements in CSV or PDF format</p>
