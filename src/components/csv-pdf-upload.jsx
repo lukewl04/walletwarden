@@ -1,14 +1,19 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import * as pdfjsLib from 'pdfjs-dist';
+import { useTransactions } from "../state/TransactionsContext";
 
 // Configure PDF.js worker - use unpkg as it's more reliable
 pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
 
-export default function CsvPdfUpload() {
+export default function CsvPdfUpload({ onSave }) {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [uploadedTransactions, setUploadedTransactions] = useState([]);
+  const csvInputRef = useRef(null);
+  const pdfInputRef = useRef(null);
+
+  const { bulkAddTransactions } = useTransactions();
 
   const parseBankStatement = (text) => {
     const parsed = [];
@@ -81,7 +86,6 @@ export default function CsvPdfUpload() {
       }
 
       setUploadedTransactions(parsed);
-      alert(`Successfully imported ${parsed.length} transactions!`);
       e.target.value = "";
     } catch (error) {
       console.error('Error reading PDF:', error);
@@ -98,79 +102,86 @@ export default function CsvPdfUpload() {
     const reader = new FileReader();
 
     reader.onload = (event) => {
-      const text = String(event.target?.result ?? "");
-      const lines = text.split(/\r?\n/).filter(line => line.trim());
-      
-      if (lines.length === 0) return;
+      try {
+        const text = String(event.target?.result ?? "");
+        const lines = text.split(/\r?\n/).filter(line => line.trim());
+        
+        if (lines.length === 0) return;
 
-      // Check if it's a Monzo-style CSV (with headers)
-      const firstLine = lines[0].toLowerCase();
-      const isMonzoFormat = firstLine.includes('transaction id') || 
-                           firstLine.includes('money out') || 
-                           firstLine.includes('money in');
+        // Check if it's a Monzo-style CSV (with headers)
+        const firstLine = lines[0].toLowerCase();
+        const isMonzoFormat = firstLine.includes('transaction id') || 
+                             firstLine.includes('money out') || 
+                             firstLine.includes('money in');
 
-      let parsed = [];
+        let parsed = [];
 
-      if (isMonzoFormat) {
-        // Parse Monzo CSV format
-        const headers = lines[0].split(',');
-        const dateIndex = headers.findIndex(h => h.toLowerCase().includes('date'));
-        const nameIndex = headers.findIndex(h => h.toLowerCase().includes('name'));
-        const moneyOutIndex = headers.findIndex(h => h.toLowerCase().includes('money out'));
-        const moneyInIndex = headers.findIndex(h => h.toLowerCase().includes('money in'));
-        const categoryIndex = headers.findIndex(h => h.toLowerCase().includes('category'));
+        if (isMonzoFormat) {
+          // Parse Monzo CSV format
+          const headers = lines[0].split(',');
+          const dateIndex = headers.findIndex(h => h.toLowerCase().includes('date'));
+          const nameIndex = headers.findIndex(h => h.toLowerCase().includes('name'));
+          const moneyOutIndex = headers.findIndex(h => h.toLowerCase().includes('money out'));
+          const moneyInIndex = headers.findIndex(h => h.toLowerCase().includes('money in'));
+          const categoryIndex = headers.findIndex(h => h.toLowerCase().includes('category'));
 
-        for (let i = 1; i < lines.length; i++) {
-          const row = lines[i].split(',');
-          if (row.length < headers.length - 5) continue; // Skip incomplete rows
+          for (let i = 1; i < lines.length; i++) {
+            const row = lines[i].split(',');
+            if (row.length < headers.length - 5) continue; // Skip incomplete rows
 
-          const moneyOut = parseFloat(row[moneyOutIndex]) || 0;
-          const moneyIn = parseFloat(row[moneyInIndex]) || 0;
-          
-          // Skip if both are 0
-          if (moneyOut === 0 && moneyIn === 0) continue;
+            const moneyOut = parseFloat(row[moneyOutIndex]) || 0;
+            const moneyIn = parseFloat(row[moneyInIndex]) || 0;
+            
+            // Skip if both are 0
+            if (moneyOut === 0 && moneyIn === 0) continue;
 
-          const isIncome = moneyIn > 0;
-          const amount = isIncome ? moneyIn : Math.abs(moneyOut);
-          
-          parsed.push({
-            id: Date.now() + Math.random(),
-            type: isIncome ? "income" : "expense",
-            amount: amount,
-            date: row[dateIndex] || new Date().toLocaleDateString('en-GB'),
-            description: (row[nameIndex] || 'Transaction').substring(0, 60)
-          });
-        }
-      } else {
-        // Parse simple CSV format (type, amount, date)
-        parsed = lines
-          .map((line) => line.split(","))
-          .filter((row) => row.length >= 2)
-          .map(([type, amount, date]) => {
-            const value = parseFloat(amount);
-            if (isNaN(value)) return null;
-
-            const normalizedType = String(type).trim().toLowerCase() === "income" ? "income" : "expense";
-
-            return {
+            const isIncome = moneyIn > 0;
+            const amount = isIncome ? moneyIn : Math.abs(moneyOut);
+            
+            parsed.push({
               id: Date.now() + Math.random(),
-              type: normalizedType,
-              amount: Math.abs(value),
-              date: date ? String(date).trim() : new Date().toLocaleDateString('en-GB'),
-            };
-          })
-          .filter(Boolean);
-      }
+              type: isIncome ? "income" : "expense",
+              amount: amount,
+              date: row[dateIndex] || new Date().toLocaleDateString('en-GB'),
+              description: (row[nameIndex] || 'Transaction').substring(0, 60)
+            });
+          }
+        } else {
+          // Parse simple CSV format (type, amount, date)
+          parsed = lines
+            .map((line) => line.split(","))
+            .filter((row) => row.length >= 2)
+            .map(([type, amount, date]) => {
+              const value = parseFloat(amount);
+              if (isNaN(value)) return null;
 
-      if (parsed.length === 0) {
-        alert('No transactions found in CSV. Please check the format.');
-        e.target.value = "";
-        return;
-      }
+              const normalizedType = String(type).trim().toLowerCase() === "income" ? "income" : "expense";
 
-      setUploadedTransactions(parsed);
-      alert(`Successfully imported ${parsed.length} transactions!`);
-      e.target.value = "";
+              return {
+                id: Date.now() + Math.random(),
+                type: normalizedType,
+                amount: Math.abs(value),
+                date: date ? String(date).trim() : new Date().toLocaleDateString('en-GB'),
+              };
+            })
+            .filter(Boolean);
+        }
+
+        if (parsed.length === 0) {
+          alert('No transactions found in CSV. Please check the format.');
+          e.target.value = "";
+          return;
+        }
+
+        setUploadedTransactions(parsed);
+        alert(`Successfully imported ${parsed.length} transactions!`);
+      } catch (err) {
+        console.error('Error parsing CSV:', err);
+        alert(`Error parsing CSV file: ${err.message}`);
+      } finally {
+        // allow re-uploading same file and ensure input is cleared
+        try { e.target.value = ""; } catch (_) {}
+      }
     };
 
     reader.readAsText(file);
@@ -204,6 +215,7 @@ export default function CsvPdfUpload() {
                 <strong>2. Bank export:</strong> Monzo, Starling, etc. (with headers)
               </p>
               <input 
+                ref={csvInputRef}
                 className="form-control" 
                 type="file" 
                 accept=".csv" 
@@ -231,6 +243,7 @@ export default function CsvPdfUpload() {
                 Works with most UK bank formats
               </p>
               <input 
+                ref={pdfInputRef}
                 className="form-control" 
                 type="file" 
                 accept=".pdf" 
@@ -293,13 +306,34 @@ export default function CsvPdfUpload() {
             <div className="mt-3 text-center">
               <button 
                 className="btn btn-primary"
+                disabled={uploadedTransactions.length === 0 || loading}
                 onClick={() => {
-                  // TODO: Save transactions to your state management/database
-                  alert('Transactions saved! (Add your save logic here)');
-                  navigate('/');
+                  if (!uploadedTransactions || uploadedTransactions.length === 0) {
+                    alert('No transactions to upload');
+                    return;
+                  }
+
+                  // Use provided onSave if the parent passed one, otherwise use the Transactions Context
+                  if (onSave) {
+                    try { onSave(uploadedTransactions); } catch (e) { console.error(e); }
+                    alert('Transactions uploaded!');
+                  } else {
+                    try {
+                      bulkAddTransactions(uploadedTransactions);
+                      alert('Transactions uploaded!');
+                    } catch (e) {
+                      console.error('Error uploading transactions to context', e);
+                      alert('Transactions saved! (Add your save logic here)');
+                    }
+                  }
+
+                  // Clear preview and file inputs
+                  setUploadedTransactions([]);
+                  try { if (csvInputRef.current) csvInputRef.current.value = ''; } catch (_) {}
+                  try { if (pdfInputRef.current) pdfInputRef.current.value = ''; } catch (_) {}
                 }}
               >
-                Save & Return Home
+                Upload
               </button>
             </div>
           </div>
@@ -308,3 +342,4 @@ export default function CsvPdfUpload() {
     </div>
   );
 }
+
