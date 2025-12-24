@@ -30,7 +30,7 @@ export function normalizeTransaction(t) {
   const date = dateObj.toISOString();
   const category = t.category || t.type || 'Other';
   const description = (t.description || '').toString().trim();
-  const id = t.id || generateId();
+  const id = (t.id !== undefined && t.id !== null) ? String(t.id) : generateId();
 
   return { id, type, amount, date, category, description };
 }

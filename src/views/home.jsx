@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
-import warden from "../../public/warden.jpg";
 import Navbar from "../components/navbar.jsx";
 import CsvPdfUpload from "../components/csv-pdf-upload.jsx";
 import WardenInsights from "../components/wardenInsights.jsx";

@@ -1,5 +1,4 @@
 import React from "react";
-import warden from "../../public/warden.jpg";
 const Navbar = () => {
   return (
     <nav className="navbar navbar-expand-lg navbar-dark bg-dark shadow-sm fixed-top">

@@ -1,45 +1,221 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { normalizeTransaction, generateId } from '../models/transaction';
+import { useAuth0 } from '@auth0/auth0-react';
 
 const STORAGE_KEY = 'walletwarden:transactions:v1';
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 const TransactionsContext = createContext(null);
 
 export function TransactionsProvider({ children }) {
+  const { isAuthenticated, getAccessTokenSilently, user } = useAuth0();
   const [transactions, setTransactions] = useState([]);
+  const [initialized, setInitialized] = useState(false);
+  const [localLoaded, setLocalLoaded] = useState(false);
 
-  // Load from localStorage once
+  // Load local cache first (non-blocking)
   useEffect(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
+      console.log('[TransactionsContext] Loading from localStorage:', raw ? `${raw.length} bytes` : 'empty');
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) setTransactions(parsed);
+        if (Array.isArray(parsed)) {
+          setTransactions(parsed);
+          console.log('[TransactionsContext] Loaded', parsed.length, 'transactions from localStorage');
+        }
       }
     } catch (e) {
-      // ignore
+      console.error('[TransactionsContext] Failed to load from localStorage:', e.message);
     }
+    setLocalLoaded(true);
   }, []);
 
   // Persist to localStorage
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(transactions));
+      const toSave = JSON.stringify(transactions);
+      localStorage.setItem(STORAGE_KEY, toSave);
+      console.log('[TransactionsContext] Saved', transactions.length, 'transactions to localStorage');
     } catch (e) {
-      // ignore
+      console.error('[TransactionsContext] Failed to save to localStorage:', e.message);
     }
   }, [transactions]);
 
-  const addTransaction = (tx) => {
+  // When authenticated, try to load from backend and merge with local cache (upload local-only items)
+  useEffect(() => {
+    if (!isAuthenticated || !localLoaded || initialized) return;
+    let aborted = false;
+    (async () => {
+      const maxAttempts = 3;
+      let success = false;
+      const isDevMode = import.meta.env.VITE_DEV_MODE === 'true';
+
+      for (let attempt = 1; attempt <= maxAttempts && !aborted; attempt++) {
+        try {
+          let token;
+          
+          if (isDevMode) {
+            // In dev mode, use a dummy token (backend uses mock auth)
+            console.log(`[Attempt ${attempt}] Dev mode - using dummy token`);
+            token = 'dev-token';
+          } else {
+            console.log(`[Attempt ${attempt}] Fetching access token from Auth0...`);
+            token = await getAccessTokenSilently({ audience: import.meta.env.VITE_AUTH0_AUDIENCE });
+          }
+
+          console.log(`[Attempt ${attempt}] Token ready, fetching transactions from ${API_BASE}/api/transactions`);
+          const res = await fetch(`${API_BASE}/api/transactions`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          console.log(`[Attempt ${attempt}] Response status: ${res.status}`);
+          
+          if (!res.ok) {
+            const errData = await res.json().catch(() => ({}));
+            console.warn(`[Attempt ${attempt}] Backend returned ${res.status}:`, errData);
+            // If 401, the JWT is invalid - no point retrying
+            if (res.status === 401) {
+              throw new Error(`Auth error (${errData.message || 'jwt invalid'}): Check your Auth0 configuration`);
+            }
+            throw new Error(`fetch_failed: ${res.status} ${JSON.stringify(errData)}`);
+          }
+          
+          const rows = await res.json();
+          if (!aborted && Array.isArray(rows)) {
+            console.log(`[Attempt ${attempt}] Successfully loaded ${rows.length} transactions from backend`);
+            // Load current local state to merge
+            let local = [];
+            try {
+              const raw = localStorage.getItem(STORAGE_KEY);
+              if (raw) {
+                const parsed = JSON.parse(raw);
+                if (Array.isArray(parsed)) local = parsed.map((l) => normalizeTransaction(l));
+              }
+            } catch (e) {
+              console.warn('Failed to load local cache:', e.message);
+            }
+
+            const backend = rows.map((r) => normalizeTransaction(r));
+            const map = new Map();
+            backend.forEach((b) => map.set(b.id, b));
+
+            const toUpload = [];
+            local.forEach((l) => {
+              if (!map.has(l.id)) {
+                map.set(l.id, l);
+                toUpload.push(l);
+              } else {
+                // prefer local copy for any differing fields
+                map.set(l.id, { ...map.get(l.id), ...l });
+              }
+            });
+
+            const merged = Array.from(map.values()).sort((a, b) => new Date(b.date) - new Date(a.date));
+
+            setTransactions(merged);
+            console.log(`[Attempt ${attempt}] Merged ${merged.length} total transactions (${toUpload.length} to upload)`);
+
+            if (toUpload.length > 0) {
+              try {
+                console.log(`[Attempt ${attempt}] Uploading ${toUpload.length} local-only transactions to backend`);
+                const uploadRes = await fetch(`${API_BASE}/api/transactions/bulk`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                  body: JSON.stringify(toUpload),
+                });
+                if (uploadRes.ok) {
+                  const uploadData = await uploadRes.json();
+                  console.log(`[Attempt ${attempt}] Successfully uploaded ${uploadData.inserted || toUpload.length} transactions`);
+                } else {
+                  console.warn(`[Attempt ${attempt}] Upload failed with status ${uploadRes.status}`);
+                }
+              } catch (e) {
+                console.warn('Failed to upload local transactions to backend', e.message);
+              }
+            }
+          }
+
+          success = true;
+          setInitialized(true);
+          break;
+        } catch (e) {
+          // keep local cache if backend fails
+          console.warn(`[Attempt ${attempt}/${maxAttempts}] Failed to fetch/sync transactions:`, e.message);
+          if (attempt < maxAttempts && !e.message.includes('Auth error')) {
+            // simple backoff, but don't retry if it's an auth error
+            await new Promise((r) => setTimeout(r, 500 * attempt));
+          } else if (e.message.includes('Auth error')) {
+            // Auth error - stop retrying and use local cache
+            console.error('Auth error detected - stopping retries and using local cache');
+            setInitialized(true);
+            return;
+          }
+        }
+      }
+
+      if (!success && !aborted) {
+        // final fallback: mark initialized so UI can proceed with local cache, but leave logs for debugging
+        console.warn('Failed to fetch backend transactions after multiple attempts; using local cache');
+        setInitialized(true);
+      }
+    })();
+    return () => { aborted = true; };
+  }, [isAuthenticated, getAccessTokenSilently, initialized, localLoaded]);
+
+  const addTransaction = async (tx) => {
     const norm = normalizeTransaction({ ...tx, id: tx.id || generateId() });
     setTransactions((prev) => [norm, ...prev]);
+
+    const isDevMode = import.meta.env.VITE_DEV_MODE === 'true';
+    if (!isAuthenticated && !isDevMode) return;
+    try {
+      const token = isDevMode ? 'dev-token' : await getAccessTokenSilently({ audience: import.meta.env.VITE_AUTH0_AUDIENCE });
+      const res = await fetch(`${API_BASE}/api/transactions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(norm),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        console.warn('Backend rejected transaction:', res.status, errData);
+      }
+    } catch (e) {
+      console.warn('Failed to persist transaction to API, kept local copy', e);
+    }
   };
 
-  const bulkAddTransactions = (list) => {
+  const bulkAddTransactions = async (list) => {
     const norms = (list || []).map((l) => normalizeTransaction({ ...l, id: l.id || generateId() }));
     setTransactions((prev) => [...norms, ...prev]);
+
+    const isDevMode = import.meta.env.VITE_DEV_MODE === 'true';
+    if (!isAuthenticated && !isDevMode) return;
+    try {
+      const token = isDevMode ? 'dev-token' : await getAccessTokenSilently({ audience: import.meta.env.VITE_AUTH0_AUDIENCE });
+      await fetch(`${API_BASE}/api/transactions/bulk`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(norms),
+      });
+    } catch (e) {
+      console.warn('Failed to persist bulk transactions to API, kept local copy', e);
+    }
   };
 
-  const deleteTransaction = (id) => setTransactions((prev) => prev.filter((t) => t.id !== id));
+  const deleteTransaction = async (id) => {
+    setTransactions((prev) => prev.filter((t) => t.id !== id));
+    const isDevMode = import.meta.env.VITE_DEV_MODE === 'true';
+    if (!isAuthenticated && !isDevMode) return;
+    try {
+      const token = isDevMode ? 'dev-token' : await getAccessTokenSilently({ audience: import.meta.env.VITE_AUTH0_AUDIENCE });
+      await fetch(`${API_BASE}/api/transactions/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    } catch (e) {
+      console.warn('Failed to delete from backend, local copy removed', e);
+    }
+  };
+
   const clearTransactions = () => setTransactions([]);
 
   const totals = useMemo(() => {
