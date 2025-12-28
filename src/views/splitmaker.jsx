@@ -292,7 +292,7 @@ export default function SplitMaker() {
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
               />
-              <div className="form-text">Enter the amount to split (e.g. 125.00)</div>
+              <div className="form-text">Enter income (e.g. 125.00)</div>
 
               <div className="mt-3">
                 <label className="form-label small">Description</label>
