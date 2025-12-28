@@ -1,12 +1,13 @@
 import React from "react";
+import { Link } from "react-router-dom";
 const Navbar = () => {
   return (
     <nav className="navbar navbar-expand-lg navbar-dark bg-dark shadow-sm fixed-top">
       <div className="container">
         {/* Brand */}
-        <a className="navbar-brand fw-bold" href="#">
+        <Link className="navbar-brand fw-bold" to="/">
           Warden Wallet
-        </a>
+        </Link>
 
         {/* Toggle Button */}
         <button
@@ -25,34 +26,21 @@ const Navbar = () => {
         <div className="collapse navbar-collapse" id="navbarNav">
           <ul className="navbar-nav ms-auto align-items-lg-center gap-lg-3">
             <li className="nav-item">
-              <a className="nav-link active" href="#">
+              <Link className="nav-link active" to="/">
                 Home
-              </a>
+              </Link>
             </li>
-
             <li className="nav-item">
-              <a className="nav-link" href="#">
-                Features
-              </a>
-            </li>
-
-            <li className="nav-item">
-              <a className="nav-link" href="#">
-                Pricing
-              </a>
-            </li>
-
-            <li className="nav-item">
-              <a className="nav-link" href="import">
-                Upload Bank Statement
-              </a>
+              <Link className="nav-link active" to="/wardeninsights">
+                Insights
+              </Link>
             </li>
 
             {/* Call to Action */}
             <li className="nav-item">
-              <a className="btn btn-primary px-4 rounded-pill" href="#">
-                Get Started
-              </a>
+              <Link className="btn btn-primary px-4 rounded-pill" to="/splitmaker">
+                Split Maker
+              </Link>
             </li>
           </ul>
         </div>
