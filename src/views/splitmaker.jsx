@@ -2,6 +2,8 @@ import React, { useMemo, useState } from "react";
 import Navbar from "../components/navbar.jsx";
 import { useTransactions } from "../state/TransactionsContext";
 
+const API_URL = "http://localhost:4000/api";
+
 // SplitMaker: split a total amount across named categories (or people) using % or £.
 export default function SplitMaker() {
   const { addTransaction } = useTransactions?.() ?? {};
@@ -14,14 +16,12 @@ export default function SplitMaker() {
       mapping: {
         Food: 20,
         Petrol: 10,
-        Bills: 15,
+        Bills: 25,
         Shopping: 10,
         Entertainment: 10,
-        Subscriptions: 10,
-        Savings: 11,
-        Investing: 9,
-        Transport: 0,
-        Other: 0,
+        Subscriptions: 5,
+        Savings: 10,
+        Investing: 10,
       },
       details: [
         "🏠 Needs (rent, bills, food, petrol): 55%",
@@ -41,8 +41,6 @@ export default function SplitMaker() {
         Subscriptions: 10,
         Savings: 10,
         Investing: 20,
-        Transport: 0,
-        Other: 0,
       },
       details: ["🏠 Needs: 50%", "🎮 Wants: 20%", "📈 Investing: 20%", "💰 Savings: 10%"],
     },
@@ -58,8 +56,7 @@ export default function SplitMaker() {
         Subscriptions: 10,
         Savings: 10,
         Investing: 30,
-        Transport: 0,
-        Other: 0,
+
       },
       details: ["🏠 Needs: 45%", "🎮 Wants: 15%", "📈 Investing: 30%", "💰 Savings: 10%"],
     },
@@ -74,6 +71,8 @@ export default function SplitMaker() {
   const [category, setCategory] = useState("Split");
 
   const [message, setMessage] = useState(null); // { type: "success"|"danger"|"warning", text: string }
+  const [showFrequencyModal, setShowFrequencyModal] = useState(false);
+  const [selectedFrequency, setSelectedFrequency] = useState("monthly");
 
   // We'll call them "people" because your UI already uses that variable name,
   // but they behave like categories in this screen.
@@ -90,12 +89,15 @@ export default function SplitMaker() {
 
   // Helper: apply preset mapping to the list
   const applyPreset = (preset) => {
-    setPeople((prev) =>
-      prev.map((p) => ({
-        ...p,
-        percent: preset.mapping[p.name] ?? 0,
-      }))
-    );
+    const newPeople = Object.entries(preset.mapping)
+      .filter(([, percent]) => percent > 0) // Only include non-zero categories
+      .map(([name, percent]) => ({
+        id: crypto.randomUUID(),
+        name,
+        percent,
+        amount: "",
+      }));
+    setPeople(newPeople);
     setMode("percent");
     setSelectedPreset(preset.label);
     setMessage({ type: "success", text: `Applied preset: ${preset.label}` });
@@ -213,6 +215,79 @@ export default function SplitMaker() {
     setMessage({ type: "success", text: "Splits added to transactions ✅" });
     setAmount("");
     setDescription("");
+  };
+
+  const handleSaveSplit = () => {
+    if (people.length === 0) {
+      setMessage({
+        type: "danger",
+        text: "Please add at least one category before saving.",
+      });
+      return;
+    }
+
+    if (mode === "percent" && Math.abs(totals.percentSum - 100) > 0.01) {
+      setMessage({
+        type: "danger",
+        text: `Percents must total 100%. You have ${totals.percentSum}%.`,
+      });
+      return;
+    }
+
+    setShowFrequencyModal(true);
+  };
+
+  const confirmSaveSplit = async () => {
+    const savedSplit = {
+      id: crypto.randomUUID(),
+      name: description || category || "Unnamed Split",
+      frequency: selectedFrequency,
+      categories: people,
+      timestamp: new Date().toISOString(),
+    };
+
+    try {
+      // Save to backend
+      const token = localStorage.getItem("auth0Token") || "dev-user";
+      const response = await fetch(`${API_URL}/splits`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          id: savedSplit.id,
+          name: savedSplit.name,
+          frequency: savedSplit.frequency,
+          categories: savedSplit.categories,
+        }),
+      });
+
+      if (response.ok) {
+        // Also save to localStorage as backup
+        const savedSplits = JSON.parse(localStorage.getItem("walletwardenSplits") || "[]");
+        savedSplits.push(savedSplit);
+        localStorage.setItem("walletwardenSplits", JSON.stringify(savedSplits));
+
+        setMessage({
+          type: "success",
+          text: `Split saved as "${savedSplit.name}" (${selectedFrequency})! 💾`,
+        });
+      } else {
+        setMessage({
+          type: "danger",
+          text: "Failed to save split to server. Please try again.",
+        });
+      }
+    } catch (err) {
+      console.error("Error saving split:", err);
+      setMessage({
+        type: "danger",
+        text: "Error saving split. Check your connection and try again.",
+      });
+    }
+
+    setShowFrequencyModal(false);
   };
 
   return (
@@ -334,6 +409,12 @@ export default function SplitMaker() {
                   Add splits
                 </button>
               </div>
+
+              <div className="mt-2">
+                <button className="btn btn-success w-100" onClick={handleSaveSplit}>
+                  Save Split
+                </button>
+              </div>
             </div>
 
             <div className="col-12 col-md-8">
@@ -371,7 +452,7 @@ export default function SplitMaker() {
                                 />
                               </div>
                               <div className="col-6 col-md-3">
-                                <label className="form-label small mb-0">Amount</label>
+                                <label className="form-label small mb-0">Spend Limit</label>
                                 <input
                                   className="form-control form-control-sm"
                                   value={(p.computedAmount ?? 0).toFixed(2)}
@@ -417,6 +498,56 @@ export default function SplitMaker() {
 
         </div>
       </div>
+
+      {/* Frequency Modal */}
+      {showFrequencyModal && (
+        <div className="modal d-block" style={{ backgroundColor: "rgba(0,0,0,0.5)" }} role="dialog">
+          <div className="modal-dialog modal-dialog-centered">
+            <div className="modal-content">
+              <div className="modal-header">
+                <h5 className="modal-title">Save Split Configuration</h5>
+                <button
+                  type="button"
+                  className="btn-close"
+                  onClick={() => setShowFrequencyModal(false)}
+                />
+              </div>
+              <div className="modal-body">
+                <p className="mb-3">Is this a weekly, monthly, or yearly income split?</p>
+                <div className="d-flex gap-2 flex-wrap">
+                  {["weekly", "monthly", "yearly"].map((freq) => (
+                    <button
+                      key={freq}
+                      className={`btn flex-grow-1 ${
+                        selectedFrequency === freq ? "btn-primary" : "btn-outline-secondary"
+                      }`}
+                      onClick={() => setSelectedFrequency(freq)}
+                    >
+                      {freq.charAt(0).toUpperCase() + freq.slice(1)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="modal-footer">
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => setShowFrequencyModal(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={confirmSaveSplit}
+                >
+                  Save Split
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
