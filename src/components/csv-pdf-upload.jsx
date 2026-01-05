@@ -3,8 +3,10 @@ import { useNavigate } from "react-router-dom";
 import * as pdfjsLib from 'pdfjs-dist';
 import { useTransactions } from "../state/TransactionsContext";
 
-// Configure PDF.js worker - use unpkg as it's more reliable
-pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
+// Configure PDF.js worker - use local ES module served from public/
+pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
+// NOTE: The pdf.worker.min.mjs file is a Web Worker that runs in a separate
+// thread to handle heavy PDF parsing without blocking the main UI thread.
 
 export default function CsvPdfUpload({ onSave }) {
   const navigate = useNavigate();
@@ -18,62 +20,106 @@ export default function CsvPdfUpload({ onSave }) {
   const parseBankStatement = (text) => {
     const parsed = [];
 
-    // Split text into sensible lines and try to extract date + transaction amount per line.
+    // Split text into lines
     const lines = String(text || '').split(/\r?\n/).map(l => l.trim()).filter(Boolean);
 
-    const datePatterns = [
-      /\b(\d{1,2}\/\d{1,2}\/\d{2,4})\b/,            // 20/12/2025 or 20/12/25
-      /\b(\d{4}-\d{2}-\d{2})\b/,                    // 2025-12-20
-      /\b(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{2,4})\b/i, // 20 Dec 2025
-      /\b(\d{1,2}(?:st|nd|rd|th)?\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b)/i
+    // Date pattern: e.g., "20th Nov", "1st Dec", "19th Dec"
+    const datePattern = /^(\d{1,2}(?:st|nd|rd|th)?\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?)/i;
+
+    // Skip lines that are clearly headers, summaries, or balance info
+    const skipKeywords = [
+      'balance brought forward',
+      'balance carried forward',
+      'average balance',
+      'total money',
+      'sort code',
+      'account number',
+      'statement number',
+      'statement of',
+      'interest',
+      'charges',
+      'average',
+      'your transactions',
+      'date',
+      'description',
+      'money in',
+      'money out',
+      'page number'
     ];
 
-    // Matches amounts at the end of a line (optionally with currency symbol, commas, parentheses)
-    const trailingAmount = /(\(?£?[-]?\d[\d,]*\.?\d{0,2}\)?)(?:\s*(CR|DR))?\s*$/i;
+    // First pass: find all lines with dates and their indices
+    const dateLines = [];
+    for (let i = 0; i < lines.length; i++) {
+      const match = lines[i].match(datePattern);
+      if (match) {
+        dateLines.push({ index: i, date: match[1] });
+      }
+    }
 
-    for (const line of lines) {
-      let dateMatch = null;
-      for (const dp of datePatterns) {
-        const m = line.match(dp);
-        if (m) { dateMatch = m[1]; break; }
+    // Second pass: for each date, extract transaction info from following lines
+    for (let d = 0; d < dateLines.length; d++) {
+      const currentDateInfo = dateLines[d];
+      const nextDateIndex = d + 1 < dateLines.length ? dateLines[d + 1].index : lines.length;
+      const dateStr = currentDateInfo.date;
+
+      // Collect all lines between this date and the next date
+      const transactionLines = lines.slice(currentDateInfo.index, nextDateIndex);
+      const transactionText = transactionLines.join(' ');
+
+      // Skip if line contains skip keywords
+      if (skipKeywords.some(kw => transactionText.toLowerCase().includes(kw))) continue;
+
+      // Extract all amounts (numbers with .2 decimal places)
+      const amountMatches = transactionText.match(/(\d+[.,]\d{2})/g);
+      if (!amountMatches || amountMatches.length < 2) continue;
+
+      const amounts = amountMatches.map(a => parseFloat(a.replace(',', '')));
+
+      // For Santander: typically [money_in OR money_out, balance]
+      // One will be the transaction, one will be the balance
+      // Usually the larger or different one is the balance
+      let transactionAmount = null;
+      let isIncome = false;
+
+      if (amounts.length === 2) {
+        // [transaction, balance]
+        transactionAmount = amounts[0];
+      } else if (amounts.length >= 3) {
+        // [money_in, money_out, balance] or [money_in, balance] where one is 0
+        // Santander shows both columns even if one is empty
+        const first = amounts[0];
+        const second = amounts[1];
+        
+        // If second is much larger (balance), first is the transaction
+        if (Math.abs(second) > Math.abs(first) * 2) {
+          transactionAmount = first;
+        } else {
+          // Otherwise use the one that's not zero or is smaller
+          transactionAmount = first > 0 ? first : second;
+        }
       }
 
-      if (!dateMatch) continue;
+      if (!transactionAmount || transactionAmount === 0) continue;
 
-      // find the last numeric token (likely amount or balance)
-      const amtMatch = line.match(trailingAmount);
-      if (!amtMatch) continue;
+      // Extract description (everything between date and first amount)
+      let description = transactionText.replace(dateStr, '').trim();
+      // Remove all amounts
+      description = description.replace(/\d+[.,]\d{2}/g, '').trim();
+      description = description.replace(/\s{2,}/g, ' ').trim();
 
-      let rawAmt = amtMatch[1];
-      const crdr = (amtMatch[2] || '').toUpperCase();
-
-      // clean amount (remove currency symbol, commas, parentheses)
-      const isParen = rawAmt.includes('(') && rawAmt.includes(')');
-      rawAmt = rawAmt.replace(/[£,()]/g, '');
-
-      let amt = parseFloat(rawAmt);
-      if (isNaN(amt)) continue;
-      if (isParen) amt = -Math.abs(amt);
-
-      // If CR/DR suffix provided, interpret: CR usually credit (income), DR debit (expense)
-      let type = amt < 0 ? 'expense' : 'income';
-      if (crdr === 'DR') type = 'expense';
-      if (crdr === 'CR') type = 'income';
-
-      // Build description by removing date and amount from the line
-      let description = line;
-      description = description.replace(dateMatch, '').replace(amtMatch[0], '').trim();
-      description = description.replace(/\s{2,}/g, ' ');
-
-      // Filter out lines that look like headers or balances
       if (!description || description.length < 2) continue;
+
+      // Determine income vs expense based on keywords
+      isIncome = description.toLowerCase().includes('receipt') || 
+                description.toLowerCase().includes('transfer from') ||
+                description.toLowerCase().includes('payment received');
 
       parsed.push({
         id: Date.now() + Math.random(),
-        type,
-        amount: Math.abs(amt),
-        date: dateMatch.trim(),
-        description: description.substring(0, 60)
+        type: isIncome ? 'income' : 'expense',
+        amount: Math.abs(transactionAmount),
+        date: dateStr.trim(),
+        description: description.substring(0, 80)
       });
     }
 
@@ -100,13 +146,16 @@ export default function CsvPdfUpload({ onSave }) {
         fullText += pageText + '\n';
       }
 
-      console.log('Extracted PDF text:', fullText.substring(0, 500)); // Debug log
+      console.log('=== EXTRACTED PDF TEXT ===');
+      console.log(fullText);
+      console.log('=== END PDF TEXT ===');
 
       const parsed = parseBankStatement(fullText);
       
       if (parsed.length === 0) {
         console.error('No transactions parsed from text');
-        alert('No transactions found in PDF. Please check the format or try a different file.');
+        console.log('Full extracted text:', fullText);
+        alert('No transactions found in PDF. Please check the format or try a different file.\n\nCheck the browser console (F12) for the extracted text to see what format your PDF has.');
         e.target.value = "";
         return;
       }
