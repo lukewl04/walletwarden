@@ -19,6 +19,11 @@ export default function Tracker() {
     category: "",
     description: "",
   });
+  const [quickAdd, setQuickAdd] = useState({
+    amount: "",
+    category: "",
+    description: "",
+  });
 
   const selectedSplitData = useMemo(
     () => savedSplits.find((s) => s.id === selectedSplit),
@@ -260,6 +265,44 @@ export default function Tracker() {
     setShowAddModal(false);
   };
 
+  const handleQuickAdd = (category) => {
+    if (!quickAdd.amount) {
+      alert("Please enter an amount");
+      return;
+    }
+
+    const purchase = {
+      id: crypto.randomUUID(),
+      split_id: selectedSplit,
+      date: new Date().toISOString().split("T")[0],
+      amount: parseFloat(quickAdd.amount),
+      category: category,
+      description: quickAdd.description,
+    };
+
+    setPurchases([...purchases, purchase]);
+
+    // Add transaction
+    if (typeof addTransaction === "function") {
+      addTransaction({
+        type: "expense",
+        amount: purchase.amount,
+        date: purchase.date,
+        category: purchase.category,
+        description: purchase.description,
+      });
+    }
+
+    // Reset quick add form
+    setQuickAdd({
+      amount: "",
+      category: "",
+      description: "",
+    });
+    setSyncMessage(`Added £${purchase.amount.toFixed(2)} to ${category} ✓`);
+    setTimeout(() => setSyncMessage(""), 2000);
+  };
+
   const handleDeletePurchase = async (purchaseId) => {
     if (!confirm("Are you sure you want to delete this purchase?")) return;
 
@@ -426,116 +469,160 @@ export default function Tracker() {
 
       {selectedSplit && (
         <>
-          {/* Calendar Header */}
-          <div className="card mb-4">
-            <div className="card-body">
-              <div className="d-flex align-items-center justify-content-between mb-3">
-                <button
-                  className="btn btn-sm btn-outline-secondary"
-                  onClick={previousMonth}
-                >
-                  ← Prev
-                </button>
-                <h5 className="mb-0">{monthYear}</h5>
-                <button
-                  className="btn btn-sm btn-outline-secondary"
-                  onClick={nextMonth}
-                >
-                  Next →
-                </button>
-              </div>
-
-              {/* Calendar Grid */}
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(7, 1fr)",
-                  gap: "4px",
-                }}
-              >
-                {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
-                  <div
-                    key={day}
-                    className="fw-semibold text-center p-2"
-                    style={{ backgroundColor: "#f0f0f0" }}
-                  >
-                    {day}
+          <div className="row g-3">
+            {/* Sidebar Toolbox */}
+            <div className="col-12 col-lg-3">
+              <div className="card shadow-sm" style={{ position: "sticky", top: "80px" }}>
+                <div className="card-body">
+                  <h6 className="mb-3">Quick Add Purchase</h6>
+                  
+                  <div className="mb-3">
+                    <label className="form-label small">Amount (£)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      className="form-control form-control-sm"
+                      placeholder="0.00"
+                      value={quickAdd.amount}
+                      onChange={(e) => setQuickAdd({ ...quickAdd, amount: e.target.value })}
+                    />
                   </div>
-                ))}
 
-                {calendarDays.map((day, idx) => {
-                  const dayPurchases = getDayPurchases(day);
-                  const dayTotal = getDayTotal(day);
-                  return (
-                    <div
-                      key={idx}
-                      style={{
-                        backgroundColor: day ? "#fff" : "#f9f9f9",
-                        border: "1px solid #ddd",
-                        minHeight: "120px",
-                        padding: "8px",
-                        cursor: day ? "pointer" : "default",
-                      }}
-                      onClick={() => {
-                        if (day) {
-                          setNewPurchase({
-                            ...newPurchase,
-                            date: new Date(
-                              currentDate.getFullYear(),
-                              currentDate.getMonth(),
-                              day
-                            )
-                              .toISOString()
-                              .split("T")[0],
-                          });
-                          setShowAddModal(true);
-                        }
-                      }}
-                    >
-                      {day && (
-                        <>
-                          <div className="fw-bold mb-2">{day}</div>
-                          <div style={{ fontSize: "12px", maxHeight: "80px", overflowY: "auto" }}>
-                            {dayPurchases.map((p) => (
-                              <div
-                                key={p.id}
-                                className="text-truncate mb-1 p-1 d-flex justify-content-between align-items-start"
-                                style={{
-                                  backgroundColor: "#e9ecef",
-                                  borderRadius: "3px",
-                                  fontSize: "11px",
-                                  gap: "4px",
-                                }}
-                              >
-                                <div style={{ flex: 1, minWidth: 0 }}>
-                                  <div className="text-truncate">{p.category}</div>
-                                  <div className="fw-semibold">£{p.amount.toFixed(2)}</div>
-                                </div>
-                                <button
-                                  className="btn btn-sm btn-close"
-                                  style={{ padding: "0", minWidth: "16px" }}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleDeletePurchase(p.id);
-                                  }}
-                                  title="Delete purchase"
-                                />
-                              </div>
-                            ))}
-                          </div>
-                          {dayTotal > 0 && (
-                            <div
-                              className="mt-1 pt-1 border-top"
-                              style={{ fontSize: "12px", fontWeight: "bold" }}
-                            >
-                              Total: £{dayTotal.toFixed(2)}
-                            </div>
-                          )}
-                        </>
-                      )}
+                  <div className="mb-3">
+                    <label className="form-label small">Description (optional)</label>
+                    <input
+                      type="text"
+                      className="form-control form-control-sm"
+                      placeholder="e.g. Tesco"
+                      value={quickAdd.description}
+                      onChange={(e) => setQuickAdd({ ...quickAdd, description: e.target.value })}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="form-label small fw-semibold">Select Category:</label>
+                    <div className="d-grid gap-2">
+                      {selectedSplitData?.categories.map((cat) => (
+                        <button
+                          key={cat.id}
+                          className="btn btn-sm btn-outline-primary text-start d-flex justify-content-between align-items-center"
+                          onClick={() => handleQuickAdd(cat.name)}
+                          disabled={!quickAdd.amount}
+                        >
+                          <span>{cat.name}</span>
+                          <span className="badge bg-secondary">{cat.percent}%</span>
+                        </button>
+                      ))}
                     </div>
-                  );
-                })}
+                  </div>
+
+                  <hr className="my-3" />
+
+                  <button
+                    className="btn btn-sm btn-outline-secondary w-100"
+                    onClick={() => setShowAddModal(true)}
+                  >
+                    + Advanced Add
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Main Content */}
+            <div className="col-12 col-lg-9">
+              {/* Spreadsheet View */}
+              <div className="card mb-4">
+                <div className="card-body">
+                  <div className="d-flex align-items-center justify-content-between mb-3">
+                    <h5 className="mb-0">Purchases - {getPeriodLabel()}</h5>
+                    <div className="d-flex gap-2">
+                      <button
+                        className="btn btn-sm btn-outline-secondary"
+                        onClick={previousMonth}
+                      >
+                        ← Previous
+                      </button>
+                      <button
+                        className="btn btn-sm btn-outline-secondary"
+                        onClick={nextMonth}
+                      >
+                        Next →
+                      </button>
+                    </div>
+                  </div>
+
+              {/* Spreadsheet Table */}
+              <div className="table-responsive" style={{ maxHeight: "500px", overflowY: "auto" }}>
+                <table className="table table-sm table-hover table-bordered mb-0">
+                  <thead style={{ position: "sticky", top: 0, zIndex: 1, backgroundColor: "var(--card-bg)", borderColor: "var(--card-border)" }}>
+                    <tr>
+                      <th style={{ width: "120px" }}>Date</th>
+                      <th style={{ width: "150px" }}>Category</th>
+                      <th style={{ width: "120px" }} className="text-end">Amount</th>
+                      <th>Description</th>
+                      <th style={{ width: "80px" }} className="text-center">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {getPeriodPurchases().length === 0 ? (
+                      <tr>
+                        <td colSpan="5" className="text-center text-muted py-4">
+                          No purchases for this period. Click "+ Add Purchase" to get started.
+                        </td>
+                      </tr>
+                    ) : (
+                      getPeriodPurchases()
+                        .sort((a, b) => new Date(b.date) - new Date(a.date))
+                        .map((purchase) => {
+                          const categoryData = selectedSplitData?.categories.find(
+                            (c) => c.name === purchase.category
+                          );
+                          return (
+                            <tr key={purchase.id}>
+                              <td>
+                                {new Date(purchase.date).toLocaleDateString("en-GB", {
+                                  day: "2-digit",
+                                  month: "short",
+                                  year: "numeric",
+                                })}
+                              </td>
+                              <td>
+                                <span className="badge bg-secondary">
+                                  {purchase.category}
+                                </span>
+                                {categoryData && (
+                                  <span className="text-muted small ms-1">
+                                    ({categoryData.percent}%)
+                                  </span>
+                                )}
+                              </td>
+                              <td className="text-end fw-bold">£{purchase.amount.toFixed(2)}</td>
+                              <td className="text-muted">{purchase.description || "—"}</td>
+                              <td className="text-center">
+                                <button
+                                  className="btn btn-sm btn-outline-danger"
+                                  onClick={() => handleDeletePurchase(purchase.id)}
+                                  title="Delete"
+                                >
+                                  ×
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })
+                    )}
+                  </tbody>
+                  <tfoot className="fw-bold" style={{ backgroundColor: "var(--card-bg)", borderColor: "var(--card-border)" }}>
+                    <tr>
+                      <td colSpan="2" className="text-end">Total:</td>
+                      <td className="text-end">
+                        £{getPeriodPurchases().reduce((sum, p) => sum + p.amount, 0).toFixed(2)}
+                      </td>
+                      <td colSpan="2"></td>
+                    </tr>
+                  </tfoot>
+                </table>
               </div>
             </div>
           </div>
@@ -632,13 +719,13 @@ export default function Tracker() {
             </div>
           )}
 
-          {/* Summary */}
-          {filteredPurchases.length > 0 && (
-            <div className="card">
-              <div className="card-body">
-                <h6 className="mb-3">
-                  {selectedSplitData.frequency === "weekly" ? "Weekly" : selectedSplitData.frequency === "monthly" ? "Monthly" : "Yearly"} Summary - {getPeriodLabel()}
-                </h6>
+              {/* Summary */}
+              {filteredPurchases.length > 0 && (
+                <div className="card">
+                  <div className="card-body">
+                    <h6 className="mb-3">
+                      {selectedSplitData.frequency === "weekly" ? "Weekly" : selectedSplitData.frequency === "monthly" ? "Monthly" : "Yearly"} Summary - {getPeriodLabel()}
+                    </h6>
                 <div className="row">
                   {selectedSplitData?.categories.map((cat) => {
                     const categoryPurchases = getPeriodPurchases().filter((p) => p.category === cat.name);
@@ -682,10 +769,12 @@ export default function Tracker() {
                       </div>
                     );
                   })}
+                  </div>
                 </div>
               </div>
+              )}
             </div>
-          )}
+          </div>
         </>
       )}
     </div>

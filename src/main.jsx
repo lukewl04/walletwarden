@@ -1,5 +1,8 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
+import "bootstrap/dist/css/bootstrap.min.css";
+import "./index.css";
+import "./App.css";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { Auth0Provider } from "@auth0/auth0-react";
 
@@ -10,7 +13,6 @@ import SplitMaker from "./views/splitmaker";
 import { TransactionsProvider } from "./state/TransactionsContext";
 import WardenInsights from "./views/wardenInsights";
 import Tracker from "./views/tracker";
-import "bootstrap/dist/css/bootstrap.min.css";
 
 const ProtectedHome = ProtectedRoute(Home);
 const ProtectedImport = ProtectedRoute(Import);
