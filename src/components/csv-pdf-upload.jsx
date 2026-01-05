@@ -15,7 +15,7 @@ export default function CsvPdfUpload({ onSave }) {
   const csvInputRef = useRef(null);
   const pdfInputRef = useRef(null);
 
-  const { bulkAddTransactions } = useTransactions();
+  const { bulkAddTransactions, clearTransactions } = useTransactions();
 
   const parseBankStatement = (text) => {
     const parsed = [];
@@ -378,7 +378,7 @@ export default function CsvPdfUpload({ onSave }) {
               </ul>
             </div>
 
-            <div className="mt-3 text-center">
+            <div className="mt-3 d-flex gap-2 justify-content-center">
               <button 
                 className="btn btn-primary"
                 disabled={uploadedTransactions.length === 0 || loading}
@@ -414,6 +414,23 @@ export default function CsvPdfUpload({ onSave }) {
           </div>
         </div>
       )}
+
+      {/* Reset Button - Always Visible */}
+      <div className="mt-4 text-center">
+        <button 
+          className="btn btn-danger"
+          onClick={() => {
+            // Clear everything
+            setUploadedTransactions([]);
+            clearTransactions();
+            try { if (csvInputRef.current) csvInputRef.current.value = ''; } catch (_) {}
+            try { if (pdfInputRef.current) pdfInputRef.current.value = ''; } catch (_) {}
+            alert('All transactions cleared!');
+          }}
+        >
+          Reset All Transactions
+        </button>
+      </div>
     </div>
   );
 }
