@@ -17,40 +17,66 @@ export default function CsvPdfUpload({ onSave }) {
 
   const parseBankStatement = (text) => {
     const parsed = [];
-    
-    // More flexible pattern that works with PDF text extraction
-    // Matches: "date description amount balance" or "date description moneyIn/moneyOut balance"
-    const transactionPattern = /(\d{1,2}(?:st|nd|rd|th)?\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec))\s+(.+?)\s+(\d+\.\d{2})\s+(\d+\.\d{2})/gi;
-    
-    let match;
-    while ((match = transactionPattern.exec(text)) !== null) {
-      const [, date, description, amount1, amount2] = match;
-      
-      // amount1 is the transaction amount, amount2 is the balance
-      const transactionAmount = parseFloat(amount1);
-      if (isNaN(transactionAmount) || transactionAmount === 0) continue;
-      
-      const cleanDesc = description.trim();
-      if (!cleanDesc || cleanDesc.length < 3) continue;
-      
-      // Determine if it's income based on keywords
-      const descLower = cleanDesc.toLowerCase();
-      const isIncome = descLower.includes('receipt') || 
-                      descLower.includes('payment from') || 
-                      descLower.includes('transfer from') ||
-                      descLower.includes('allowance') ||
-                      descLower.includes('bill payment from') ||
-                      descLower.includes('faster payments receipt');
-      
+
+    // Split text into sensible lines and try to extract date + transaction amount per line.
+    const lines = String(text || '').split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+
+    const datePatterns = [
+      /\b(\d{1,2}\/\d{1,2}\/\d{2,4})\b/,            // 20/12/2025 or 20/12/25
+      /\b(\d{4}-\d{2}-\d{2})\b/,                    // 2025-12-20
+      /\b(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{2,4})\b/i, // 20 Dec 2025
+      /\b(\d{1,2}(?:st|nd|rd|th)?\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b)/i
+    ];
+
+    // Matches amounts at the end of a line (optionally with currency symbol, commas, parentheses)
+    const trailingAmount = /(\(?£?[-]?\d[\d,]*\.?\d{0,2}\)?)(?:\s*(CR|DR))?\s*$/i;
+
+    for (const line of lines) {
+      let dateMatch = null;
+      for (const dp of datePatterns) {
+        const m = line.match(dp);
+        if (m) { dateMatch = m[1]; break; }
+      }
+
+      if (!dateMatch) continue;
+
+      // find the last numeric token (likely amount or balance)
+      const amtMatch = line.match(trailingAmount);
+      if (!amtMatch) continue;
+
+      let rawAmt = amtMatch[1];
+      const crdr = (amtMatch[2] || '').toUpperCase();
+
+      // clean amount (remove currency symbol, commas, parentheses)
+      const isParen = rawAmt.includes('(') && rawAmt.includes(')');
+      rawAmt = rawAmt.replace(/[£,()]/g, '');
+
+      let amt = parseFloat(rawAmt);
+      if (isNaN(amt)) continue;
+      if (isParen) amt = -Math.abs(amt);
+
+      // If CR/DR suffix provided, interpret: CR usually credit (income), DR debit (expense)
+      let type = amt < 0 ? 'expense' : 'income';
+      if (crdr === 'DR') type = 'expense';
+      if (crdr === 'CR') type = 'income';
+
+      // Build description by removing date and amount from the line
+      let description = line;
+      description = description.replace(dateMatch, '').replace(amtMatch[0], '').trim();
+      description = description.replace(/\s{2,}/g, ' ');
+
+      // Filter out lines that look like headers or balances
+      if (!description || description.length < 2) continue;
+
       parsed.push({
         id: Date.now() + Math.random(),
-        type: isIncome ? "income" : "expense",
-        amount: transactionAmount,
-        date: date.trim(),
-        description: cleanDesc.substring(0, 60)
+        type,
+        amount: Math.abs(amt),
+        date: dateMatch.trim(),
+        description: description.substring(0, 60)
       });
     }
-    
+
     return parsed;
   };
 
