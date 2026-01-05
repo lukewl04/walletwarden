@@ -24,6 +24,8 @@ export default function Tracker() {
     category: "",
     description: "",
   });
+  const [showOverBudgetAlert, setShowOverBudgetAlert] = useState(false);
+  const [overBudgetCategories, setOverBudgetCategories] = useState([]);
 
   const selectedSplitData = useMemo(
     () => savedSplits.find((s) => s.id === selectedSplit),
@@ -100,6 +102,38 @@ export default function Tracker() {
     if (!selectedSplit) return [];
     return purchases.filter((p) => p.split_id === selectedSplit);
   }, [purchases, selectedSplit]);
+
+  // Check for over-budget categories
+  useEffect(() => {
+    if (!selectedSplitData || !filteredPurchases.length) {
+      setShowOverBudgetAlert(false);
+      setOverBudgetCategories([]);
+      return;
+    }
+
+    const overBudget = [];
+    const periodPurchases = getPeriodPurchases();
+    
+    selectedSplitData.categories.forEach((cat) => {
+      const categoryPurchases = periodPurchases.filter((p) => p.category === cat.name);
+      const categoryTotal = categoryPurchases.reduce((sum, p) => sum + p.amount, 0);
+      const totalSpent = periodPurchases.reduce((sum, p) => sum + p.amount, 0);
+      const allocatedAmount = (totalSpent * cat.percent) / 100;
+      const percentUsed = totalSpent > 0 ? (categoryTotal / allocatedAmount) * 100 : 0;
+
+      if (percentUsed > 100) {
+        overBudget.push({
+          name: cat.name,
+          spent: categoryTotal,
+          budget: allocatedAmount,
+          percent: percentUsed,
+        });
+      }
+    });
+
+    setOverBudgetCategories(overBudget);
+    setShowOverBudgetAlert(overBudget.length > 0);
+  }, [filteredPurchases, selectedSplitData]);
 
   // Sync splits to backend (only after initial load)
   useEffect(() => {
@@ -772,6 +806,48 @@ export default function Tracker() {
                   </div>
                 </div>
               </div>
+              )}
+
+              {/* Over Budget Alert Modal */}
+              {showOverBudgetAlert && (
+                <div className="modal d-block" style={{ backgroundColor: "rgba(0,0,0,0.7)" }} role="dialog">
+                  <div className="modal-dialog modal-dialog-centered">
+                    <div className="modal-content border-danger">
+                      <div className="modal-header bg-danger text-white">
+                        <h5 className="modal-title">⚠️ Budget Alert</h5>
+                        <button
+                          type="button"
+                          className="btn-close btn-close-white"
+                          onClick={() => setShowOverBudgetAlert(false)}
+                        />
+                      </div>
+                      <div className="modal-body text-center">
+                        <img
+                          src="/warden.png"
+                          alt="Warden"
+                          style={{ maxWidth: "200px", marginBottom: "20px" }}
+                        />
+                        <h6 className="text-danger fw-bold mb-3">You've exceeded your budget!</h6>
+                        <div className="alert alert-danger">
+                          {overBudgetCategories.map((cat, idx) => (
+                            <div key={idx} className="mb-2">
+                              <strong>{cat.name}:</strong> £{cat.spent.toFixed(2)} spent of £{cat.budget.toFixed(2)} ({cat.percent.toFixed(0)}%)
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="modal-footer">
+                        <button
+                          type="button"
+                          className="btn btn-danger"
+                          onClick={() => setShowOverBudgetAlert(false)}
+                        >
+                          Acknowledge
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               )}
             </div>
           </div>
