@@ -2,6 +2,7 @@ import { useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import * as pdfjsLib from 'pdfjs-dist';
 import { useTransactions } from "../state/TransactionsContext";
+import { parsePDFText } from "../utils/bankParsers";
 
 // Configure PDF.js worker - use local ES module served from public/
 pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
@@ -16,115 +17,6 @@ export default function CsvPdfUpload({ onSave }) {
   const pdfInputRef = useRef(null);
 
   const { bulkAddTransactions, clearTransactions } = useTransactions();
-
-  const parseBankStatement = (text) => {
-    const parsed = [];
-
-    // Split text into lines
-    const lines = String(text || '').split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-
-    // Date pattern: e.g., "20th Nov", "1st Dec", "19th Dec"
-    const datePattern = /^(\d{1,2}(?:st|nd|rd|th)?\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?)/i;
-
-    // Skip lines that are clearly headers, summaries, or balance info
-    const skipKeywords = [
-      'balance brought forward',
-      'balance carried forward',
-      'average balance',
-      'total money',
-      'sort code',
-      'account number',
-      'statement number',
-      'statement of',
-      'interest',
-      'charges',
-      'average',
-      'your transactions',
-      'date',
-      'description',
-      'money in',
-      'money out',
-      'page number'
-    ];
-
-    // First pass: find all lines with dates and their indices
-    const dateLines = [];
-    for (let i = 0; i < lines.length; i++) {
-      const match = lines[i].match(datePattern);
-      if (match) {
-        dateLines.push({ index: i, date: match[1] });
-      }
-    }
-
-    // Second pass: for each date, extract transaction info from following lines
-    for (let d = 0; d < dateLines.length; d++) {
-      const currentDateInfo = dateLines[d];
-      const nextDateIndex = d + 1 < dateLines.length ? dateLines[d + 1].index : lines.length;
-      const dateStr = currentDateInfo.date;
-
-      // Collect all lines between this date and the next date
-      const transactionLines = lines.slice(currentDateInfo.index, nextDateIndex);
-      const transactionText = transactionLines.join(' ');
-
-      // Skip if line contains skip keywords
-      if (skipKeywords.some(kw => transactionText.toLowerCase().includes(kw))) continue;
-
-      // Extract all amounts (numbers with .2 decimal places)
-      const amountMatches = transactionText.match(/(\d+[.,]\d{2})/g);
-      if (!amountMatches || amountMatches.length < 2) continue;
-
-      const amounts = amountMatches.map(a => parseFloat(a.replace(',', '')));
-
-      // For Santander: typically [money_in OR money_out, balance]
-      // One will be the transaction, one will be the balance
-      // Usually the larger or different one is the balance
-      let transactionAmount = null;
-      let isIncome = false;
-
-      if (amounts.length === 2) {
-        // [transaction, balance]
-        transactionAmount = amounts[0];
-      } else if (amounts.length >= 3) {
-        // [money_in, money_out, balance] or [money_in, balance] where one is 0
-        // Santander shows both columns even if one is empty
-        const first = amounts[0];
-        const second = amounts[1];
-        
-        // If second is much larger (balance), first is the transaction
-        if (Math.abs(second) > Math.abs(first) * 2) {
-          transactionAmount = first;
-        } else {
-          // Otherwise use the one that's not zero or is smaller
-          transactionAmount = first > 0 ? first : second;
-        }
-      }
-
-      if (!transactionAmount || transactionAmount === 0) continue;
-
-      // Extract description (everything between date and first amount)
-      let description = transactionText.replace(dateStr, '').trim();
-      // Remove all amounts
-      description = description.replace(/\d+[.,]\d{2}/g, '').trim();
-      description = description.replace(/\s{2,}/g, ' ').trim();
-
-      if (!description || description.length < 2) continue;
-
-      // Determine income vs expense based on keywords
-      isIncome = description.toLowerCase().includes('receipt') || 
-                description.toLowerCase().includes('transfer from') ||
-                description.toLowerCase().includes('payment received');
-
-      parsed.push({
-        id: Date.now() + Math.random(),
-        type: isIncome ? 'income' : 'expense',
-        amount: Math.abs(transactionAmount),
-        date: dateStr.trim(),
-        description: description.substring(0, 80)
-      });
-    }
-
-    return parsed;
-  };
 
   const handlePDFUpload = async (e) => {
     const file = e.target.files?.[0];
@@ -150,12 +42,13 @@ export default function CsvPdfUpload({ onSave }) {
       console.log(fullText);
       console.log('=== END PDF TEXT ===');
 
-      const parsed = parseBankStatement(fullText);
+      // Use the flexible parser system
+      const parsed = parsePDFText(fullText);
       
       if (parsed.length === 0) {
         console.error('No transactions parsed from text');
         console.log('Full extracted text:', fullText);
-        alert('No transactions found in PDF. Please check the format or try a different file.\n\nCheck the browser console (F12) for the extracted text to see what format your PDF has.');
+        alert('No transactions found in PDF. The system tried multiple format parsers but couldn\'t detect your bank statement format.\n\nPlease check the browser console (F12) for the extracted text and consider:\n1. Using the CSV upload instead\n2. Manually entering transactions\n3. Checking if your PDF is a valid bank statement');
         e.target.value = "";
         return;
       }
@@ -314,8 +207,9 @@ export default function CsvPdfUpload({ onSave }) {
               <h2 className="h5 mb-3">📑 PDF Upload</h2>
               <p className="text-muted small mb-3">
                 <strong>Bank statement PDF</strong><br/>
-                Automatically detects transactions and amounts<br/>
-                Works with most UK bank formats
+                Smart format detection - supports:<br/>
+                Santander, Monzo, tables, and more<br/>
+                Automatically extracts transactions
               </p>
               <input 
                 ref={pdfInputRef}
