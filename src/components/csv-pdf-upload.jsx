@@ -419,10 +419,15 @@ export default function CsvPdfUpload({ onSave }) {
       <div className="mt-4 text-center">
         <button 
           className="btn btn-danger"
-          onClick={() => {
+          disabled={loading}
+          onClick={async () => {
             // Clear everything
             setUploadedTransactions([]);
-            clearTransactions();
+            try {
+              await clearTransactions();
+            } catch (e) {
+              console.error('Error clearing transactions:', e);
+            }
             try { if (csvInputRef.current) csvInputRef.current.value = ''; } catch (_) {}
             try { if (pdfInputRef.current) pdfInputRef.current.value = ''; } catch (_) {}
             alert('All transactions cleared!');

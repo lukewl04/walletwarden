@@ -216,7 +216,32 @@ export function TransactionsProvider({ children }) {
     }
   };
 
-  const clearTransactions = () => setTransactions([]);
+  const clearTransactions = async () => {
+    const currentTransactions = transactions;
+    setTransactions([]);
+    
+    const isDevMode = import.meta.env.VITE_DEV_MODE === 'true';
+    if (!isAuthenticated && !isDevMode) return;
+    
+    try {
+      const token = isDevMode ? 'dev-token' : await getAccessTokenSilently({ audience: import.meta.env.VITE_AUTH0_AUDIENCE });
+      
+      // Delete each transaction from the backend
+      for (const transaction of currentTransactions) {
+        try {
+          await fetch(`${API_BASE}/api/transactions/${encodeURIComponent(transaction.id)}`, {
+            method: 'DELETE',
+            headers: { Authorization: `Bearer ${token}` },
+          });
+        } catch (e) {
+          console.warn(`Failed to delete transaction ${transaction.id} from backend:`, e.message);
+        }
+      }
+      console.log(`Successfully cleared all ${currentTransactions.length} transactions from backend`);
+    } catch (e) {
+      console.warn('Failed to clear transactions from backend:', e);
+    }
+  };
 
   const totals = useMemo(() => {
     const income = transactions.filter((t) => t.type === 'income').reduce((acc, t) => acc + t.amount, 0);
