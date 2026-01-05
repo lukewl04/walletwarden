@@ -348,202 +348,225 @@ export default function SplitMaker() {
 
       <div className="card shadow-sm mb-4" style={{ minHeight: 600 }}>
         <div className="card-body" style={{ overflowX: "auto" }}>
-          {/* Presets Dropdown */}
-          <div className="mb-3">
-            <label className="form-label fw-semibold">Presets</label>
-            <select
-              className="form-select form-select-sm w-auto d-inline-block ms-2"
-              value={selectedPreset || ""}
-              onChange={(e) => {
-                const preset = presets.find((p) => p.label === e.target.value);
-                if (preset) applyPreset(preset);
-              }}
-            >
-              <option value="">Choose a preset…</option>
-              {presets.map((p) => (
-                <option key={p.label} value={p.label}>
-                  {p.label}
-                </option>
-              ))}
-            </select>
-
-            {selectedPreset && (
-              <div className="small text-muted mt-1">
-                {presets.find((p) => p.label === selectedPreset)?.desc}
-                <ul className="mb-0 mt-1" style={{ fontSize: 12 }}>
-                  {presets
-                    .find((p) => p.label === selectedPreset)
-                    ?.details.map((d, i) => (
-                      <li key={i}>{d}</li>
-                    ))}
-                </ul>
-              </div>
-            )}
-          </div>
-
-          <div className="d-flex align-items-center justify-content-between mb-3">
+          {/* Mode Toggle & Header */}
+          <div className="d-flex align-items-center justify-content-between mb-4">
             <div>
-              <h1 className="h5 mb-1">Split Maker</h1>
-              <p className="text-muted small mb-0">Split an amount between categories with editable shares.</p>
+              <h1 className="h4 mb-1">Split Maker</h1>
+              <p className="text-muted small mb-0">Allocate your income to categories by percentage or amount</p>
             </div>
-            <div className="d-flex gap-2">
+            <div className="btn-group btn-group-sm" role="group">
               <button
-                className={`btn btn-sm ${mode === "percent" ? "btn-primary" : "btn-outline-secondary"}`}
+                type="button"
+                className={`btn ${mode === "percent" ? "btn-primary" : "btn-outline-secondary"}`}
                 onClick={() => setMode("percent")}
               >
                 By %
               </button>
               <button
-                className={`btn btn-sm ${mode === "amount" ? "btn-primary" : "btn-outline-secondary"}`}
+                type="button"
+                className={`btn ${mode === "amount" ? "btn-primary" : "btn-outline-secondary"}`}
                 onClick={() => setMode("amount")}
               >
-                By amount
+                By £
               </button>
             </div>
           </div>
 
           {message && (
-            <div className={`alert alert-${message.type} mt-3`} role="alert">
+            <div className={`alert alert-${message.type} alert-dismissible fade show`} role="alert">
               {message.text}
+              <button type="button" className="btn-close" onClick={() => setMessage(null)} />
             </div>
           )}
 
-          <div className="row g-3">
-            <div className="col-12 col-md-4">
-              <label className="form-label small">Total Amount</label>
-              <input
-                className="form-control form-control-lg"
-                type="number"
-                step="0.01"
-                min="0"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-              />
-              <div className="form-text">Enter income (e.g. 125.00)</div>
+          <div className="row g-4">
+            {/* Left Panel - Controls */}
+            <div className="col-12 col-lg-3">
+              <div className="card border-0 shadow-sm" style={{ position: "sticky", top: "100px" }}>
+                <div className="card-body">
+                  <h6 className="card-title mb-3 fw-bold">Income Details</h6>
+                  
+                  <div className="mb-4">
+                    <label className="form-label small fw-semibold d-block mb-2">Total Amount</label>
+                    <div className="input-group input-group-lg">
+                      <span className="input-group-text">£</span>
+                      <input
+                        className="form-control"
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={amount}
+                        onChange={(e) => setAmount(e.target.value)}
+                        placeholder="0.00"
+                      />
+                    </div>
+                  </div>
 
-              <div className="mt-3">
-                <label className="form-label small">Description</label>
-                <input
-                  className="form-control"
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Dinner / Rent / Utilities"
-                />
-              </div>
+                  <div className="mb-4">
+                    <label className="form-label small fw-semibold d-block mb-2">Label</label>
+                    <input
+                      className="form-control form-control-sm"
+                      value={description}
+                      onChange={(e) => setDescription(e.target.value)}
+                      placeholder="e.g. Monthly Income"
+                    />
+                  </div>
 
-              <div className="mt-3">
-                <label className="form-label small">Category (fallback)</label>
-                <input className="form-control" value={category} onChange={(e) => setCategory(e.target.value)} />
-              </div>
+                  <hr className="my-3" />
 
-              <div className="d-flex gap-2 mt-3 flex-wrap">
-                <button className="btn btn-outline-secondary" onClick={equalize}>
-                  Equal split
-                </button>
-                <button className="btn btn-outline-danger" onClick={() => setPeople([])}>
-                  Clear
-                </button>
-                <button className="btn btn-outline-success" onClick={addPerson}>
-                  Add category
-                </button>
-              </div>
+                  {/* Stats Panel */}
+                  <div className="p-3 rounded mb-3" style={{ backgroundColor: "var(--card-border)", border: "1px solid var(--card-border)" }}>
+                    <div className="small text-muted mb-2">
+                      <strong>Total allocated:</strong>
+                    </div>
+                    <div className="h6 mb-2">
+                      £{totals.amountSum.toFixed(2)} / £{parsedAmount.toFixed(2)}
+                    </div>
+                    <div className="progress" style={{ height: "6px" }}>
+                      <div
+                        className={`progress-bar ${Math.abs(previewTotal - parsedAmount) < 0.01 ? "bg-success" : "bg-warning"}`}
+                        style={{
+                          width: `${Math.min((totals.amountSum / Math.max(parsedAmount, 1)) * 100, 100)}%`,
+                        }}
+                      />
+                    </div>
+                    <div className={`small mt-2 fw-semibold ${Math.abs(previewTotal - parsedAmount) < 0.01 ? "text-success" : "text-warning"}`}>
+                      {Math.abs(previewTotal - parsedAmount) < 0.01 ? "✓ Balanced" : "⚠️ Unbalanced"}
+                    </div>
+                  </div>
 
-              <div className="mt-3 small text-muted">
-                Percent sum: {totals.percentSum}% · Amount sum: £{totals.amountSum.toFixed(2)}
-              </div>
-              <div className={`mt-2 ${Math.abs(previewTotal - parsedAmount) > 0.01 ? "text-danger" : "text-success"}`}>
-                Preview total: £{previewTotal.toFixed(2)}{" "}
-                {Math.abs(previewTotal - parsedAmount) > 0.01 ? "(mismatch)" : "(ok)"}
-              </div>
+                  <hr className="my-3" />
 
-              <div className="mt-3">
-                <button className="btn btn-primary w-100" disabled={!canAdd()} onClick={handleAddSplits}>
-                  Add splits
-                </button>
-              </div>
+                  <div className="d-grid gap-2">
+                    <button
+                      className="btn btn-sm btn-outline-secondary"
+                      onClick={equalize}
+                    >
+                      Equal split
+                    </button>
+                    <button
+                      className="btn btn-sm btn-outline-secondary"
+                      onClick={addPerson}
+                    >
+                      + Add category
+                    </button>
+                    <button
+                      className="btn btn-sm btn-outline-danger"
+                      onClick={() => setPeople([])}
+                    >
+                      Clear all
+                    </button>
+                  </div>
 
-              <div className="mt-2">
-                <button className="btn btn-success w-100" onClick={handleSaveSplit}>
-                  Save Split
-                </button>
+                  <hr className="my-3" />
+
+                  <div className="d-grid gap-2">
+                    <button
+                      className="btn btn-primary"
+                      disabled={!canAdd()}
+                      onClick={handleAddSplits}
+                    >
+                      Add to transactions
+                    </button>
+                    <button
+                      className="btn btn-success"
+                      onClick={handleSaveSplit}
+                    >
+                      Save as template
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
 
-            <div className="col-12 col-md-8">
-              <div className="card p-3" style={{ minHeight: 360 }}>
-                <h6 className="mb-3">Categories & Shares</h6>
+            {/* Right Panel - Categories */}
+            <div className="col-12 col-lg-9">
+              <div className="card border-0 shadow-sm">
+                <div className="card-body">
+                  <div className="d-flex align-items-center justify-content-between mb-4">
+                    <h6 className="card-title mb-0 fw-bold">Categories</h6>
+                    <div className="badge" style={{ backgroundColor: "var(--card-border)", color: "var(--text)" }}>
+                      {people.length} {people.length === 1 ? "category" : "categories"}
+                    </div>
+                  </div>
 
-                {people.length === 0 ? (
-                  <div className="text-muted">No categories added — add categories to start splitting.</div>
-                ) : (
-                  <div className="list-group">
-                    {peopleWithAmounts.map((p) => (
-                      <div key={p.id} className="list-group-item px-2 py-3">
-                        <div className="row align-items-center g-2">
-                          <div className="col-12 col-md-4 mb-2 mb-md-0">
-                            <input
-                              className="form-control form-control-sm"
-                              style={{ width: "100%" }}
-                              value={p.name}
-                              onChange={(e) => updatePerson(p.id, { name: e.target.value })}
-                            />
-                          </div>
+                  {people.length === 0 ? (
+                    <div className="text-center py-5">
+                      <div className="text-muted mb-2">No categories added yet</div>
+                      <p className="text-muted small">Click "Add category" to get started</p>
+                    </div>
+                  ) : (
+                    <div className="list-group list-group-flush">
+                      {peopleWithAmounts.map((p, idx) => (
+                        <div key={p.id} className="list-group-item border-0 px-0 py-3">
+                          <div className="row align-items-end g-3">
+                            <div className="col-12 col-md-4">
+                              <label className="form-label small fw-semibold mb-1">Category Name</label>
+                              <input
+                                className="form-control form-control-sm"
+                                value={p.name}
+                                onChange={(e) => updatePerson(p.id, { name: e.target.value })}
+                                placeholder="e.g. Food"
+                              />
+                            </div>
 
-                          {mode === "percent" ? (
-                            <>
-                              <div className="col-6 col-md-3">
-                                <label className="form-label small mb-0">%</label>
-                                <input
-                                  className="form-control form-control-sm"
-                                  type="number"
-                                  step="0.01"
-                                  min="0"
-                                  max="100"
-                                  value={p.percent}
-                                  onChange={(e) => updatePerson(p.id, { percent: e.target.value })}
-                                />
-                              </div>
-                              <div className="col-6 col-md-3">
-                                <label className="form-label small mb-0">Spend Limit</label>
-                                <input
-                                  className="form-control form-control-sm"
-                                  value={(p.computedAmount ?? 0).toFixed(2)}
-                                  disabled
-                                />
-                              </div>
-                            </>
-                          ) : (
-                            <>
-                              <div className="col-6 col-md-3">
-                                <label className="form-label small mb-0">Amount</label>
-                                <input
-                                  className="form-control form-control-sm"
-                                  type="number"
-                                  step="0.01"
-                                  min="0"
-                                  value={p.amount}
-                                  onChange={(e) => updatePerson(p.id, { amount: e.target.value })}
-                                />
-                              </div>
-                              <div className="col-6 col-md-3">
-                                <label className="form-label small mb-0">%</label>
-                                <input className="form-control form-control-sm" value={`${p.computedPercent ?? 0}%`} disabled />
-                              </div>
-                            </>
-                          )}
+                            {mode === "percent" ? (
+                              <>
+                                <div className="col-6 col-md-2">
+                                  <label className="form-label small fw-semibold mb-1">Percent</label>
+                                  <input
+                                    className="form-control form-control-sm"
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    max="100"
+                                    value={p.percent}
+                                    onChange={(e) => updatePerson(p.id, { percent: e.target.value })}
+                                  />
+                                </div>
+                                <div className="col-6 col-md-2">
+                                  <label className="form-label small fw-semibold mb-1">Budget</label>
+                                  <div className="fw-bold">£{(p.computedAmount ?? 0).toFixed(2)}</div>
+                                </div>
+                              </>
+                            ) : (
+                              <>
+                                <div className="col-6 col-md-2">
+                                  <label className="form-label small fw-semibold mb-1">Amount</label>
+                                  <div className="input-group input-group-sm">
+                                    <span className="input-group-text">£</span>
+                                    <input
+                                      className="form-control form-control-sm"
+                                      type="number"
+                                      step="0.01"
+                                      min="0"
+                                      value={p.amount}
+                                      onChange={(e) => updatePerson(p.id, { amount: e.target.value })}
+                                    />
+                                  </div>
+                                </div>
+                                <div className="col-6 col-md-2">
+                                  <label className="form-label small fw-semibold mb-1">Percent</label>
+                                  <div className="fw-bold">{(p.computedPercent ?? 0).toFixed(1)}%</div>
+                                </div>
+                              </>
+                            )}
 
-                          <div className="col-12 col-md-2 d-flex justify-content-md-end mt-2 mt-md-0">
-                            <button className="btn btn-sm btn-outline-danger w-100" onClick={() => removePerson(p.id)}>
-                              Remove
-                            </button>
+                            <div className="col-12 col-md-2 d-flex gap-2">
+                              <button
+                                className="btn btn-sm btn-outline-danger flex-grow-1"
+                                onClick={() => removePerson(p.id)}
+                                title="Remove this category"
+                              >
+                                ✕
+                              </button>
+                            </div>
                           </div>
                         </div>
-
-                        <div className="small text-muted mt-2">Preview: £{(p.computedAmount ?? 0).toFixed(2)}</div>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>

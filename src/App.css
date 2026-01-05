@@ -228,6 +228,13 @@ a {
   box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
 }
 
+/* Input Group */
+.input-group-text {
+  background-color: var(--card-bg) !important;
+  color: var(--text) !important;
+  border-color: var(--card-border) !important;
+}
+
 /* Progress bars */
 .progress {
   background-color: rgba(255, 255, 255, 0.1) !important;
@@ -258,4 +265,24 @@ a {
 
 .dropdown-divider {
   border-color: var(--card-border) !important;
+}
+
+/* List Groups */
+.list-group {
+  background-color: transparent;
+}
+
+.list-group-item {
+  background-color: var(--card-bg) !important;
+  border-color: var(--card-border) !important;
+  color: var(--text) !important;
+}
+
+.list-group-item:hover {
+  background-color: rgba(255, 255, 255, 0.05) !important;
+}
+
+.list-group-item.active {
+  background-color: #0d6efd !important;
+  border-color: #0d6efd !important;
 }
