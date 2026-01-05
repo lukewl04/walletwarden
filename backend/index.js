@@ -1,9 +1,10 @@
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
-const { Pool } = require("pg");
+const Database = require('better-sqlite3');
 const jwt = require('express-jwt');
 const jwksRsa = require('jwks-rsa');
+const path = require('path');
 
 const app = express();
 
@@ -17,70 +18,56 @@ const corsOrigins = [
 app.use(cors({ origin: corsOrigins }));
 app.use(express.json());
 
-// connect to Supabase Postgres
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
-});
+// SQLite database for local development
+const db = new Database(path.join(__dirname, 'walletwarden.db'));
+db.pragma('journal_mode = WAL');
 
 
-// Ensure transactions table exists with proper schema
-const ensureTables = async () => {
+// Ensure tables exist with proper schema
+const ensureTables = () => {
   try {
-    // Check if table exists and has user_id column
-    const checkTable = await pool.query(`
-      SELECT column_name FROM information_schema.columns 
-      WHERE table_name = 'transactions' AND column_name = 'user_id'
-    `);
-
-    if (checkTable.rows.length === 0) {
-      // Table exists but is missing user_id - drop and recreate
-      console.log('Dropping old transactions table (missing user_id column)...');
-      await pool.query('DROP TABLE IF EXISTS transactions CASCADE');
-    }
-
-    // Create table if missing
-    await pool.query(`
+    // Create transactions table
+    db.exec(`
       CREATE TABLE IF NOT EXISTS transactions (
         id TEXT PRIMARY KEY,
         user_id TEXT NOT NULL,
         type TEXT NOT NULL,
-        amount NUMERIC NOT NULL,
-        date TIMESTAMPTZ NOT NULL,
+        amount REAL NOT NULL,
+        date TEXT NOT NULL,
         category TEXT,
         description TEXT,
-        created_at TIMESTAMPTZ DEFAULT now()
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
       )
     `);
 
     // Create splits table
-    await pool.query(`
+    db.exec(`
       CREATE TABLE IF NOT EXISTS splits (
         id TEXT PRIMARY KEY,
         user_id TEXT NOT NULL,
         name TEXT NOT NULL,
         frequency TEXT NOT NULL,
-        categories JSONB NOT NULL,
-        created_at TIMESTAMPTZ DEFAULT now(),
-        updated_at TIMESTAMPTZ DEFAULT now()
+        categories TEXT NOT NULL,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
       )
     `);
 
     // Create purchases table
-    await pool.query(`
+    db.exec(`
       CREATE TABLE IF NOT EXISTS purchases (
         id TEXT PRIMARY KEY,
         user_id TEXT NOT NULL,
         split_id TEXT NOT NULL,
         date TEXT NOT NULL,
-        amount NUMERIC NOT NULL,
+        amount REAL NOT NULL,
         category TEXT NOT NULL,
         description TEXT,
-        created_at TIMESTAMPTZ DEFAULT now()
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
       )
     `);
 
-    console.log('All tables ready');
+    console.log('All tables ready (SQLite)');
   } catch (err) {
     console.error('Error ensuring tables:', err);
     throw err;
@@ -130,7 +117,7 @@ app.get('/api/transactions', async (req, res) => {
     const userId = req.auth?.sub;
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
 
-    const { rows } = await pool.query('SELECT id, type, amount::float, date, category, description FROM transactions WHERE user_id = $1 ORDER BY date DESC, created_at DESC', [userId]);
+    const rows = db.prepare('SELECT id, type, amount, date, category, description FROM transactions WHERE user_id = ? ORDER BY date DESC, created_at DESC').all(userId);
     return res.json(rows);
   } catch (err) {
     console.error(err);
@@ -147,20 +134,15 @@ app.post('/api/transactions/bulk', async (req, res) => {
     const items = Array.isArray(req.body) ? req.body : (req.body?.transactions || []);
     if (!items.length) return res.status(400).json({ error: 'no_transactions' });
 
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
-      const insertText = 'INSERT INTO transactions(id, user_id, type, amount, date, category, description) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO NOTHING';
+    const insert = db.prepare('INSERT OR IGNORE INTO transactions(id, user_id, type, amount, date, category, description) VALUES(?, ?, ?, ?, ?, ?, ?)');
+    
+    const insertMany = db.transaction((items) => {
       for (const it of items) {
-        await client.query(insertText, [it.id, userId, it.type, it.amount, it.date, it.category || null, it.description || null]);
+        insert.run(it.id, userId, it.type, it.amount, it.date, it.category || null, it.description || null);
       }
-      await client.query('COMMIT');
-    } catch (e) {
-      await client.query('ROLLBACK');
-      throw e;
-    } finally {
-      client.release();
-    }
+    });
+    
+    insertMany(items);
 
     return res.json({ ok: true, inserted: items.length });
   } catch (err) {
@@ -178,7 +160,7 @@ app.post('/api/transactions', async (req, res) => {
     const { id, type, amount, date, category, description } = req.body;
     if (!id || !type || !amount || !date) return res.status(400).json({ error: 'invalid_payload' });
 
-    await pool.query('INSERT INTO transactions(id, user_id, type, amount, date, category, description) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO NOTHING', [id, userId, type, amount, date, category || null, description || null]);
+    db.prepare('INSERT OR IGNORE INTO transactions(id, user_id, type, amount, date, category, description) VALUES(?, ?, ?, ?, ?, ?, ?)').run(id, userId, type, amount, date, category || null, description || null);
     return res.json({ ok: true });
   } catch (err) {
     console.error(err);
@@ -192,7 +174,7 @@ app.delete('/api/transactions/:id', async (req, res) => {
     const userId = req.auth?.sub;
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
     const id = req.params.id;
-    await pool.query('DELETE FROM transactions WHERE id = $1 AND user_id = $2', [id, userId]);
+    db.prepare('DELETE FROM transactions WHERE id = ? AND user_id = ?').run(id, userId);
     return res.json({ ok: true });
   } catch (err) {
     console.error(err);
@@ -206,11 +188,10 @@ app.get('/api/splits', async (req, res) => {
     const userId = req.auth?.sub;
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
 
-    const { rows } = await pool.query(
-      'SELECT id, name, frequency, categories, created_at FROM splits WHERE user_id = $1 ORDER BY created_at DESC',
-      [userId]
-    );
-    return res.json(rows);
+    const rows = db.prepare('SELECT id, name, frequency, categories, created_at FROM splits WHERE user_id = ? ORDER BY created_at DESC').all(userId);
+    // Parse JSON categories
+    const parsed = rows.map(r => ({ ...r, categories: JSON.parse(r.categories) }));
+    return res.json(parsed);
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'internal_error' });
@@ -227,10 +208,9 @@ app.post('/api/splits', async (req, res) => {
       return res.status(400).json({ error: 'invalid_payload' });
     }
 
-    await pool.query(
-      'INSERT INTO splits(id, user_id, name, frequency, categories) VALUES($1, $2, $3, $4, $5) ON CONFLICT (id) DO UPDATE SET name = $3, frequency = $4, categories = $5, updated_at = now()',
-      [id, userId, name, frequency, JSON.stringify(categories)]
-    );
+    db.prepare(
+      'INSERT OR REPLACE INTO splits(id, user_id, name, frequency, categories, updated_at) VALUES(?, ?, ?, ?, ?, CURRENT_TIMESTAMP)'
+    ).run(id, userId, name, frequency, JSON.stringify(categories));
     return res.json({ ok: true });
   } catch (err) {
     console.error(err);
@@ -244,10 +224,7 @@ app.get('/api/purchases', async (req, res) => {
     const userId = req.auth?.sub;
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
 
-    const { rows } = await pool.query(
-      'SELECT id, split_id, date, amount::float, category, description FROM purchases WHERE user_id = $1 ORDER BY date DESC',
-      [userId]
-    );
+    const rows = db.prepare('SELECT id, split_id, date, amount, category, description FROM purchases WHERE user_id = ? ORDER BY date DESC').all(userId);
     return res.json(rows);
   } catch (err) {
     console.error(err);
@@ -265,10 +242,9 @@ app.post('/api/purchases', async (req, res) => {
       return res.status(400).json({ error: 'invalid_payload' });
     }
 
-    await pool.query(
-      'INSERT INTO purchases(id, user_id, split_id, date, amount, category, description) VALUES($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (id) DO UPDATE SET amount = $5, category = $6, description = $7',
-      [id, userId, split_id, date, amount, category, description || null]
-    );
+    db.prepare(
+      'INSERT OR REPLACE INTO purchases(id, user_id, split_id, date, amount, category, description) VALUES(?, ?, ?, ?, ?, ?, ?)'
+    ).run(id, userId, split_id, date, amount, category, description || null);
     return res.json({ ok: true });
   } catch (err) {
     console.error(err);
@@ -282,7 +258,7 @@ app.delete('/api/purchases/:id', async (req, res) => {
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
     
     const id = req.params.id;
-    await pool.query('DELETE FROM purchases WHERE id = $1 AND user_id = $2', [id, userId]);
+    db.prepare('DELETE FROM purchases WHERE id = ? AND user_id = ?').run(id, userId);
     return res.json({ ok: true });
   } catch (err) {
     console.error(err);
@@ -291,10 +267,24 @@ app.delete('/api/purchases/:id', async (req, res) => {
 });
 
 // start
-(async () => {
-  await ensureTables();
-  const port = process.env.PORT || 4000;
-  app.listen(port, () => {
-    console.log(`Backend running on http://localhost:${port}`);
+ensureTables();
+const port = process.env.PORT || 4000;
+const server = app.listen(port, '0.0.0.0', () => {
+  console.log(`Backend running on http://localhost:${port} (SQLite)`);
+  console.log(`Server is listening and ready for connections...`);
+});
+
+// Keep process alive
+process.on('SIGINT', () => {
+  console.log('\nShutting down gracefully...');
+  server.close(() => {
+    db.close();
+    process.exit(0);
   });
-})();
+});
+
+// Handle errors
+server.on('error', (err) => {
+  console.error('Server error:', err);
+  process.exit(1);
+});

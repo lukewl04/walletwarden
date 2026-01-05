@@ -1,13 +1,15 @@
 import React, { useMemo, useState } from "react";
 import CsvPdfUpload from "../components/csv-pdf-upload.jsx";
 import Navbar from "../components/navbar.jsx";
+import { useTransactions } from "../state/TransactionsContext";
 
-export default function WardenInsights({
-  transactions = [],
-  totals: globalTotals,
-  addTransaction,
-  bulkAddTransactions,
-}) {
+export default function WardenInsights() {
+  const {
+    transactions = [],
+    totals: globalTotals,
+    addTransaction,
+    bulkAddTransactions,
+  } = useTransactions();
   const categories = [
     "Food",
     "Petrol",
