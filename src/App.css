@@ -3,11 +3,45 @@
   box-sizing: border-box;
 }
 
+:root {
+  --bg: #0f172a;
+  --text: #e5e7eb;
+  --card-bg: #020617;
+  --card-border: #1f2937;
+  --nav-bg: #0b1224;
+  --nav-text: #e5e7eb;
+  --muted: #94a3b8;
+  --link: #0d6efd;
+}
+
+.theme-light {
+  --bg: #f8fafc;
+  --text: #0f172a;
+  --card-bg: #ffffff;
+  --card-border: #e2e8f0;
+  --nav-bg: #ffffff;
+  --nav-text: #0f172a;
+  --muted: #475569;
+  --link: #0d6efd;
+}
+
+.theme-dark {
+  --bg: #0f172a;
+  --text: #e5e7eb;
+  --card-bg: #020617;
+  --card-border: #1f2937;
+  --nav-bg: #0b1224;
+  --nav-text: #e5e7eb;
+  --muted: #94a3b8;
+  --link: #0d6efd;
+}
+
 body {
   margin: 0;
-  background-color: #0f172a;
-  color: #e5e7eb;
+  background-color: var(--bg);
+  color: var(--text);
   font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  transition: background-color 0.25s ease, color 0.25s ease;
 }
 
 /* Root should not dictate layout */
@@ -32,12 +66,15 @@ input {
 
 /* Utility card base (optional) */
 .card {
-  background: #020617;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
   border-radius: 14px;
+  color: var(--text);
 }
 
 .navbar .nav-link {
   position: relative;
+  color: var(--nav-text) !important;
 }
 
 .navbar .nav-link::after {
@@ -53,4 +90,19 @@ input {
 
 .navbar .nav-link:hover::after {
   width: 100%;
+}
+
+.navbar,
+.navbar-dark,
+.navbar-light {
+  background: var(--nav-bg) !important;
+}
+
+.text-muted,
+.form-text {
+  color: var(--muted) !important;
+}
+
+a {
+  color: var(--link);
 }
