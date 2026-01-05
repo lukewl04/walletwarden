@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Navbar from "../components/navbar.jsx";
 import { useTransactions } from "../state/TransactionsContext";
 
@@ -64,6 +64,7 @@ export default function SplitMaker() {
 
   // ✅ Missing state (this is why you got "mode is not defined")
   const [mode, setMode] = useState("percent"); // "percent" | "amount"
+  const [needsPreset, setNeedsPreset] = useState(true); // gate UI until a preset is chosen
   const [selectedPreset, setSelectedPreset] = useState("");
 
   const [amount, setAmount] = useState(""); // total amount
@@ -101,7 +102,19 @@ export default function SplitMaker() {
     setMode("percent");
     setSelectedPreset(preset.label);
     setMessage({ type: "success", text: `Applied preset: ${preset.label}` });
+    setNeedsPreset(false);
   };
+
+  const startWithoutPreset = () => {
+    setNeedsPreset(false);
+    setSelectedPreset("");
+    setMessage(null);
+  };
+
+  useEffect(() => {
+    // When coming back to the screen with an already selected preset, skip the gate
+    if (selectedPreset) setNeedsPreset(false);
+  }, [selectedPreset]);
 
   const updatePerson = (id, patch) => {
     setPeople((prev) =>
@@ -289,6 +302,45 @@ export default function SplitMaker() {
 
     setShowFrequencyModal(false);
   };
+
+  if (needsPreset) {
+    return (
+      <div className="container py-5" style={{ maxWidth: 960, minHeight: "100vh" }}>
+        <Navbar />
+        <div className="card shadow-sm mt-4">
+          <div className="card-body">
+            <h1 className="h4 mb-2">Choose a preset to get started</h1>
+            <p className="text-muted mb-4">Pick the baseline split that best fits you. You can tweak percentages after.</p>
+            <div className="row g-3">
+              {presets.map((preset) => (
+                <div className="col-12 col-md-4" key={preset.label}>
+                  <div className="card h-100 border-0 shadow-sm">
+                    <div className="card-body d-flex flex-column">
+                      <h5 className="card-title mb-1">{preset.label}</h5>
+                      <p className="text-muted small mb-3">{preset.desc}</p>
+                      <ul className="mb-3 small text-muted">
+                        {preset.details.map((d, i) => (
+                          <li key={i}>{d}</li>
+                        ))}
+                      </ul>
+                      <button className="btn btn-primary mt-auto" onClick={() => applyPreset(preset)}>
+                        Use this preset
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="mt-4 d-flex justify-content-end">
+              <button className="btn btn-outline-secondary" onClick={startWithoutPreset}>
+                Start without preset
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="container-fluid py-4 mt-5" style={{ maxWidth: 900, minHeight: "100vh", overflowY: "auto" }}>
