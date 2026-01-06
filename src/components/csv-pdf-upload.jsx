@@ -206,13 +206,7 @@ export default function CsvPdfUpload({ onSave }) {
                 onChange={handleCSVUpload} 
                 disabled={loading}
               />
-              <div className="mt-3 p-2 bg-light rounded">
-                <small className="text-muted">
-                  <strong>Simple format example:</strong><br/>
-                  income, 1000.00, 1st Jan<br/>
-                  expense, 25.50, 2nd Jan
-                </small>
-              </div>
+
             </div>
           </div>
         </div>
