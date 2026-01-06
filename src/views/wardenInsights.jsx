@@ -16,6 +16,7 @@ export default function WardenInsights() {
 
   // Edit transaction category state
   const [editingCategoryId, setEditingCategoryId] = useState(null);
+  const [showImportModal, setShowImportModal] = useState(false);
   const [amount, setAmount] = useState("");
   const [category, setCategory] = useState("Other");
   const [description, setDescription] = useState("");
@@ -393,64 +394,69 @@ export default function WardenInsights() {
           </div>
         </div>
 
-        {/* Quick Add + Upload */}
-        <div className="row g-3 mb-3">
-          <div className="col-12 col-md-4">
-            <div className="card shadow-sm h-100">
-              <div className="card-body">
-                <h2 className="h6 mb-3">Quick Add</h2>
+        {/* Quick Add */}
+        <div className="card shadow-sm mb-3">
+          <div className="card-body">
+            <h2 className="h6 mb-3">Quick Add</h2>
 
-                <div className="mb-2">
-                  <label className="form-label">Amount</label>
-                  <input
-                    className="form-control"
-                    type="number"
-                    placeholder="0.00"
-                    value={amount}
-                    onChange={(e) => setAmount(e.target.value)}
-                    step="0.01"
-                    min="0"
-                  />
-                </div>
+            <div className="mb-2">
+              <label className="form-label">Amount</label>
+              <input
+                className="form-control"
+                type="number"
+                placeholder="0.00"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                step="0.01"
+                min="0"
+              />
+            </div>
 
-                <div className="mb-2">
-                  <label className="form-label">Category</label>
-                  <select className="form-select" value={category} onChange={(e) => setCategory(e.target.value)}>
-                    {categories.map((c) => (
-                      <option key={c} value={c}>{c}</option>
-                    ))}
-                  </select>
-                </div>
+            <div className="mb-2">
+              <label className="form-label">Category</label>
+              <select className="form-select" value={category} onChange={(e) => setCategory(e.target.value)}>
+                {categories.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            </div>
 
-                <div className="mb-2">
-                  <label className="form-label">Description (optional)</label>
-                  <input
-                    className="form-control"
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                    placeholder="e.g. Tesco / Rent / Salary"
-                  />
-                </div>
+            <div className="mb-2">
+              <label className="form-label">Description (optional)</label>
+              <input
+                className="form-control"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="e.g. Tesco / Rent / Salary"
+              />
+            </div>
 
-                <div className="d-flex gap-2 mt-3">
-                  <button className="btn btn-success w-100" onClick={() => handleAddTransaction("income")}>
-                    + Income
-                  </button>
-                  <button className="btn btn-danger w-100" onClick={() => handleAddTransaction("expense")}>
-                    − Expense
-                  </button>
-                </div>
-              </div>
+            <div className="d-flex gap-2 mt-3">
+              <button className="btn btn-success w-100" onClick={() => handleAddTransaction("income")}>
+                + Income
+              </button>
+              <button className="btn btn-danger w-100" onClick={() => handleAddTransaction("expense")}>
+                − Expense
+              </button>
             </div>
           </div>
+        </div>
 
-          <div className="col-12 col-md-8">
-            <div className="card shadow-sm h-100">
-              <div className="card-body">
-                <h2 className="h6 mb-2">Upload CSV/PDF</h2>
-                <CsvPdfUpload bulkAddTransactions={bulkAddTransactions} />
-              </div>
+        {/* Import Transactions Button */}
+        <div className="card shadow-sm mb-3">
+          <div className="card-body">
+            <div className="d-flex align-items-center justify-content-between">
+              <h2 className="h6 mb-0">Import Transactions</h2>
             </div>
+            <p className="text-muted small mt-2 mb-3">
+              Upload your bank statements in CSV or PDF format to import transactions
+            </p>
+            <button 
+              className="btn btn-primary w-100"
+              onClick={() => setShowImportModal(true)}
+            >
+              Import Bank Statement
+            </button>
           </div>
         </div>
 
@@ -562,6 +568,31 @@ export default function WardenInsights() {
             )}
           </div>
         </div>
+
+        {/* Import Modal */}
+        {showImportModal && (
+          <div 
+            className="modal d-block" 
+            style={{ backgroundColor: "rgba(0, 0, 0, 0.5)" }}
+            role="dialog"
+          >
+            <div className="modal-dialog modal-lg" role="document">
+              <div className="modal-content">
+                <div className="modal-header">
+                  <h5 className="modal-title">Import Bank Statement</h5>
+                  <button
+                    type="button"
+                    className="btn-close"
+                    onClick={() => setShowImportModal(false)}
+                  ></button>
+                </div>
+                <div className="modal-body">
+                  <CsvPdfUpload bulkAddTransactions={bulkAddTransactions} />
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
       </div>
     </div>
