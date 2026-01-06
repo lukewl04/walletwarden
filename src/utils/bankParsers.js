@@ -16,6 +16,104 @@ const parseDate = (dateStr) => {
 };
 
 /**
+ * SANTANDER TABLE FORMAT PARSER
+ * Handles Santander PDFs with Date | Description | Money In | Money Out | Balance columns
+ */
+export const santanderTableParser = {
+  name: 'Santander Table Format',
+  detect: (text) => {
+    // Look for Santander-specific markers
+    const isSantander = /Santander|Online Banking|Transactions/i.test(text);
+    const hasTableColumns = /Date\s*Description\s*Money In\s*Money Out|Money In\s*Money Out\s*Balance/i.test(text);
+    const hasDateFormat = /\d{2}\/\d{2}\/\d{4}/i.test(text);
+    return isSantander && hasTableColumns && hasDateFormat;
+  },
+  parse: (text) => {
+    const parsed = [];
+    const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+    
+    // Find transactions - they start with a date in DD/MM/YYYY format
+    const datePattern = /^(\d{2}\/\d{2}\/\d{4})/;
+    
+    let i = 0;
+    while (i < lines.length) {
+      const line = lines[i];
+      const dateMatch = line.match(datePattern);
+      
+      if (!dateMatch) {
+        i++;
+        continue;
+      }
+      
+      const date = dateMatch[1];
+      let description = line.substring(10).trim(); // Skip the date
+      
+      // Collect description lines until we find amounts
+      let j = i + 1;
+      while (j < lines.length && !lines[j].match(/£\s*\d+/)) {
+        description += ' ' + lines[j];
+        j++;
+      }
+      
+      // Extract money amounts from the current and next few lines
+      let moneyIn = 0;
+      let moneyOut = 0;
+      
+      for (let k = i; k < Math.min(i + 3, lines.length); k++) {
+        const amountLine = lines[k];
+        const amounts = (amountLine.match(/£\s*[\d,]+\.\d{2}/g) || []).map(a => 
+          parseFloat(a.replace('£', '').replace(/,/g, '').trim())
+        );
+        
+        if (amounts.length >= 2) {
+          // Typically format is: Money In | Money Out | Balance
+          moneyIn = amounts[0] || 0;
+          moneyOut = amounts[1] || 0;
+        } else if (amounts.length === 1) {
+          // Single amount - need to determine if in or out
+          const isIncome = /receipt|transfer from|payment received|faster payments receipt|income/i.test(description);
+          if (isIncome) {
+            moneyIn = amounts[0];
+          } else {
+            moneyOut = amounts[0];
+          }
+        }
+      }
+      
+      // Determine transaction type and amount
+      const amount = moneyOut > 0 ? moneyOut : moneyIn;
+      const type = moneyOut > 0 ? 'expense' : 'income';
+      
+      // Clean up description
+      description = description
+        .replace(/£\s*[\d,]+\.\d{2}/g, '')
+        .replace(/ON\s+\d{2}-\d{2}-\d{4}/i, '')
+        .replace(/VIA APPLE PAY/i, '')
+        .replace(/REFERENCE\s+[^,]*/i, '')
+        .replace(/MANDATE\s+NO[^,]*/i, '')
+        .replace(/\s{2,}/g, ' ')
+        .trim()
+        .substring(0, 80);
+      
+      if (description && amount > 0) {
+        parsed.push({
+          id: Date.now() + Math.random(),
+          type: type,
+          amount: amount,
+          date: date,
+          description: description,
+          source: 'Santander Table'
+        });
+      }
+      
+      i = j > i + 1 ? j : i + 1;
+    }
+    
+    return parsed;
+  }
+};
+
+/**
  * SANTANDER PARSER
  * Detects Santander format with date pattern like "20th Nov"
  */
@@ -263,6 +361,7 @@ export const fallbackParser = {
  * Parser Registry - Add new parsers here
  */
 export const parsers = [
+  santanderTableParser,
   santanderParser,
   genericTableParser,
   simpleCSVParser,
