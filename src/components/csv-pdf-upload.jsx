@@ -10,7 +10,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
 // NOTE: The pdf.worker.min.mjs file is a Web Worker that runs in a separate
 // thread to handle heavy PDF parsing without blocking the main UI thread.
 
-export default function CsvPdfUpload({ onSave }) {
+export default function CsvPdfUpload({ onSave, onClose }) {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [uploadedTransactions, setUploadedTransactions] = useState([]);
@@ -323,11 +323,11 @@ export default function CsvPdfUpload({ onSave }) {
                   // Use provided onSave if the parent passed one, otherwise use the Transactions Context
                   if (onSave) {
                     try { onSave(transactionsWithUpdatedCategories); } catch (e) { console.error(e); }
-                    alert('Transactions uploaded!');
+                    if (onClose) onClose();
                   } else {
                     try {
                       bulkAddTransactions(transactionsWithUpdatedCategories);
-                      alert('Transactions uploaded!');
+                      if (onClose) onClose();
                     } catch (e) {
                       console.error('Error uploading transactions to context', e);
                       alert('Transactions saved! (Add your save logic here)');

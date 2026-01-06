@@ -13,12 +13,14 @@ import SplitMaker from "./views/splitmaker";
 import { TransactionsProvider } from "./state/TransactionsContext";
 import WardenInsights from "./views/wardenInsights";
 import Tracker from "./views/tracker";
+import InsightTracker from "./views/insighttracker";
 
 const ProtectedHome = ProtectedRoute(Home);
 const ProtectedImport = ProtectedRoute(Import);
 const ProtectedSplit = ProtectedRoute(SplitMaker);
 const ProtectedWardenInsights = ProtectedRoute(WardenInsights);
 const ProtectedTracker = ProtectedRoute(Tracker);
+const ProtectedInsightTracker = ProtectedRoute(InsightTracker);
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
     <Auth0Provider
@@ -42,6 +44,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(
             <Route path="/splitmaker" element={<ProtectedSplit />} />
             <Route path="/wardeninsights" element={<ProtectedWardenInsights />} />
             <Route path="/tracker" element={<ProtectedTracker />} />
+            <Route path="/insighttracker" element={<ProtectedInsightTracker />} />
           </Routes>
         </BrowserRouter>
       </TransactionsProvider>
