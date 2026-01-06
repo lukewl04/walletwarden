@@ -353,28 +353,6 @@ export default function CsvPdfUpload({ onSave }) {
           </div>
         </div>
       )}
-
-      {/* Reset Button - Always Visible */}
-      <div className="mt-4 text-center">
-        <button 
-          className="btn btn-danger"
-          disabled={loading}
-          onClick={async () => {
-            // Clear everything
-            setUploadedTransactions([]);
-            try {
-              await clearTransactions();
-            } catch (e) {
-              console.error('Error clearing transactions:', e);
-            }
-            try { if (csvInputRef.current) csvInputRef.current.value = ''; } catch (_) {}
-            try { if (pdfInputRef.current) pdfInputRef.current.value = ''; } catch (_) {}
-            alert('All transactions cleared!');
-          }}
-        >
-          Reset All Transactions
-        </button>
-      </div>
     </div>
   );
 }
