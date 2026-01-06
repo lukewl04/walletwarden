@@ -2,6 +2,7 @@ import React, { useMemo, useState } from "react";
 import CsvPdfUpload from "../components/csv-pdf-upload.jsx";
 import Navbar from "../components/navbar.jsx";
 import { useTransactions } from "../state/TransactionsContext";
+import { TRANSACTION_CATEGORIES } from "../utils/categories";
 
 export default function WardenInsights() {
   const {
@@ -9,20 +10,12 @@ export default function WardenInsights() {
     totals: globalTotals,
     addTransaction,
     bulkAddTransactions,
+    updateTransaction,
   } = useTransactions();
-  const categories = [
-    "Food",
-    "Petrol",
-    "Subscriptions",
-    "Transport",
-    "Bills",
-    "Shopping",
-    "Savings",
-    "Entertainment",
-    "Other",
-  ];
+  const categories = TRANSACTION_CATEGORIES;
 
-  // Quick add state
+  // Edit transaction category state
+  const [editingCategoryId, setEditingCategoryId] = useState(null);
   const [amount, setAmount] = useState("");
   const [category, setCategory] = useState("Other");
   const [description, setDescription] = useState("");
@@ -517,27 +510,52 @@ export default function WardenInsights() {
             ) : (
               <ul className="list-group">
                 {transactions.map((t) => (
-                  <li key={t.id} className="list-group-item d-flex align-items-start justify-content-between">
-                    <div style={{ flex: 1 }}>
-                      <div className="d-flex align-items-center gap-2">
-                        <span className={t.type === "income" ? "text-success fw-semibold" : "text-danger fw-semibold"}>
-                          {t.type === "income" ? "+ " : "− "}£{Number(t.amount).toFixed(2)}
-                        </span>
-                        <span className="badge bg-secondary" style={{ fontSize: "0.75rem" }}>
-                          {t.category || "Other"}
-                        </span>
+                  <li key={t.id} className="list-group-item">
+                    <div className="d-flex align-items-start justify-content-between gap-2">
+                      <div style={{ flex: 1 }}>
+                        <div className="d-flex align-items-center gap-2 mb-2">
+                          <span className={t.type === "income" ? "text-success fw-semibold" : "text-danger fw-semibold"}>
+                            {t.type === "income" ? "+ " : "− "}£{Number(t.amount).toFixed(2)}
+                          </span>
+                          {editingCategoryId === t.id ? (
+                            <select
+                              className="form-select form-select-sm"
+                              style={{ width: "150px", fontSize: "0.85rem" }}
+                              value={t.category || "Other"}
+                              onChange={(e) => {
+                                updateTransaction(t.id, { category: e.target.value });
+                                setEditingCategoryId(null);
+                              }}
+                              autoFocus
+                              onBlur={() => setEditingCategoryId(null)}
+                            >
+                              {categories.map((cat) => (
+                                <option key={cat} value={cat}>{cat}</option>
+                              ))}
+                            </select>
+                          ) : (
+                            <button
+                              className="badge bg-secondary"
+                              style={{ fontSize: "0.75rem", border: "none", cursor: "pointer", padding: "0.4rem 0.6rem" }}
+                              onClick={() => setEditingCategoryId(t.id)}
+                              title="Click to edit category"
+                            >
+                              {t.category || "Other"}
+                            </button>
+                          )}
+                        </div>
+
+                        {t.description && (
+                          <div className="text-muted small" style={{ fontSize: "0.85rem" }}>
+                            {t.description}
+                          </div>
+                        )}
                       </div>
 
-                      {t.description && (
-                        <div className="text-muted small mt-1" style={{ fontSize: "0.85rem" }}>
-                          {t.description}
-                        </div>
-                      )}
+                      <span className="text-muted small ms-3" style={{ whiteSpace: "nowrap" }}>
+                        {new Date(t.date).toLocaleDateString()}
+                      </span>
                     </div>
-
-                    <span className="text-muted small ms-3" style={{ whiteSpace: "nowrap" }}>
-                      {new Date(t.date).toLocaleDateString()}
-                    </span>
                   </li>
                 ))}
               </ul>

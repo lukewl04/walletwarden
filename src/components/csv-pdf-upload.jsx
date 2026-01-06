@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import * as pdfjsLib from 'pdfjs-dist';
 import { useTransactions } from "../state/TransactionsContext";
 import { parsePDFText } from "../utils/bankParsers";
+import { TRANSACTION_CATEGORIES, suggestCategory } from "../utils/categories";
 
 // Configure PDF.js worker - use local ES module served from public/
 pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
@@ -13,6 +14,7 @@ export default function CsvPdfUpload({ onSave }) {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [uploadedTransactions, setUploadedTransactions] = useState([]);
+  const [categoryEdits, setCategoryEdits] = useState({}); // Track category changes
   const csvInputRef = useRef(null);
   const pdfInputRef = useRef(null);
 
@@ -53,7 +55,14 @@ export default function CsvPdfUpload({ onSave }) {
         return;
       }
 
-      setUploadedTransactions(parsed);
+      // Add auto-suggested categories to each transaction
+      const transactionsWithCategories = parsed.map(t => ({
+        ...t,
+        category: suggestCategory(t.description)
+      }));
+
+      setUploadedTransactions(transactionsWithCategories);
+      setCategoryEdits({}); // Reset category edits
       e.target.value = "";
     } catch (error) {
       console.error('Error reading PDF:', error);
@@ -141,7 +150,14 @@ export default function CsvPdfUpload({ onSave }) {
           return;
         }
 
-        setUploadedTransactions(parsed);
+        // Add auto-suggested categories to each transaction
+        const transactionsWithCategories = parsed.map(t => ({
+          ...t,
+          category: suggestCategory(t.description)
+        }));
+
+        setUploadedTransactions(transactionsWithCategories);
+        setCategoryEdits({}); // Reset category edits
         alert(`Successfully imported ${parsed.length} transactions!`);
       } catch (err) {
         console.error('Error parsing CSV:', err);
@@ -249,26 +265,48 @@ export default function CsvPdfUpload({ onSave }) {
 
             <div style={{ maxHeight: 400, overflowY: 'auto' }}>
               <ul className="list-group">
-                {uploadedTransactions.map((t) => (
-                  <li
-                    key={t.id}
-                    className="list-group-item d-flex align-items-start justify-content-between"
-                  >
-                    <div style={{ flex: 1 }}>
-                      <span className={t.type === "income" ? "text-success fw-semibold" : "text-danger fw-semibold"}>
-                        {t.type === "income" ? "+ " : "− "}£{t.amount.toFixed(2)}
-                      </span>
-                      {t.description && (
-                        <div className="text-muted small mt-1" style={{ fontSize: '0.85rem' }}>
-                          {t.description}
+                {uploadedTransactions.map((t) => {
+                  const currentCategory = categoryEdits[t.id] || t.category || 'Other';
+                  return (
+                    <li
+                      key={t.id}
+                      className="list-group-item"
+                    >
+                      <div className="d-flex align-items-start justify-content-between gap-2">
+                        <div style={{ flex: 1 }}>
+                          <div className="d-flex align-items-center gap-2 mb-2">
+                            <span className={t.type === "income" ? "text-success fw-semibold" : "text-danger fw-semibold"}>
+                              {t.type === "income" ? "+ " : "− "}£{t.amount.toFixed(2)}
+                            </span>
+                            <select
+                              className="form-select form-select-sm"
+                              style={{ width: '150px', fontSize: '0.85rem' }}
+                              value={currentCategory}
+                              onChange={(e) => {
+                                setCategoryEdits({
+                                  ...categoryEdits,
+                                  [t.id]: e.target.value
+                                });
+                              }}
+                            >
+                              {TRANSACTION_CATEGORIES.map((cat) => (
+                                <option key={cat} value={cat}>{cat}</option>
+                              ))}
+                            </select>
+                          </div>
+                          {t.description && (
+                            <div className="text-muted small" style={{ fontSize: '0.85rem' }}>
+                              {t.description}
+                            </div>
+                          )}
                         </div>
-                      )}
-                    </div>
-                    <span className="text-muted small ms-3" style={{ whiteSpace: 'nowrap' }}>
-                      {t.date}
-                    </span>
-                  </li>
-                ))}
+                        <span className="text-muted small" style={{ whiteSpace: 'nowrap' }}>
+                          {t.date}
+                        </span>
+                      </div>
+                    </li>
+                  );
+                })}
               </ul>
             </div>
 
@@ -282,13 +320,19 @@ export default function CsvPdfUpload({ onSave }) {
                     return;
                   }
 
+                  // Apply category edits to transactions before saving
+                  const transactionsWithUpdatedCategories = uploadedTransactions.map(t => ({
+                    ...t,
+                    category: categoryEdits[t.id] || t.category || 'Other'
+                  }));
+
                   // Use provided onSave if the parent passed one, otherwise use the Transactions Context
                   if (onSave) {
-                    try { onSave(uploadedTransactions); } catch (e) { console.error(e); }
+                    try { onSave(transactionsWithUpdatedCategories); } catch (e) { console.error(e); }
                     alert('Transactions uploaded!');
                   } else {
                     try {
-                      bulkAddTransactions(uploadedTransactions);
+                      bulkAddTransactions(transactionsWithUpdatedCategories);
                       alert('Transactions uploaded!');
                     } catch (e) {
                       console.error('Error uploading transactions to context', e);
@@ -298,6 +342,7 @@ export default function CsvPdfUpload({ onSave }) {
 
                   // Clear preview and file inputs
                   setUploadedTransactions([]);
+                  setCategoryEdits({});
                   try { if (csvInputRef.current) csvInputRef.current.value = ''; } catch (_) {}
                   try { if (pdfInputRef.current) pdfInputRef.current.value = ''; } catch (_) {}
                 }}

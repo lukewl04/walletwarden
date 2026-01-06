@@ -216,6 +216,26 @@ export function TransactionsProvider({ children }) {
     }
   };
 
+  const updateTransaction = async (id, updates) => {
+    const updated = { ...updates, id };
+    setTransactions((prev) => prev.map((t) => t.id === id ? { ...t, ...updates } : t));
+    const isDevMode = import.meta.env.VITE_DEV_MODE === 'true';
+    if (!isAuthenticated && !isDevMode) return;
+    try {
+      const token = isDevMode ? 'dev-token' : await getAccessTokenSilently({ audience: import.meta.env.VITE_AUTH0_AUDIENCE });
+      await fetch(`${API_BASE}/api/transactions/${encodeURIComponent(id)}`, {
+        method: 'PUT',
+        headers: { 
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(updated)
+      });
+    } catch (e) {
+      console.warn('Failed to update transaction on backend, local copy updated', e);
+    }
+  };
+
   const clearTransactions = async () => {
     const currentTransactions = transactions;
     setTransactions([]);
@@ -250,7 +270,7 @@ export function TransactionsProvider({ children }) {
   }, [transactions]);
 
   return (
-    <TransactionsContext.Provider value={{ transactions, addTransaction, bulkAddTransactions, deleteTransaction, clearTransactions, totals }}>
+    <TransactionsContext.Provider value={{ transactions, addTransaction, bulkAddTransactions, deleteTransaction, updateTransaction, clearTransactions, totals }}>
       {children}
     </TransactionsContext.Provider>
   );
