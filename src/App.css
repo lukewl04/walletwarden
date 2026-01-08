@@ -291,3 +291,8 @@ a {
 .navbar-nav .nav-link:hover {
   text-decoration: none !important;
 }
+
+/* Disable underline on dropdown items on hover */
+.dropdown-item:hover {
+  text-decoration: none !important;
+}
