@@ -168,7 +168,6 @@ export default function CsvPdfUpload({ onSave, onClose }) {
 
         setUploadedTransactions(transactionsWithCategories);
         setCategoryEdits({}); // Reset category edits
-        alert(`Successfully imported ${parsed.length} transactions!`);
       } catch (err) {
         console.error('Error parsing CSV:', err);
         alert(`Error parsing CSV file: ${err.message}`);

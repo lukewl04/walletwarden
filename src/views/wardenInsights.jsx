@@ -17,6 +17,7 @@ export default function WardenInsights() {
   // Edit transaction category state
   const [editingCategoryId, setEditingCategoryId] = useState(null);
   const [showImportModal, setShowImportModal] = useState(false);
+  const [showQuickAddModal, setShowQuickAddModal] = useState(false);
   const [amount, setAmount] = useState("");
   const [category, setCategory] = useState("Other");
   const [description, setDescription] = useState("");
@@ -394,51 +395,15 @@ export default function WardenInsights() {
           </div>
         </div>
 
-        {/* Quick Add */}
+        {/* Quick Add Button */}
         <div className="card shadow-sm mb-3">
           <div className="card-body">
-            <h2 className="h6 mb-3">Quick Add</h2>
-
-            <div className="mb-2">
-              <label className="form-label">Amount</label>
-              <input
-                className="form-control"
-                type="number"
-                placeholder="0.00"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                step="0.01"
-                min="0"
-              />
-            </div>
-
-            <div className="mb-2">
-              <label className="form-label">Category</label>
-              <select className="form-select" value={category} onChange={(e) => setCategory(e.target.value)}>
-                {categories.map((c) => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
-              </select>
-            </div>
-
-            <div className="mb-2">
-              <label className="form-label">Description (optional)</label>
-              <input
-                className="form-control"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="e.g. Tesco / Rent / Salary"
-              />
-            </div>
-
-            <div className="d-flex gap-2 mt-3">
-              <button className="btn btn-success w-100" onClick={() => handleAddTransaction("income")}>
-                + Income
-              </button>
-              <button className="btn btn-danger w-100" onClick={() => handleAddTransaction("expense")}>
-                − Expense
-              </button>
-            </div>
+            <button
+              className="btn btn-primary w-100"
+              onClick={() => setShowQuickAddModal(true)}
+            >
+              💬 Quick Add
+            </button>
           </div>
         </div>
 
@@ -587,7 +552,91 @@ export default function WardenInsights() {
                   ></button>
                 </div>
                 <div className="modal-body">
-                  <CsvPdfUpload bulkAddTransactions={bulkAddTransactions} />
+                  <CsvPdfUpload onSave={bulkAddTransactions} onClose={() => setShowImportModal(false)} />
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Quick Add Modal */}
+        {showQuickAddModal && (
+          <div 
+            className="modal d-block" 
+            style={{ backgroundColor: "rgba(0, 0, 0, 0.5)" }}
+            role="dialog"
+          >
+            <div className="modal-dialog" role="document">
+              <div className="modal-content">
+                <div className="modal-header">
+                  <h5 className="modal-title">Quick Add Transaction</h5>
+                  <button
+                    type="button"
+                    className="btn-close"
+                    onClick={() => setShowQuickAddModal(false)}
+                  ></button>
+                </div>
+                <div className="modal-body">
+                  <div className="mb-3">
+                    <label className="form-label">Amount (£)</label>
+                    <input
+                      className="form-control"
+                      type="number"
+                      placeholder="0.00"
+                      value={amount}
+                      onChange={(e) => setAmount(e.target.value)}
+                      step="0.01"
+                      min="0"
+                    />
+                  </div>
+
+                  <div className="mb-3">
+                    <label className="form-label">Category</label>
+                    <select className="form-select" value={category} onChange={(e) => setCategory(e.target.value)}>
+                      {categories.map((c) => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="mb-3">
+                    <label className="form-label">Description (optional)</label>
+                    <input
+                      className="form-control"
+                      value={description}
+                      onChange={(e) => setDescription(e.target.value)}
+                      placeholder="e.g. Tesco / Rent / Salary"
+                    />
+                  </div>
+                </div>
+                <div className="modal-footer">
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => setShowQuickAddModal(false)}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-success"
+                    onClick={() => {
+                      handleAddTransaction("income");
+                      setShowQuickAddModal(false);
+                    }}
+                  >
+                    + Income
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-danger"
+                    onClick={() => {
+                      handleAddTransaction("expense");
+                      setShowQuickAddModal(false);
+                    }}
+                  >
+                    − Expense
+                  </button>
                 </div>
               </div>
             </div>
