@@ -2,6 +2,8 @@ import React, { useState } from "react";
 import Navbar from "../components/navbar.jsx";
 import { useTransactions } from "../state/TransactionsContext";
 
+const API_URL = "http://localhost:4000/api";
+
 export default function Options() {
   const { clearTransactions } = useTransactions();
   const [showConfirmModal, setShowConfirmModal] = useState(false);
@@ -13,11 +15,29 @@ export default function Options() {
 
   const confirmReset = async () => {
     try {
+      setResetMessage("Resetting your data...");
+
+      // Clear insights transactions via context/API
       await clearTransactions();
-      setResetMessage("All transactions have been cleared successfully!");
+
+      // Clear tracker (splits, purchases, category rules) on backend and locally
+      const token = localStorage.getItem("auth0Token") || "dev-user";
+      try {
+        await fetch(`${API_URL}/reset`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+        });
+      } catch (err) {
+        console.error("Error resetting tracker data on backend:", err);
+      }
+
+      localStorage.removeItem("walletwardenSplits");
+      localStorage.removeItem("walletwardenCategoryRules");
+      localStorage.removeItem("walletwarden:transactions:v1");
+
+      setResetMessage("All transactions and tracker data have been cleared successfully!");
       setShowConfirmModal(false);
-      
-      // Clear message after 3 seconds
+
       setTimeout(() => {
         setResetMessage("");
       }, 3000);

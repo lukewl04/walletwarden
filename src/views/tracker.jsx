@@ -1,11 +1,13 @@
 import React, { useState, useMemo, useEffect } from "react";
+import { Link } from "react-router-dom";
 import Navbar from "../components/navbar.jsx";
+import CsvPdfUpload from "../components/csv-pdf-upload.jsx";
 import { useTransactions } from "../state/TransactionsContext";
 
 const API_URL = "http://localhost:4000/api";
 
 export default function Tracker() {
-  const { addTransaction } = useTransactions?.() ?? {};
+  const { addTransaction, bulkAddTransactions, transactions: globalTransactions = [] } = useTransactions?.() ?? {};
   const [savedSplits, setSavedSplits] = useState([]);
   const [selectedSplit, setSelectedSplit] = useState(null);
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -19,18 +21,37 @@ export default function Tracker() {
     category: "",
     description: "",
   });
-  const [quickAdd, setQuickAdd] = useState({
-    amount: "",
-    category: "",
-    description: "",
-  });
   const [showOverBudgetAlert, setShowOverBudgetAlert] = useState(false);
   const [overBudgetCategories, setOverBudgetCategories] = useState([]);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [unlinkedTransactionsCount, setUnlinkedTransactionsCount] = useState(0);
+  const [categoryRules, setCategoryRules] = useState({}); // description -> category
+  const [editingPurchaseId, setEditingPurchaseId] = useState(null);
+  const [isImportingFromInsights, setIsImportingFromInsights] = useState(false);
 
   const selectedSplitData = useMemo(
     () => savedSplits.find((s) => s.id === selectedSplit),
     [selectedSplit, savedSplits]
   );
+
+  // Load persisted category rules
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("walletwardenCategoryRules");
+      if (raw) setCategoryRules(JSON.parse(raw));
+    } catch (e) {
+      console.warn("Failed to load category rules", e);
+    }
+  }, []);
+
+  // Persist category rules
+  useEffect(() => {
+    try {
+      localStorage.setItem("walletwardenCategoryRules", JSON.stringify(categoryRules));
+    } catch (e) {
+      console.warn("Failed to save category rules", e);
+    }
+  }, [categoryRules]);
 
   // Load splits and purchases from backend on initial mount
   useEffect(() => {
@@ -102,6 +123,32 @@ export default function Tracker() {
     if (!selectedSplit) return [];
     return purchases.filter((p) => p.split_id === selectedSplit);
   }, [purchases, selectedSplit]);
+
+  // Count unlinked transactions from Warden Insights
+  useEffect(() => {
+    if (!selectedSplit || !globalTransactions) {
+      setUnlinkedTransactionsCount(0);
+      return;
+    }
+
+    console.log('[Tracker] Global transactions:', globalTransactions.length);
+    console.log('[Tracker] Purchases:', purchases.length);
+
+    // Get all purchase IDs that are already linked to any split
+    const linkedTransactionIds = new Set(
+      purchases.map(p => p.transaction_id).filter(Boolean)
+    );
+
+    console.log('[Tracker] Linked transaction IDs:', Array.from(linkedTransactionIds));
+
+    // Count expense transactions that aren't linked to any purchase
+    const unlinked = globalTransactions.filter(t => 
+      t.type === "expense" && !linkedTransactionIds.has(t.id)
+    );
+
+    console.log('[Tracker] Unlinked transactions:', unlinked.length, unlinked);
+    setUnlinkedTransactionsCount(unlinked.length);
+  }, [globalTransactions, purchases, selectedSplit]);
 
   // Check for over-budget categories
   useEffect(() => {
@@ -299,44 +346,6 @@ export default function Tracker() {
     setShowAddModal(false);
   };
 
-  const handleQuickAdd = (category) => {
-    if (!quickAdd.amount) {
-      alert("Please enter an amount");
-      return;
-    }
-
-    const purchase = {
-      id: crypto.randomUUID(),
-      split_id: selectedSplit,
-      date: new Date().toISOString().split("T")[0],
-      amount: parseFloat(quickAdd.amount),
-      category: category,
-      description: quickAdd.description,
-    };
-
-    setPurchases([...purchases, purchase]);
-
-    // Add transaction
-    if (typeof addTransaction === "function") {
-      addTransaction({
-        type: "expense",
-        amount: purchase.amount,
-        date: purchase.date,
-        category: purchase.category,
-        description: purchase.description,
-      });
-    }
-
-    // Reset quick add form
-    setQuickAdd({
-      amount: "",
-      category: "",
-      description: "",
-    });
-    setSyncMessage(`Added £${purchase.amount.toFixed(2)} to ${category} ✓`);
-    setTimeout(() => setSyncMessage(""), 2000);
-  };
-
   const handleDeletePurchase = async (purchaseId) => {
     if (!confirm("Are you sure you want to delete this purchase?")) return;
 
@@ -360,6 +369,251 @@ export default function Tracker() {
     }
   };
 
+  const handleBulkAdd = (transactions) => {
+    // Call the original bulkAddTransactions if it exists
+    if (typeof bulkAddTransactions === "function") {
+      bulkAddTransactions(transactions);
+    }
+    
+    // Function to match imported category to split category
+    const matchCategory = (importedCat, description = "") => {
+      const ruleHit = categoryRules[normalizeDescriptionKey(description)];
+      if (ruleHit) return ruleHit;
+
+      // Generic keywords that work with any category name
+      const keywordsByType = {
+        food: ["tesco", "sainsbury", "asda", "morrisons", "lidl", "aldi", "waitrose", "co-op", "coop", "grocery", "supermarket", "bakery", "deli", "market", "restaurant", "cafe", "pizza", "burger", "mcdonald", "kfc", "subway", "starbucks", "costa", "pub", "bar", "meals", "food", "greggs", "pret", "leon"],
+        petrol: ["bp", "shell", "esso", "tesco fuel", "sainsbury fuel", "motorbike", "taxi", "uber", "lyft", "train", "rail", "bus", "transport", "parking", "petrol", "diesel", "fuel", "car", "auto", "chevron"],
+        entertainment: ["cinema", "netflix", "spotify", "game", "steam", "playstation", "xbox", "nintendo", "theatre", "concert", "ticket", "movie", "film", "music", "entertainment"],
+        utilities: ["water", "gas", "electric", "council tax", "broadband", "internet", "phone", "mobile", "virgin", "bt", "plusnet", "bills"],
+        health: ["pharmacy", "doctor", "dentist", "hospital", "medical", "gym", "fitness", "health", "optician", "boots", "nhs", "wellbeing"],
+        shopping: ["amazon", "ebay", "argos", "john lewis", "marks spencer", "h&m", "zara", "clothes", "fashion", "homeware", "furniture", "ikea", "b&q", "wickes", "screwfix", "shop", "john lewis"],
+        subscriptions: ["subscription", "spotify", "netflix", "adobe", "microsoft", "apple"],
+        bills: ["bill", "council tax", "water", "gas", "electric", "broadband", "phone", "utility", "council", "rates"],
+        savings: ["savings", "save", "transfer", "saving"],
+        investing: ["invest", "investment", "broker", "trading"],
+      };
+
+      const searchText = (importedCat + " " + description).toLowerCase();
+      
+      // Try exact match first on imported category
+      if (importedCat) {
+        const importedLower = importedCat.toLowerCase();
+        const exactMatch = selectedSplitData?.categories.find(
+          c => c.name.toLowerCase() === importedLower
+        );
+        if (exactMatch) {
+          return exactMatch.name;
+        }
+      }
+      
+      // For each category in the split, try to match keywords
+      for (const category of selectedSplitData?.categories || []) {
+        const categoryLower = category.name.toLowerCase();
+        
+        // Get keywords for this category name
+        // First try exact key match (e.g., "Shopping" -> keywordsByType.shopping)
+        const directKeywords = keywordsByType[categoryLower];
+        if (directKeywords && directKeywords.some(kw => searchText.includes(kw))) {
+          return category.name;
+        }
+        
+        // Then try partial match on keyword type names
+        for (const [typeKey, keywords] of Object.entries(keywordsByType)) {
+          if (categoryLower.includes(typeKey) || typeKey.includes(categoryLower)) {
+            if (keywords.some(kw => searchText.includes(kw))) {
+              return category.name;
+            }
+          }
+        }
+      }
+      
+      // Default to first category or Other
+      const defaultCat = selectedSplitData?.categories[0]?.name || "Other";
+      return defaultCat;
+    };
+
+    // Convert date format from DD/MM/YYYY to YYYY-MM-DD
+    const formatDate = (dateStr) => {
+      if (!dateStr) return new Date().toISOString().split("T")[0];
+      
+      // If already in YYYY-MM-DD format, return as-is
+      if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return dateStr;
+      
+      // Convert DD/MM/YYYY to YYYY-MM-DD
+      if (/^\d{2}\/\d{2}\/\d{4}$/.test(dateStr)) {
+        const [day, month, year] = dateStr.split("/");
+        return `${year}-${month}-${day}`;
+      }
+      
+      // Try to parse as date and format
+      const d = new Date(dateStr);
+      if (!isNaN(d)) {
+        return d.toISOString().split("T")[0];
+      }
+      
+      return new Date().toISOString().split("T")[0];
+    };
+
+    // Convert transactions to purchases with split_id
+    const newPurchases = transactions
+      .filter(t => t.type === "expense")
+      .map(t => {
+        const matched = matchCategory(t.category, t.description);
+        return {
+          id: crypto.randomUUID(),
+          split_id: selectedSplit,
+          date: formatDate(t.date),
+          amount: t.amount,
+          category: matched,
+          description: t.description || "",
+        };
+      });
+
+    if (newPurchases.length > 0) {
+      setPurchases(prev => [...prev, ...newPurchases]);
+      
+      // Automatically navigate to the period of the most recent uploaded transaction
+      const mostRecentDate = newPurchases.reduce((latest, p) => {
+        const pDate = new Date(p.date);
+        return pDate > latest ? pDate : latest;
+      }, new Date(newPurchases[0].date));
+      
+      setCurrentDate(mostRecentDate);
+      
+      setSyncMessage(`Added ${newPurchases.length} purchases from upload ✓ (viewing ${mostRecentDate.toLocaleDateString()})`);
+      setTimeout(() => setSyncMessage(""), 3000);
+    }
+    
+    setShowImportModal(false);
+  };
+
+  const handleImportFromWardenInsights = () => {
+    if (isImportingFromInsights) return;
+    setIsImportingFromInsights(true);
+
+    if (!selectedSplit || !selectedSplitData) {
+      alert("Please select a split first");
+      setIsImportingFromInsights(false);
+      return;
+    }
+
+    // Get all purchase IDs that are already linked
+    const linkedTransactionIds = new Set(
+      purchases.map(p => p.transaction_id).filter(Boolean)
+    );
+
+    // Filter unlinked expense transactions
+    const unlinkedTransactions = globalTransactions.filter(t => 
+      t.type === "expense" && !linkedTransactionIds.has(t.id)
+    );
+
+    if (unlinkedTransactions.length === 0) {
+      alert("No unlinked transactions found in Warden Insights");
+      setIsImportingFromInsights(false);
+      return;
+    }
+
+    // Deduplicate by transaction id in case the source list contains duplicates
+    const uniqueUnlinked = [];
+    const seenIds = new Set();
+    for (const tx of unlinkedTransactions) {
+      const key = tx?.id;
+      if (key && seenIds.has(key)) continue;
+      if (key) seenIds.add(key);
+      uniqueUnlinked.push(tx);
+    }
+
+    // Use the same matching logic as handleBulkAdd
+    const matchCategory = (importedCat, description = "") => {
+      const ruleHit = categoryRules[normalizeDescriptionKey(description)];
+      if (ruleHit) return ruleHit;
+
+      const keywordsByType = {
+        food: ["tesco", "sainsbury", "asda", "morrisons", "lidl", "aldi", "waitrose", "co-op", "coop", "grocery", "supermarket", "bakery", "deli", "market", "restaurant", "cafe", "pizza", "burger", "mcdonald", "kfc", "subway", "starbucks", "costa", "pub", "bar", "meals", "food", "greggs", "pret", "leon"],
+        petrol: ["bp", "shell", "esso", "tesco fuel", "sainsbury fuel", "motorbike", "taxi", "uber", "lyft", "train", "rail", "bus", "transport", "parking", "petrol", "diesel", "fuel", "car", "auto", "chevron"],
+        entertainment: ["cinema", "netflix", "spotify", "game", "steam", "playstation", "xbox", "nintendo", "theatre", "concert", "ticket", "movie", "film", "music", "entertainment"],
+        utilities: ["water", "gas", "electric", "council tax", "broadband", "internet", "phone", "mobile", "virgin", "bt", "plusnet", "bills"],
+        health: ["pharmacy", "doctor", "dentist", "hospital", "medical", "gym", "fitness", "health", "optician", "boots", "nhs", "wellbeing"],
+        shopping: ["amazon", "ebay", "argos", "john lewis", "marks spencer", "h&m", "zara", "clothes", "fashion", "homeware", "furniture", "ikea", "b&q", "wickes", "screwfix", "shop"],
+        subscriptions: ["subscription", "spotify", "netflix", "adobe", "microsoft", "apple"],
+        bills: ["bill", "council tax", "water", "gas", "electric", "broadband", "phone", "utility", "council", "rates"],
+        savings: ["savings", "save", "transfer", "saving"],
+        investing: ["invest", "investment", "broker", "trading"],
+      };
+
+      const searchText = (importedCat + " " + description).toLowerCase();
+      
+      if (importedCat) {
+        const importedLower = importedCat.toLowerCase();
+        const exactMatch = selectedSplitData?.categories.find(
+          c => c.name.toLowerCase() === importedLower
+        );
+        if (exactMatch) return exactMatch.name;
+      }
+      
+      for (const category of selectedSplitData?.categories || []) {
+        const categoryLower = category.name.toLowerCase();
+        const directKeywords = keywordsByType[categoryLower];
+        if (directKeywords && directKeywords.some(kw => searchText.includes(kw))) {
+          return category.name;
+        }
+        
+        for (const [typeKey, keywords] of Object.entries(keywordsByType)) {
+          if (categoryLower.includes(typeKey) || typeKey.includes(categoryLower)) {
+            if (keywords.some(kw => searchText.includes(kw))) {
+              return category.name;
+            }
+          }
+        }
+      }
+      
+      return selectedSplitData?.categories[0]?.name || "Other";
+    };
+
+    const formatDate = (dateStr) => {
+      if (!dateStr) return new Date().toISOString().split("T")[0];
+      if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return dateStr;
+      if (/^\d{2}\/\d{2}\/\d{4}$/.test(dateStr)) {
+        const [day, month, year] = dateStr.split("/");
+        return `${year}-${month}-${day}`;
+      }
+      const d = new Date(dateStr);
+      if (!isNaN(d)) return d.toISOString().split("T")[0];
+      return new Date().toISOString().split("T")[0];
+    };
+
+    // Convert unlinked transactions to purchases
+    const newPurchases = uniqueUnlinked.map(t => {
+      const matched = matchCategory(t.category, t.description);
+      return {
+        id: crypto.randomUUID(),
+        split_id: selectedSplit,
+        transaction_id: t.id, // Link to the global transaction
+        date: formatDate(t.date),
+        amount: t.amount,
+        category: matched,
+        description: t.description || "",
+      };
+    });
+
+    if (newPurchases.length > 0) {
+      setPurchases(prev => [...prev, ...newPurchases]);
+      
+      const mostRecentDate = newPurchases.reduce((latest, p) => {
+        const pDate = new Date(p.date);
+        return pDate > latest ? pDate : latest;
+      }, new Date(newPurchases[0].date));
+      
+      setCurrentDate(mostRecentDate);
+      
+      setSyncMessage(`Imported ${newPurchases.length} transactions from Warden Insights ✓`);
+      setTimeout(() => setSyncMessage(""), 3000);
+    }
+
+    setIsImportingFromInsights(false);
+  };
+
   const getDayPurchases = (day) => {
     if (!day) return [];
     const dateStr = new Date(
@@ -375,6 +629,34 @@ export default function Tracker() {
   const getDayTotal = (day) => {
     const dayPurchases = getDayPurchases(day);
     return dayPurchases.reduce((sum, p) => sum + p.amount, 0);
+  };
+
+  // Normalize a description key for matching rules
+  const normalizeDescriptionKey = (desc = "") => {
+    return desc.toLowerCase().trim().replace(/\s+/g, " ");
+  };
+
+  const upsertCategoryRule = (desc, category) => {
+    if (!desc || !category) return;
+    const key = normalizeDescriptionKey(desc);
+    setCategoryRules((prev) => ({ ...prev, [key]: category }));
+  };
+
+  const handleUpdatePurchaseCategory = (purchaseId, newCategory) => {
+    if (!purchaseId || !newCategory) return;
+    setPurchases((prev) =>
+      prev.map((p) => (p.id === purchaseId ? { ...p, category: newCategory } : p))
+    );
+
+    // Find purchase to learn rule from its description
+    const purchase = purchases.find((p) => p.id === purchaseId);
+    if (purchase?.description) {
+      upsertCategoryRule(purchase.description, newCategory);
+    }
+
+    setEditingPurchaseId(null);
+    setSyncMessage("Category updated ✓");
+    setTimeout(() => setSyncMessage(""), 1500);
   };
 
   const previousMonth = () => {
@@ -485,6 +767,26 @@ export default function Tracker() {
           </div>
         )}
 
+        {unlinkedTransactionsCount > 0 && selectedSplit && (
+          <div className="alert alert-warning mb-3" role="alert">
+            <div className="d-flex align-items-center justify-content-between gap-3">
+              <div>
+                <strong>📥 {unlinkedTransactionsCount} transaction{unlinkedTransactionsCount !== 1 ? 's' : ''}</strong> from Warden Insights {unlinkedTransactionsCount !== 1 ? 'are' : 'is'} not linked to this split yet.
+                <br />
+                <small className="text-muted">Click "Import Now" to automatically categorize and add them to this split.</small>
+              </div>
+              <button 
+                className="btn btn-primary"
+                onClick={handleImportFromWardenInsights}
+                disabled={isImportingFromInsights}
+                style={{ whiteSpace: "nowrap" }}
+              >
+                {isImportingFromInsights ? "Importing..." : "Import Now"}
+              </button>
+            </div>
+          </div>
+        )}
+
         {selectedSplitData && (
           <div className="card mb-4 p-3">
             <h6 className="mb-2">
@@ -508,56 +810,32 @@ export default function Tracker() {
             <div className="col-12 col-lg-3">
               <div className="card shadow-sm" style={{ position: "sticky", top: "80px" }}>
                 <div className="card-body">
-                  <h6 className="mb-3">Quick Add Purchase</h6>
-                  
-                  <div className="mb-3">
-                    <label className="form-label small">Amount (£)</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      className="form-control form-control-sm"
-                      placeholder="0.00"
-                      value={quickAdd.amount}
-                      onChange={(e) => setQuickAdd({ ...quickAdd, amount: e.target.value })}
-                    />
-                  </div>
+                  <h6 className="mb-3">Add or Import</h6>
 
-                  <div className="mb-3">
-                    <label className="form-label small">Description (optional)</label>
-                    <input
-                      type="text"
-                      className="form-control form-control-sm"
-                      placeholder="e.g. Tesco"
-                      value={quickAdd.description}
-                      onChange={(e) => setQuickAdd({ ...quickAdd, description: e.target.value })}
-                    />
-                  </div>
+                  <Link
+                    to="/wardeninsights"
+                    className="btn btn-primary w-100 mb-2"
+                    title="Add transactions or income in Warden Insights"
+                  >
+                    Add
+                  </Link>
 
-                  <div>
-                    <label className="form-label small fw-semibold">Select Category:</label>
-                    <div className="d-grid gap-2">
-                      {selectedSplitData?.categories.map((cat) => (
-                        <button
-                          key={cat.id}
-                          className="btn btn-sm btn-outline-primary text-start d-flex justify-content-between align-items-center"
-                          onClick={() => handleQuickAdd(cat.name)}
-                          disabled={!quickAdd.amount}
-                        >
-                          <span>{cat.name}</span>
-                          <span className="badge bg-secondary">{cat.percent}%</span>
-                        </button>
-                      ))}
-                    </div>
+                  <div className="text-muted small mb-3">
+                    Manage all new expenses and income from Warden Insights; they’ll sync back here.
                   </div>
-
-                  <hr className="my-3" />
 
                   <button
-                    className="btn btn-sm btn-outline-secondary w-100"
+                    className="btn btn-sm btn-outline-secondary w-100 mb-2"
                     onClick={() => setShowAddModal(true)}
                   >
                     + Advanced Add
+                  </button>
+
+                  <button
+                    className="btn btn-sm btn-outline-primary w-100"
+                    onClick={() => setShowImportModal(true)}
+                  >
+                    📄 Import Transactions
                   </button>
                 </div>
               </div>
@@ -622,9 +900,30 @@ export default function Tracker() {
                                 })}
                               </td>
                               <td>
-                                <span className="badge bg-secondary">
-                                  {purchase.category}
-                                </span>
+                                {editingPurchaseId === purchase.id ? (
+                                  <select
+                                    className="form-select form-select-sm"
+                                    value={purchase.category}
+                                    onChange={(e) => handleUpdatePurchaseCategory(purchase.id, e.target.value)}
+                                    onBlur={() => setEditingPurchaseId(null)}
+                                    autoFocus
+                                  >
+                                    {selectedSplitData?.categories.map((cat) => (
+                                      <option key={cat.id} value={cat.name}>
+                                        {cat.name}
+                                      </option>
+                                    ))}
+                                  </select>
+                                ) : (
+                                  <button
+                                    className="badge bg-secondary"
+                                    style={{ border: "none", cursor: "pointer" }}
+                                    onClick={() => setEditingPurchaseId(purchase.id)}
+                                    title="Click to edit category"
+                                  >
+                                    {purchase.category}
+                                  </button>
+                                )}
                                 {categoryData && (
                                   <span className="text-muted small ms-1">
                                     ({categoryData.percent}%)
@@ -767,7 +1066,10 @@ export default function Tracker() {
                     const totalSpent = getPeriodPurchases().reduce((sum, p) => sum + p.amount, 0);
                     const allocatedAmount = (totalSpent * cat.percent) / 100;
                     const percentUsed = totalSpent > 0 ? (categoryTotal / allocatedAmount) * 100 : 0;
-                    const barWidth = Math.min(percentUsed, 150); // Cap at 150% to show overspending
+                    const clamped = Math.min(percentUsed, 150);
+                    const radius = 48;
+                    const halfCirc = Math.PI * radius; // semicircle length
+                    const progress = (clamped / 100) * halfCirc;
                     
                     return (
                       <div key={cat.id} className="col-md-4 mb-3">
@@ -777,27 +1079,37 @@ export default function Tracker() {
                           <div className="small text-muted">
                             {cat.percent}% allocated (£{allocatedAmount.toFixed(2)} budget)
                           </div>
-                          <div
-                            style={{
-                              width: "100%",
-                              height: "4px",
-                              backgroundColor: "#e9ecef",
-                              marginTop: "4px",
-                              borderRadius: "2px",
-                              overflow: "hidden",
-                            }}
-                          >
-                            <div
-                              style={{
-                                height: "100%",
-                                width: `${barWidth}%`,
-                                backgroundColor: percentUsed > 100 ? "#dc3545" : "#28a745",
-                                borderRadius: "2px",
-                              }}
-                            />
+                          <div style={{ width: "100%", display: "flex", justifyContent: "center", marginTop: "6px" }}>
+                            <svg width="140" height="90" viewBox="0 0 140 90">
+                              <g transform="translate(70,70)">
+                                <path
+                                  d={`M ${-radius} 0 A ${radius} ${radius} 0 0 1 ${radius} 0`}
+                                  fill="none"
+                                  stroke="#e9ecef"
+                                  strokeWidth="12"
+                                  strokeLinecap="round"
+                                />
+                                <path
+                                  d={`M ${-radius} 0 A ${radius} ${radius} 0 0 1 ${radius} 0`}
+                                  fill="none"
+                                  stroke={percentUsed > 100 ? "#dc3545" : "#28a745"}
+                                  strokeWidth="12"
+                                  strokeLinecap="round"
+                                  strokeDasharray={`${progress} ${halfCirc}`}
+                                  strokeDashoffset={halfCirc - progress}
+                                />
+                                <circle r="4" fill={percentUsed > 100 ? "#dc3545" : "#28a745"} transform={`rotate(${Math.min(clamped,150) * 1.8 - 90}) translate(${radius},0)`} />
+                                <text x="0" y="-10" textAnchor="middle" fontSize="14" fontWeight="700">
+                                  {percentUsed.toFixed(0)}%
+                                </text>
+                                <text x="0" y="8" textAnchor="middle" fontSize="11" fill="#6c757d">
+                                  {percentUsed > 100 ? "Over" : "Used"}
+                                </text>
+                              </g>
+                            </svg>
                           </div>
-                          <div className="small text-muted mt-1">
-                            {percentUsed > 100 ? "⚠️" : "✓"} {percentUsed.toFixed(0)}% of budget used
+                          <div className="small text-muted text-center" style={{ marginTop: "-6px" }}>
+                            {percentUsed > 100 ? "⚠️ Over budget" : "On track"}
                           </div>
                         </div>
                       </div>
@@ -844,6 +1156,34 @@ export default function Tracker() {
                         >
                           Acknowledge
                         </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Import Modal */}
+              {showImportModal && (
+                <div 
+                  className="modal d-block" 
+                  style={{ backgroundColor: "rgba(0, 0, 0, 0.5)" }}
+                  role="dialog"
+                >
+                  <div className="modal-dialog modal-lg" role="document">
+                    <div className="modal-content">
+                      <div className="modal-header">
+                        <h5 className="modal-title">Import Bank Statement</h5>
+                        <button
+                          type="button"
+                          className="btn-close"
+                          onClick={() => setShowImportModal(false)}
+                        ></button>
+                      </div>
+                      <div className="modal-body">
+                        <p className="text-muted mb-3">
+                          Upload your bank statement in CSV or PDF format. Transactions will be automatically categorized based on your split's categories.
+                        </p>
+                        <CsvPdfUpload bulkAddTransactions={handleBulkAdd} />
                       </div>
                     </div>
                   </div>

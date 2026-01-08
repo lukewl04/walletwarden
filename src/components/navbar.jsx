@@ -71,11 +71,7 @@ const Navbar = () => {
               </Link>
             </li>
             
-            <li className="nav-item">
-              <Link className="nav-link active" to="/insighttracker">
-                Insight Tracker
-              </Link>
-            </li>
+
             <li className="nav-item">
               <Link className="nav-link active" to="/options" title="Options">
                 ⚙️

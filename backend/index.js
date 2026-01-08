@@ -266,6 +266,30 @@ app.delete('/api/purchases/:id', async (req, res) => {
   }
 });
 
+// Reset everything for the current user (transactions, splits, purchases)
+app.post('/api/reset', async (req, res) => {
+  try {
+    const userId = req.auth?.sub;
+    if (!userId) return res.status(401).json({ error: 'unauthorized' });
+
+    const txResult = db.prepare('DELETE FROM transactions WHERE user_id = ?').run(userId);
+    const purchaseResult = db.prepare('DELETE FROM purchases WHERE user_id = ?').run(userId);
+    const splitResult = db.prepare('DELETE FROM splits WHERE user_id = ?').run(userId);
+
+    return res.json({
+      ok: true,
+      cleared: {
+        transactions: txResult.changes,
+        purchases: purchaseResult.changes,
+        splits: splitResult.changes,
+      },
+    });
+  } catch (err) {
+    console.error('Error resetting user data:', err);
+    return res.status(500).json({ error: 'internal_error' });
+  }
+});
+
 // start
 ensureTables();
 const port = process.env.PORT || 4000;

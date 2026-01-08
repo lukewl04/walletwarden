@@ -1,5 +1,4 @@
 import { useState, useRef } from "react";
-import { useNavigate } from "react-router-dom";
 import * as pdfjsLib from 'pdfjs-dist';
 import { useTransactions } from "../state/TransactionsContext";
 import { parsePDFText } from "../utils/bankParsers";
@@ -11,14 +10,25 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
 // thread to handle heavy PDF parsing without blocking the main UI thread.
 
 export default function CsvPdfUpload({ onSave, onClose }) {
-  const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [uploadedTransactions, setUploadedTransactions] = useState([]);
   const [categoryEdits, setCategoryEdits] = useState({}); // Track category changes
+  const [isSaving, setIsSaving] = useState(false);
   const csvInputRef = useRef(null);
   const pdfInputRef = useRef(null);
 
-  const { bulkAddTransactions, clearTransactions } = useTransactions();
+  const { bulkAddTransactions } = useTransactions();
+
+  const dedupeById = (items = []) => {
+    const seen = new Set();
+    return items.filter((item) => {
+      const key = item?.id;
+      if (!key) return true;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  };
 
   const handlePDFUpload = async (e) => {
     const file = e.target.files?.[0];
@@ -307,41 +317,44 @@ export default function CsvPdfUpload({ onSave, onClose }) {
             <div className="mt-3 d-flex gap-2 justify-content-center">
               <button 
                 className="btn btn-primary"
-                disabled={uploadedTransactions.length === 0 || loading}
-                onClick={() => {
+                disabled={uploadedTransactions.length === 0 || loading || isSaving}
+                onClick={async () => {
+                  if (isSaving) return;
                   if (!uploadedTransactions || uploadedTransactions.length === 0) {
                     alert('No transactions to upload');
                     return;
                   }
 
-                  // Apply category edits to transactions before saving
-                  const transactionsWithUpdatedCategories = uploadedTransactions.map(t => ({
-                    ...t,
-                    category: categoryEdits[t.id] || t.category || 'Other'
-                  }));
+                  setIsSaving(true);
+                  try {
+                    const transactionsWithUpdatedCategories = uploadedTransactions.map(t => ({
+                      ...t,
+                      category: categoryEdits[t.id] || t.category || 'Other'
+                    }));
 
-                  // Use provided onSave if the parent passed one, otherwise use the Transactions Context
-                  if (onSave) {
-                    try { onSave(transactionsWithUpdatedCategories); } catch (e) { console.error(e); }
-                    if (onClose) onClose();
-                  } else {
-                    try {
-                      bulkAddTransactions(transactionsWithUpdatedCategories);
+                    const deduped = dedupeById(transactionsWithUpdatedCategories);
+
+                    if (onSave) {
+                      await Promise.resolve(onSave(deduped));
                       if (onClose) onClose();
-                    } catch (e) {
-                      console.error('Error uploading transactions to context', e);
-                      alert('Transactions saved! (Add your save logic here)');
+                    } else {
+                      await bulkAddTransactions(deduped);
+                      if (onClose) onClose();
                     }
-                  }
 
-                  // Clear preview and file inputs
-                  setUploadedTransactions([]);
-                  setCategoryEdits({});
-                  try { if (csvInputRef.current) csvInputRef.current.value = ''; } catch (_) {}
-                  try { if (pdfInputRef.current) pdfInputRef.current.value = ''; } catch (_) {}
+                    setUploadedTransactions([]);
+                    setCategoryEdits({});
+                    try { if (csvInputRef.current) csvInputRef.current.value = ''; } catch (_) {}
+                    try { if (pdfInputRef.current) pdfInputRef.current.value = ''; } catch (_) {}
+                  } catch (e) {
+                    console.error('Error uploading transactions to context', e);
+                    alert('Failed to upload transactions. Please try again.');
+                  } finally {
+                    setIsSaving(false);
+                  }
                 }}
               >
-                Upload
+                {isSaving ? "Uploading..." : "Upload"}
               </button>
             </div>
           </div>
