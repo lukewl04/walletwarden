@@ -56,7 +56,7 @@ const Navbar = () => {
       <div className="container">
         {/* Brand */}
         <Link className="navbar-brand fw-bold" to="/">
-          Warden Wallet
+          Warden <span className="text-primary">Wallet</span>
         </Link>
 
         {/* Toggle Button */}
