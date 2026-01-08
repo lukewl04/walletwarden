@@ -59,6 +59,7 @@ const ensureTables = () => {
         id TEXT PRIMARY KEY,
         user_id TEXT NOT NULL,
         split_id TEXT NOT NULL,
+        transaction_id TEXT,
         date TEXT NOT NULL,
         amount REAL NOT NULL,
         category TEXT NOT NULL,
@@ -66,6 +67,18 @@ const ensureTables = () => {
         created_at TEXT DEFAULT CURRENT_TIMESTAMP
       )
     `);
+
+    // Ensure transaction_id column exists (for older installs)
+    try {
+      const cols = db.prepare("PRAGMA table_info(purchases)").all();
+      const hasTxnId = Array.isArray(cols) && cols.some((c) => c.name === "transaction_id");
+      if (!hasTxnId) {
+        db.exec("ALTER TABLE purchases ADD COLUMN transaction_id TEXT");
+        console.log('Added purchases.transaction_id column');
+      }
+    } catch (e) {
+      console.warn('Failed to ensure purchases.transaction_id column:', e.message);
+    }
 
     console.log('All tables ready (SQLite)');
   } catch (err) {
@@ -224,7 +237,7 @@ app.get('/api/purchases', async (req, res) => {
     const userId = req.auth?.sub;
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
 
-    const rows = db.prepare('SELECT id, split_id, date, amount, category, description FROM purchases WHERE user_id = ? ORDER BY date DESC').all(userId);
+    const rows = db.prepare('SELECT id, split_id, transaction_id, date, amount, category, description FROM purchases WHERE user_id = ? ORDER BY date DESC').all(userId);
     return res.json(rows);
   } catch (err) {
     console.error(err);
@@ -237,14 +250,14 @@ app.post('/api/purchases', async (req, res) => {
     const userId = req.auth?.sub;
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
 
-    const { id, split_id, date, amount, category, description } = req.body;
+    const { id, split_id, transaction_id, date, amount, category, description } = req.body;
     if (!id || !split_id || !date || !amount || !category) {
       return res.status(400).json({ error: 'invalid_payload' });
     }
 
     db.prepare(
-      'INSERT OR REPLACE INTO purchases(id, user_id, split_id, date, amount, category, description) VALUES(?, ?, ?, ?, ?, ?, ?)'
-    ).run(id, userId, split_id, date, amount, category, description || null);
+      'INSERT OR REPLACE INTO purchases(id, user_id, split_id, transaction_id, date, amount, category, description) VALUES(?, ?, ?, ?, ?, ?, ?, ?)'
+    ).run(id, userId, split_id, transaction_id || null, date, amount, category, description || null);
     return res.json({ ok: true });
   } catch (err) {
     console.error(err);

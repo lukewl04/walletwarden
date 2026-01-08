@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import Navbar from "../components/navbar.jsx";
 import CsvPdfUpload from "../components/csv-pdf-upload.jsx";
 import { useTransactions } from "../state/TransactionsContext";
+import { generateId } from "../models/transaction";
 
 const API_URL = "http://localhost:4000/api";
 
@@ -235,6 +236,7 @@ export default function Tracker() {
             body: JSON.stringify({
               id: purchase.id,
               split_id: selectedSplit,
+              transaction_id: purchase.transaction_id,
               date: purchase.date,
               amount: purchase.amount,
               category: purchase.category,
@@ -317,18 +319,22 @@ export default function Tracker() {
       return;
     }
 
+    // Create a linked transaction id so this purchase won't appear as unlinked
+    const transactionId = generateId();
     const purchase = {
       id: crypto.randomUUID(),
       split_id: selectedSplit,
+      transaction_id: transactionId,
       ...newPurchase,
       amount: parseFloat(newPurchase.amount),
     };
 
     setPurchases([...purchases, purchase]);
 
-    // Add transaction
+    // Add matching transaction with the same id
     if (typeof addTransaction === "function") {
       addTransaction({
+        id: transactionId,
         type: "expense",
         amount: purchase.amount,
         date: purchase.date,
@@ -370,9 +376,13 @@ export default function Tracker() {
   };
 
   const handleBulkAdd = (transactions) => {
-    // Call the original bulkAddTransactions if it exists
+    // Assign stable ids to imported transactions and persist them
+    let withIds = transactions || [];
+    if (Array.isArray(withIds)) {
+      withIds = withIds.map((t) => ({ ...t, id: t.id || generateId() }));
+    }
     if (typeof bulkAddTransactions === "function") {
-      bulkAddTransactions(transactions);
+      bulkAddTransactions(withIds);
     }
     
     // Function to match imported category to split category
@@ -380,15 +390,15 @@ export default function Tracker() {
       const ruleHit = categoryRules[normalizeDescriptionKey(description)];
       if (ruleHit) return ruleHit;
 
-      // Generic keywords that work with any category name
+      // Generic keywords organized by type - avoid overlaps between incompatible categories
       const keywordsByType = {
         food: ["tesco", "sainsbury", "asda", "morrisons", "lidl", "aldi", "waitrose", "co-op", "coop", "grocery", "supermarket", "bakery", "deli", "market", "restaurant", "cafe", "pizza", "burger", "mcdonald", "kfc", "subway", "starbucks", "costa", "pub", "bar", "meals", "food", "greggs", "pret", "leon"],
-        petrol: ["bp", "shell", "esso", "tesco fuel", "sainsbury fuel", "motorbike", "taxi", "uber", "lyft", "train", "rail", "bus", "transport", "parking", "petrol", "diesel", "fuel", "car", "auto", "chevron"],
+        petrol: ["bp", "shell", "esso", "tesco fuel", "sainsbury fuel", "petrol", "diesel", "fuel", "chevron"],
         entertainment: ["cinema", "netflix", "spotify", "game", "steam", "playstation", "xbox", "nintendo", "theatre", "concert", "ticket", "movie", "film", "music", "entertainment"],
         utilities: ["water", "gas", "electric", "council tax", "broadband", "internet", "phone", "mobile", "virgin", "bt", "plusnet", "bills"],
         health: ["pharmacy", "doctor", "dentist", "hospital", "medical", "gym", "fitness", "health", "optician", "boots", "nhs", "wellbeing"],
-        shopping: ["amazon", "ebay", "argos", "john lewis", "marks spencer", "h&m", "zara", "clothes", "fashion", "homeware", "furniture", "ikea", "b&q", "wickes", "screwfix", "shop", "john lewis"],
-        subscriptions: ["subscription", "spotify", "netflix", "adobe", "microsoft", "apple"],
+        shopping: ["amazon", "ebay", "argos", "john lewis", "marks spencer", "h&m", "zara", "clothes", "fashion", "homeware", "furniture", "ikea", "b&q", "wickes", "screwfix", "shop"],
+        subscriptions: ["subscription", "adobe", "microsoft", "apple"],
         bills: ["bill", "council tax", "water", "gas", "electric", "broadband", "phone", "utility", "council", "rates"],
         savings: ["savings", "save", "transfer", "saving"],
         investing: ["invest", "investment", "broker", "trading"],
@@ -412,7 +422,6 @@ export default function Tracker() {
         const categoryLower = category.name.toLowerCase();
         
         // Get keywords for this category name
-        // First try exact key match (e.g., "Shopping" -> keywordsByType.shopping)
         const directKeywords = keywordsByType[categoryLower];
         if (directKeywords && directKeywords.some(kw => searchText.includes(kw))) {
           return category.name;
@@ -456,13 +465,14 @@ export default function Tracker() {
     };
 
     // Convert transactions to purchases with split_id
-    const newPurchases = transactions
+    const newPurchases = withIds
       .filter(t => t.type === "expense")
       .map(t => {
         const matched = matchCategory(t.category, t.description);
         return {
           id: crypto.randomUUID(),
           split_id: selectedSplit,
+          transaction_id: t.id,
           date: formatDate(t.date),
           amount: t.amount,
           category: matched,
@@ -531,12 +541,12 @@ export default function Tracker() {
 
       const keywordsByType = {
         food: ["tesco", "sainsbury", "asda", "morrisons", "lidl", "aldi", "waitrose", "co-op", "coop", "grocery", "supermarket", "bakery", "deli", "market", "restaurant", "cafe", "pizza", "burger", "mcdonald", "kfc", "subway", "starbucks", "costa", "pub", "bar", "meals", "food", "greggs", "pret", "leon"],
-        petrol: ["bp", "shell", "esso", "tesco fuel", "sainsbury fuel", "motorbike", "taxi", "uber", "lyft", "train", "rail", "bus", "transport", "parking", "petrol", "diesel", "fuel", "car", "auto", "chevron"],
+        petrol: ["bp", "shell", "esso", "tesco fuel", "sainsbury fuel", "petrol", "diesel", "fuel", "chevron"],
         entertainment: ["cinema", "netflix", "spotify", "game", "steam", "playstation", "xbox", "nintendo", "theatre", "concert", "ticket", "movie", "film", "music", "entertainment"],
         utilities: ["water", "gas", "electric", "council tax", "broadband", "internet", "phone", "mobile", "virgin", "bt", "plusnet", "bills"],
         health: ["pharmacy", "doctor", "dentist", "hospital", "medical", "gym", "fitness", "health", "optician", "boots", "nhs", "wellbeing"],
         shopping: ["amazon", "ebay", "argos", "john lewis", "marks spencer", "h&m", "zara", "clothes", "fashion", "homeware", "furniture", "ikea", "b&q", "wickes", "screwfix", "shop"],
-        subscriptions: ["subscription", "spotify", "netflix", "adobe", "microsoft", "apple"],
+        subscriptions: ["subscription", "adobe", "microsoft", "apple"],
         bills: ["bill", "council tax", "water", "gas", "electric", "broadband", "phone", "utility", "council", "rates"],
         savings: ["savings", "save", "transfer", "saving"],
         investing: ["invest", "investment", "broker", "trading"],
@@ -698,6 +708,8 @@ export default function Tracker() {
     } else if (freq === "yearly") {
       return currentDate.getFullYear().toString();
     }
+    // Default for custom or unknown frequency
+    return "All Time";
   };
 
   const getPeriodPurchases = () => {
@@ -729,7 +741,8 @@ export default function Tracker() {
       });
     }
 
-    return [];
+    // Default for custom or unknown frequency: show all split purchases
+    return filteredPurchases;
   };
 
   return (
@@ -1056,9 +1069,7 @@ export default function Tracker() {
               {filteredPurchases.length > 0 && (
                 <div className="card">
                   <div className="card-body">
-                    <h6 className="mb-3">
-                      {selectedSplitData.frequency === "weekly" ? "Weekly" : selectedSplitData.frequency === "monthly" ? "Monthly" : "Yearly"} Summary - {getPeriodLabel()}
-                    </h6>
+                    <h6 className="mb-3">Summary - {getPeriodLabel()}</h6>
                 <div className="row">
                   {selectedSplitData?.categories.map((cat) => {
                     const categoryPurchases = getPeriodPurchases().filter((p) => p.category === cat.name);

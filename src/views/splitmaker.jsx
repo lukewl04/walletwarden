@@ -62,18 +62,14 @@ export default function SplitMaker() {
     },
   ];
 
-  // ✅ Missing state (this is why you got "mode is not defined")
-  const [mode, setMode] = useState("percent"); // "percent" | "amount"
   const [needsPreset, setNeedsPreset] = useState(true); // gate UI until a preset is chosen
   const [selectedPreset, setSelectedPreset] = useState("");
-
-  const [amount, setAmount] = useState(""); // total amount
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState("Split");
 
   const [message, setMessage] = useState(null); // { type: "success"|"danger"|"warning", text: string }
   const [showFrequencyModal, setShowFrequencyModal] = useState(false);
-  const [selectedFrequency, setSelectedFrequency] = useState("monthly");
+  const [splitName, setSplitName] = useState("");
 
   // We'll call them "people" because your UI already uses that variable name,
   // but they behave like categories in this screen.
@@ -83,10 +79,7 @@ export default function SplitMaker() {
     { id: crypto.randomUUID(), name: "Bills", percent: 0, amount: "" },
   ]);
 
-  const parsedAmount = useMemo(() => {
-    const n = Number(amount);
-    return Number.isFinite(n) ? n : 0;
-  }, [amount]);
+  // No total amount: we only operate on percentages
 
   // Helper: apply preset mapping to the list
   const applyPreset = (preset) => {
@@ -99,7 +92,6 @@ export default function SplitMaker() {
         amount: "",
       }));
     setPeople(newPeople);
-    setMode("percent");
     setSelectedPreset(preset.label);
     setMessage({ type: "success", text: `Applied preset: ${preset.label}` });
     setNeedsPreset(false);
@@ -133,101 +125,19 @@ export default function SplitMaker() {
 
   const equalize = () => {
     if (people.length === 0) return;
-    setMode("percent");
     const each = +(100 / people.length).toFixed(2);
     setPeople((prev) => prev.map((p) => ({ ...p, percent: each })));
     setSelectedPreset("");
   };
 
-  const peopleWithAmounts = useMemo(() => {
-    // Compute amounts from percents OR percents from amounts
-    if (mode === "percent") {
-      return people.map((p) => {
-        const pct = Number(p.percent) || 0;
-        const computedAmount = (parsedAmount * pct) / 100;
-        return { ...p, computedAmount };
-      });
-    }
-
-    // mode === "amount"
-    return people.map((p) => {
-      const a = Number(p.amount) || 0;
-      const computedPercent = parsedAmount > 0 ? +((a / parsedAmount) * 100).toFixed(2) : 0;
-      return { ...p, computedAmount: a, computedPercent };
-    });
-  }, [people, mode, parsedAmount]);
-
   const totals = useMemo(() => {
-    const percentSum =
-      mode === "percent"
-        ? people.reduce((sum, p) => sum + (Number(p.percent) || 0), 0)
-        : peopleWithAmounts.reduce((sum, p) => sum + (Number(p.computedPercent) || 0), 0);
-
-    const amountSum =
-      mode === "percent"
-        ? peopleWithAmounts.reduce((sum, p) => sum + (Number(p.computedAmount) || 0), 0)
-        : people.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
-
-    return {
-      percentSum: +percentSum.toFixed(2),
-      amountSum: +amountSum.toFixed(2),
-    };
-  }, [people, peopleWithAmounts, mode]);
-
-  const previewTotal = useMemo(() => {
-    // what the split currently adds up to (in £)
-    if (mode === "percent") return totals.amountSum;
-    return totals.amountSum;
-  }, [mode, totals.amountSum]);
+    const percentSum = people.reduce((sum, p) => sum + (Number(p.percent) || 0), 0);
+    return { percentSum: +percentSum.toFixed(2) };
+  }, [people]);
 
   const canAdd = () => {
-    if (parsedAmount <= 0) return false;
     if (people.length === 0) return false;
-
-    if (mode === "percent") {
-      return Math.abs(totals.percentSum - 100) <= 0.01;
-    }
-    // amount mode: must sum to total
-    return Math.abs(totals.amountSum - parsedAmount) <= 0.01;
-  };
-
-  const handleAddSplits = () => {
-    if (!canAdd()) {
-      setMessage({
-        type: "danger",
-        text:
-          mode === "percent"
-            ? `Percents must total 100%. You have ${totals.percentSum}%.`
-            : `Amounts must total £${parsedAmount.toFixed(2)}. You have £${totals.amountSum.toFixed(2)}.`,
-      });
-      return;
-    }
-
-    if (typeof addTransaction !== "function") {
-      setMessage({
-        type: "warning",
-        text: "addTransaction() wasn’t found on TransactionsContext. Check your context exports.",
-      });
-      return;
-    }
-
-    // Create one transaction per category line (expense by default)
-    peopleWithAmounts.forEach((p) => {
-      const amt = Number(p.computedAmount) || 0;
-      if (amt <= 0) return;
-
-      addTransaction({
-        type: "expense",
-        amount: amt,
-        date: new Date().toISOString(),
-        category: p.name,
-        description: description || `Split: ${category}`,
-      });
-    });
-
-    setMessage({ type: "success", text: "Splits added to transactions ✅" });
-    setAmount("");
-    setDescription("");
+    return Math.abs(totals.percentSum - 100) <= 0.01;
   };
 
   const handleSaveSplit = () => {
@@ -239,7 +149,7 @@ export default function SplitMaker() {
       return;
     }
 
-    if (mode === "percent" && Math.abs(totals.percentSum - 100) > 0.01) {
+    if (Math.abs(totals.percentSum - 100) > 0.01) {
       setMessage({
         type: "danger",
         text: `Percents must total 100%. You have ${totals.percentSum}%.`,
@@ -247,14 +157,22 @@ export default function SplitMaker() {
       return;
     }
 
+    // Prefill name suggestion from existing label/category if available
+    setSplitName(description || category || "");
     setShowFrequencyModal(true);
   };
 
   const confirmSaveSplit = async () => {
+    const nameToSave = (splitName || "").trim();
+    if (!nameToSave) {
+      alert("Please enter a name for this split.");
+      return;
+    }
+
     const savedSplit = {
       id: crypto.randomUUID(),
-      name: description || category || "Unnamed Split",
-      frequency: selectedFrequency,
+      name: nameToSave,
+      frequency: "custom",
       categories: people,
       timestamp: new Date().toISOString(),
     };
@@ -282,10 +200,7 @@ export default function SplitMaker() {
         savedSplits.push(savedSplit);
         localStorage.setItem("walletwardenSplits", JSON.stringify(savedSplits));
 
-        setMessage({
-          type: "success",
-          text: `Split saved as "${savedSplit.name}" (${selectedFrequency})! 💾`,
-        });
+        setMessage({ type: "success", text: `Split saved as "${savedSplit.name}"! 💾` });
       } else {
         setMessage({
           type: "danger",
@@ -348,27 +263,11 @@ export default function SplitMaker() {
 
       <div className="card shadow-sm mb-4" style={{ minHeight: 600 }}>
         <div className="card-body" style={{ overflowX: "auto" }}>
-          {/* Mode Toggle & Header */}
+          {/* Header */}
           <div className="d-flex align-items-center justify-content-between mb-4">
             <div>
               <h1 className="h4 mb-1">Split Maker</h1>
               <p className="text-muted small mb-0">Allocate your income to categories by percentage or amount</p>
-            </div>
-            <div className="btn-group btn-group-sm" role="group">
-              <button
-                type="button"
-                className={`btn ${mode === "percent" ? "btn-primary" : "btn-outline-secondary"}`}
-                onClick={() => setMode("percent")}
-              >
-                By %
-              </button>
-              <button
-                type="button"
-                className={`btn ${mode === "amount" ? "btn-primary" : "btn-outline-secondary"}`}
-                onClick={() => setMode("amount")}
-              >
-                By £
-              </button>
             </div>
           </div>
 
@@ -386,21 +285,7 @@ export default function SplitMaker() {
                 <div className="card-body">
                   <h6 className="card-title mb-3 fw-bold">Income Details</h6>
                   
-                  <div className="mb-4">
-                    <label className="form-label small fw-semibold d-block mb-2">Total Amount</label>
-                    <div className="input-group input-group-lg">
-                      <span className="input-group-text">£</span>
-                      <input
-                        className="form-control"
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        value={amount}
-                        onChange={(e) => setAmount(e.target.value)}
-                        placeholder="0.00"
-                      />
-                    </div>
-                  </div>
+                  {/* Total Amount removed; splits operate on percents only */}
 
                   <div className="mb-4">
                     <label className="form-label small fw-semibold d-block mb-2">Label</label>
@@ -414,24 +299,22 @@ export default function SplitMaker() {
 
                   <hr className="my-3" />
 
-                  {/* Stats Panel */}
+                  {/* Stats Panel (Percent-based) */}
                   <div className="p-3 rounded mb-3" style={{ backgroundColor: "var(--card-border)", border: "1px solid var(--card-border)" }}>
                     <div className="small text-muted mb-2">
-                      <strong>Total allocated:</strong>
+                      <strong>Percents total:</strong>
                     </div>
                     <div className="h6 mb-2">
-                      £{totals.amountSum.toFixed(2)} / £{parsedAmount.toFixed(2)}
+                      {totals.percentSum}% / 100%
                     </div>
                     <div className="progress" style={{ height: "6px" }}>
                       <div
-                        className={`progress-bar ${Math.abs(previewTotal - parsedAmount) < 0.01 ? "bg-success" : "bg-warning"}`}
-                        style={{
-                          width: `${Math.min((totals.amountSum / Math.max(parsedAmount, 1)) * 100, 100)}%`,
-                        }}
+                        className={`progress-bar ${Math.abs(totals.percentSum - 100) < 0.01 ? "bg-success" : "bg-warning"}`}
+                        style={{ width: `${Math.min(totals.percentSum, 100)}%` }}
                       />
                     </div>
-                    <div className={`small mt-2 fw-semibold ${Math.abs(previewTotal - parsedAmount) < 0.01 ? "text-success" : "text-warning"}`}>
-                      {Math.abs(previewTotal - parsedAmount) < 0.01 ? "✓ Balanced" : "⚠️ Unbalanced"}
+                    <div className={`small mt-2 fw-semibold ${Math.abs(totals.percentSum - 100) < 0.01 ? "text-success" : "text-warning"}`}>
+                      {Math.abs(totals.percentSum - 100) < 0.01 ? "✓ Balanced" : "⚠️ Unbalanced"}
                     </div>
                   </div>
 
@@ -462,13 +345,6 @@ export default function SplitMaker() {
 
                   <div className="d-grid gap-2">
                     <button
-                      className="btn btn-primary"
-                      disabled={!canAdd()}
-                      onClick={handleAddSplits}
-                    >
-                      Add to transactions
-                    </button>
-                    <button
                       className="btn btn-success"
                       onClick={handleSaveSplit}
                     >
@@ -497,9 +373,9 @@ export default function SplitMaker() {
                     </div>
                   ) : (
                     <div className="list-group list-group-flush">
-                      {peopleWithAmounts.map((p, idx) => (
-                        <div key={p.id} className="list-group-item border-0 px-0 py-3">
-                          <div className="row align-items-end g-3">
+                      {people.map((p, idx) => (
+                        <div key={p.id} className="list-group-item border-0 px-0 py-2">
+                          <div className="row align-items-end g-2">
                             <div className="col-12 col-md-4">
                               <label className="form-label small fw-semibold mb-1">Category Name</label>
                               <input
@@ -509,48 +385,18 @@ export default function SplitMaker() {
                                 placeholder="e.g. Food"
                               />
                             </div>
-
-                            {mode === "percent" ? (
-                              <>
-                                <div className="col-6 col-md-2">
-                                  <label className="form-label small fw-semibold mb-1">Percent</label>
-                                  <input
-                                    className="form-control form-control-sm"
-                                    type="number"
-                                    step="0.01"
-                                    min="0"
-                                    max="100"
-                                    value={p.percent}
-                                    onChange={(e) => updatePerson(p.id, { percent: e.target.value })}
-                                  />
-                                </div>
-                                <div className="col-6 col-md-2">
-                                  <label className="form-label small fw-semibold mb-1">Budget</label>
-                                  <div className="fw-bold">£{(p.computedAmount ?? 0).toFixed(2)}</div>
-                                </div>
-                              </>
-                            ) : (
-                              <>
-                                <div className="col-6 col-md-2">
-                                  <label className="form-label small fw-semibold mb-1">Amount</label>
-                                  <div className="input-group input-group-sm">
-                                    <span className="input-group-text">£</span>
-                                    <input
-                                      className="form-control form-control-sm"
-                                      type="number"
-                                      step="0.01"
-                                      min="0"
-                                      value={p.amount}
-                                      onChange={(e) => updatePerson(p.id, { amount: e.target.value })}
-                                    />
-                                  </div>
-                                </div>
-                                <div className="col-6 col-md-2">
-                                  <label className="form-label small fw-semibold mb-1">Percent</label>
-                                  <div className="fw-bold">{(p.computedPercent ?? 0).toFixed(1)}%</div>
-                                </div>
-                              </>
-                            )}
+                            <div className="col-6 col-md-2">
+                              <label className="form-label small fw-semibold mb-1">Percent</label>
+                              <input
+                                className="form-control form-control-sm"
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                max="100"
+                                value={p.percent}
+                                onChange={(e) => updatePerson(p.id, { percent: e.target.value })}
+                              />
+                            </div>
 
                             <div className="col-12 col-md-2 d-flex gap-2">
                               <button
@@ -588,20 +434,16 @@ export default function SplitMaker() {
                 />
               </div>
               <div className="modal-body">
-                <p className="mb-3">Is this a weekly, monthly, or yearly income split?</p>
-                <div className="d-flex gap-2 flex-wrap">
-                  {["weekly", "monthly", "yearly"].map((freq) => (
-                    <button
-                      key={freq}
-                      className={`btn flex-grow-1 ${
-                        selectedFrequency === freq ? "btn-primary" : "btn-outline-secondary"
-                      }`}
-                      onClick={() => setSelectedFrequency(freq)}
-                    >
-                      {freq.charAt(0).toUpperCase() + freq.slice(1)}
-                    </button>
-                  ))}
+                <div className="mb-3">
+                  <label className="form-label">Split Name</label>
+                  <input
+                    className="form-control"
+                    value={splitName}
+                    onChange={(e) => setSplitName(e.target.value)}
+                    placeholder="e.g. January Budget"
+                  />
                 </div>
+                {/* Frequency selection removed; saving uses a safe default behind the scenes */}
               </div>
               <div className="modal-footer">
                 <button
