@@ -76,6 +76,11 @@ const Navbar = () => {
                 Insight Tracker
               </Link>
             </li>
+            <li className="nav-item">
+              <Link className="nav-link active" to="/options" title="Options">
+                ⚙️
+              </Link>
+            </li>
             {/* Call to Action */}
             <li className="nav-item">
               <Link className="btn btn-primary px-4 rounded-pill" to="/splitmaker">
