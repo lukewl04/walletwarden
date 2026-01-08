@@ -828,14 +828,14 @@ export default function Tracker() {
                     className="btn btn-sm btn-outline-secondary w-100 mb-2"
                     onClick={() => setShowAddModal(true)}
                   >
-                    + Advanced Add
+                    💬 Input Transactions
                   </button>
 
                   <button
                     className="btn btn-sm btn-outline-primary w-100"
                     onClick={() => setShowImportModal(true)}
                   >
-                    📄 Import Transactions
+                    📄 Import Statements
                   </button>
                 </div>
               </div>
