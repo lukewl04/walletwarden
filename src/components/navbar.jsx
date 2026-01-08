@@ -91,29 +91,11 @@ const Navbar = () => {
                 Tracker
               </Link>
             </li>
-            
-
-            <li className="nav-item">
-              <Link className="nav-link active" to="/options" title="Options">
-                ⚙️
-              </Link>
-            </li>
             {/* Call to Action */}
             <li className="nav-item">
               <Link className="btn btn-primary px-4 rounded-pill" to="/splitmaker">
                 Split Maker
               </Link>
-            </li>
-
-            <li className="nav-item ms-lg-3 mt-2 mt-lg-0">
-              <button
-                type="button"
-                className="btn btn-outline-secondary btn-sm"
-                onClick={toggleTheme}
-                aria-label="Toggle dark mode"
-              >
-                {theme === "light" ? "🌙 Dark" : "☀️ Light"}
-              </button>
             </li>
 
             {user && (
@@ -160,6 +142,18 @@ const Navbar = () => {
                     >
                       ⚙️ Settings
                     </Link>
+                    <hr className="dropdown-divider my-2" />
+                    <button
+                      type="button"
+                      className="dropdown-item"
+                      onClick={() => {
+                        toggleTheme();
+                        setShowProfileDropdown(false);
+                      }}
+                      style={{ border: 'none', background: 'none', cursor: 'pointer', textAlign: 'left', width: '100%' }}
+                    >
+                      {theme === "light" ? "🌙 Dark Mode" : "☀️ Light Mode"}
+                    </button>
                   </div>
                 )}
               </li>
