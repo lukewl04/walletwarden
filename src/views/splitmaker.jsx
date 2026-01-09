@@ -179,7 +179,7 @@ export default function SplitMaker() {
 
     try {
       // Save to backend
-      const token = localStorage.getItem("auth0Token") || "dev-user";
+      const token = localStorage.getItem("walletwarden-token") || "dev-user";
       const response = await fetch(`${API_URL}/splits`, {
         method: "POST",
         headers: {

@@ -58,32 +58,44 @@ export default function Options() {
     try {
       setResetMessage("Resetting your data...");
 
-      // Clear insights transactions via context/API
-      await clearTransactions();
-
-      // Clear tracker (splits, purchases, category rules) on backend and locally
-      const token = localStorage.getItem("auth0Token") || "dev-user";
+      // Clear data on backend (Supabase) first
+      const token = localStorage.getItem("walletwarden-token") || "dev-user";
       try {
-        await fetch(`${API_URL}/reset`, {
+        const response = await fetch(`${API_URL}/reset`, {
           method: "POST",
           headers: { Authorization: `Bearer ${token}` },
         });
+        
+        if (response.ok) {
+          const result = await response.json();
+          console.log("Backend reset result:", result);
+        } else {
+          console.error("Backend reset failed:", response.status);
+        }
       } catch (err) {
-        console.error("Error resetting tracker data on backend:", err);
+        console.error("Error resetting data on backend:", err);
       }
 
+      // Clear insights transactions via context/API
+      await clearTransactions();
+
+      // Clear all localStorage data related to the app
       localStorage.removeItem("walletwardenSplits");
+      localStorage.removeItem("walletwardenSelectedSplit");
       localStorage.removeItem("walletwardenCategoryRules");
+      localStorage.removeItem("walletwardenSplitIncomes");
       localStorage.removeItem("walletwarden:transactions:v1");
 
-      setResetMessage("All transactions and tracker data have been cleared successfully!");
+      setResetMessage("All data has been cleared from your account successfully!");
       setShowConfirmModal(false);
       setTimeout(() => {
         setResetMessage("");
-      }, 3000);
+        // Reload the page to reset all state
+        window.location.reload();
+      }, 2000);
     } catch (error) {
-      console.error("Error clearing transactions:", error);
-      setResetMessage("Error clearing transactions. Please try again.");
+      console.error("Error clearing data:", error);
+      setResetMessage("Error clearing data. Please try again.");
     }
   };
 

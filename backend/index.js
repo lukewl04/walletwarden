@@ -1,12 +1,33 @@
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
-const Database = require('better-sqlite3');
+const { PrismaClient } = require('@prisma/client');
+const { PrismaPg } = require('@prisma/adapter-pg');
+const { Pool } = require('pg');
 const jwt = require('express-jwt');
 const jwksRsa = require('jwks-rsa');
-const path = require('path');
 
 const app = express();
+
+// Set up PostgreSQL connection pool for Supabase
+// Uses DATABASE_URL which should be the pooled connection (transaction mode)
+const connectionString = process.env.DATABASE_URL;
+
+if (!connectionString) {
+  console.error('❌ DATABASE_URL environment variable is not set');
+  console.error('Please set DATABASE_URL to your Supabase PostgreSQL connection string');
+  console.error('Find it in: Supabase Dashboard > Settings > Database > Connection string');
+  process.exit(1);
+}
+
+const pool = new Pool({
+  connectionString,
+  ssl: { rejectUnauthorized: false } // Required for Supabase
+});
+
+// Initialize Prisma with PostgreSQL adapter
+const adapter = new PrismaPg(pool);
+const prisma = new PrismaClient({ adapter });
 
 // Allow both dev ports for CORS
 const corsOrigins = [
@@ -17,75 +38,6 @@ const corsOrigins = [
 
 app.use(cors({ origin: corsOrigins }));
 app.use(express.json());
-
-// SQLite database for local development
-const db = new Database(path.join(__dirname, 'walletwarden.db'));
-db.pragma('journal_mode = WAL');
-
-
-// Ensure tables exist with proper schema
-const ensureTables = () => {
-  try {
-    // Create transactions table
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS transactions (
-        id TEXT PRIMARY KEY,
-        user_id TEXT NOT NULL,
-        type TEXT NOT NULL,
-        amount REAL NOT NULL,
-        date TEXT NOT NULL,
-        category TEXT,
-        description TEXT,
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    // Create splits table
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS splits (
-        id TEXT PRIMARY KEY,
-        user_id TEXT NOT NULL,
-        name TEXT NOT NULL,
-        frequency TEXT NOT NULL,
-        categories TEXT NOT NULL,
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    // Create purchases table
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS purchases (
-        id TEXT PRIMARY KEY,
-        user_id TEXT NOT NULL,
-        split_id TEXT NOT NULL,
-        transaction_id TEXT,
-        date TEXT NOT NULL,
-        amount REAL NOT NULL,
-        category TEXT NOT NULL,
-        description TEXT,
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    // Ensure transaction_id column exists (for older installs)
-    try {
-      const cols = db.prepare("PRAGMA table_info(purchases)").all();
-      const hasTxnId = Array.isArray(cols) && cols.some((c) => c.name === "transaction_id");
-      if (!hasTxnId) {
-        db.exec("ALTER TABLE purchases ADD COLUMN transaction_id TEXT");
-        console.log('Added purchases.transaction_id column');
-      }
-    } catch (e) {
-      console.warn('Failed to ensure purchases.transaction_id column:', e.message);
-    }
-
-    console.log('All tables ready (SQLite)');
-  } catch (err) {
-    console.error('Error ensuring tables:', err);
-    throw err;
-  }
-};
 
 // Auth0 JWT middleware - DISABLED FOR DEVELOPMENT
 // const authCheck = jwt.expressjwt({
@@ -122,7 +74,7 @@ app.use((err, req, res, next) => {
 });
 
 // health
-app.get('/health', (req, res) => res.json({ ok: true }));
+app.get('/health', (req, res) => res.json({ ok: true, database: 'supabase' }));
 
 // Get transactions for authenticated user
 app.get('/api/transactions', async (req, res) => {
@@ -130,11 +82,22 @@ app.get('/api/transactions', async (req, res) => {
     const userId = req.auth?.sub;
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
 
-    const rows = db.prepare('SELECT id, type, amount, date, category, description FROM transactions WHERE user_id = ? ORDER BY date DESC, created_at DESC').all(userId);
+    const rows = await prisma.transaction.findMany({
+      where: { user_id: userId },
+      orderBy: [{ date: 'desc' }, { created_at: 'desc' }],
+      select: {
+        id: true,
+        type: true,
+        amount: true,
+        date: true,
+        category: true,
+        description: true
+      }
+    });
     return res.json(rows);
   } catch (err) {
     console.error(err);
-    return res.status(500).json({ error: 'internal_error' });
+    return res.status(500).json({ error: 'internal_error', message: err.message });
   }
 });
 
@@ -147,20 +110,34 @@ app.post('/api/transactions/bulk', async (req, res) => {
     const items = Array.isArray(req.body) ? req.body : (req.body?.transactions || []);
     if (!items.length) return res.status(400).json({ error: 'no_transactions' });
 
-    const insert = db.prepare('INSERT OR IGNORE INTO transactions(id, user_id, type, amount, date, category, description) VALUES(?, ?, ?, ?, ?, ?, ?)');
-    
-    const insertMany = db.transaction((items) => {
-      for (const it of items) {
-        insert.run(it.id, userId, it.type, it.amount, it.date, it.category || null, it.description || null);
-      }
-    });
-    
-    insertMany(items);
+    // Use upsert for each transaction to handle duplicates
+    const results = await Promise.all(
+      items.map(it => 
+        prisma.transaction.upsert({
+          where: { id: it.id },
+          update: {}, // Don't update if exists
+          create: {
+            id: it.id,
+            user_id: userId,
+            type: it.type,
+            amount: it.amount,
+            date: it.date,
+            category: it.category || null,
+            description: it.description || null
+          }
+        }).catch(e => {
+          // Ignore duplicate key errors
+          if (e.code === 'P2002') return null;
+          throw e;
+        })
+      )
+    );
 
-    return res.json({ ok: true, inserted: items.length });
+    const inserted = results.filter(r => r !== null).length;
+    return res.json({ ok: true, inserted });
   } catch (err) {
     console.error(err);
-    return res.status(500).json({ error: 'internal_error' });
+    return res.status(500).json({ error: 'internal_error', message: err.message });
   }
 });
 
@@ -173,11 +150,23 @@ app.post('/api/transactions', async (req, res) => {
     const { id, type, amount, date, category, description } = req.body;
     if (!id || !type || !amount || !date) return res.status(400).json({ error: 'invalid_payload' });
 
-    db.prepare('INSERT OR IGNORE INTO transactions(id, user_id, type, amount, date, category, description) VALUES(?, ?, ?, ?, ?, ?, ?)').run(id, userId, type, amount, date, category || null, description || null);
+    await prisma.transaction.upsert({
+      where: { id },
+      update: {},
+      create: {
+        id,
+        user_id: userId,
+        type,
+        amount,
+        date,
+        category: category || null,
+        description: description || null
+      }
+    });
     return res.json({ ok: true });
   } catch (err) {
     console.error(err);
-    return res.status(500).json({ error: 'internal_error' });
+    return res.status(500).json({ error: 'internal_error', message: err.message });
   }
 });
 
@@ -186,12 +175,15 @@ app.delete('/api/transactions/:id', async (req, res) => {
   try {
     const userId = req.auth?.sub;
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
+    
     const id = req.params.id;
-    db.prepare('DELETE FROM transactions WHERE id = ? AND user_id = ?').run(id, userId);
+    await prisma.transaction.deleteMany({
+      where: { id, user_id: userId }
+    });
     return res.json({ ok: true });
   } catch (err) {
     console.error(err);
-    return res.status(500).json({ error: 'internal_error' });
+    return res.status(500).json({ error: 'internal_error', message: err.message });
   }
 });
 
@@ -201,13 +193,23 @@ app.get('/api/splits', async (req, res) => {
     const userId = req.auth?.sub;
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
 
-    const rows = db.prepare('SELECT id, name, frequency, categories, created_at FROM splits WHERE user_id = ? ORDER BY created_at DESC').all(userId);
+    const rows = await prisma.split.findMany({
+      where: { user_id: userId },
+      orderBy: { created_at: 'desc' },
+      select: {
+        id: true,
+        name: true,
+        frequency: true,
+        categories: true,
+        created_at: true
+      }
+    });
     // Parse JSON categories
     const parsed = rows.map(r => ({ ...r, categories: JSON.parse(r.categories) }));
     return res.json(parsed);
   } catch (err) {
     console.error(err);
-    return res.status(500).json({ error: 'internal_error' });
+    return res.status(500).json({ error: 'internal_error', message: err.message });
   }
 });
 
@@ -221,13 +223,42 @@ app.post('/api/splits', async (req, res) => {
       return res.status(400).json({ error: 'invalid_payload' });
     }
 
-    db.prepare(
-      'INSERT OR REPLACE INTO splits(id, user_id, name, frequency, categories, updated_at) VALUES(?, ?, ?, ?, ?, CURRENT_TIMESTAMP)'
-    ).run(id, userId, name, frequency, JSON.stringify(categories));
+    await prisma.split.upsert({
+      where: { id },
+      update: {
+        name,
+        frequency,
+        categories: JSON.stringify(categories),
+        updated_at: new Date()
+      },
+      create: {
+        id,
+        user_id: userId,
+        name,
+        frequency,
+        categories: JSON.stringify(categories)
+      }
+    });
     return res.json({ ok: true });
   } catch (err) {
     console.error(err);
-    return res.status(500).json({ error: 'internal_error' });
+    return res.status(500).json({ error: 'internal_error', message: err.message });
+  }
+});
+
+app.delete('/api/splits/:id', async (req, res) => {
+  try {
+    const userId = req.auth?.sub;
+    if (!userId) return res.status(401).json({ error: 'unauthorized' });
+    
+    const id = req.params.id;
+    await prisma.split.deleteMany({
+      where: { id, user_id: userId }
+    });
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'internal_error', message: err.message });
   }
 });
 
@@ -237,11 +268,23 @@ app.get('/api/purchases', async (req, res) => {
     const userId = req.auth?.sub;
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
 
-    const rows = db.prepare('SELECT id, split_id, transaction_id, date, amount, category, description FROM purchases WHERE user_id = ? ORDER BY date DESC').all(userId);
+    const rows = await prisma.purchase.findMany({
+      where: { user_id: userId },
+      orderBy: { date: 'desc' },
+      select: {
+        id: true,
+        split_id: true,
+        transaction_id: true,
+        date: true,
+        amount: true,
+        category: true,
+        description: true
+      }
+    });
     return res.json(rows);
   } catch (err) {
     console.error(err);
-    return res.status(500).json({ error: 'internal_error' });
+    return res.status(500).json({ error: 'internal_error', message: err.message });
   }
 });
 
@@ -255,13 +298,31 @@ app.post('/api/purchases', async (req, res) => {
       return res.status(400).json({ error: 'invalid_payload' });
     }
 
-    db.prepare(
-      'INSERT OR REPLACE INTO purchases(id, user_id, split_id, transaction_id, date, amount, category, description) VALUES(?, ?, ?, ?, ?, ?, ?, ?)'
-    ).run(id, userId, split_id, transaction_id || null, date, amount, category, description || null);
+    await prisma.purchase.upsert({
+      where: { id },
+      update: {
+        split_id,
+        transaction_id: transaction_id || null,
+        date,
+        amount,
+        category,
+        description: description || null
+      },
+      create: {
+        id,
+        user_id: userId,
+        split_id,
+        transaction_id: transaction_id || null,
+        date,
+        amount,
+        category,
+        description: description || null
+      }
+    });
     return res.json({ ok: true });
   } catch (err) {
     console.error(err);
-    return res.status(500).json({ error: 'internal_error' });
+    return res.status(500).json({ error: 'internal_error', message: err.message });
   }
 });
 
@@ -271,11 +332,95 @@ app.delete('/api/purchases/:id', async (req, res) => {
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
     
     const id = req.params.id;
-    db.prepare('DELETE FROM purchases WHERE id = ? AND user_id = ?').run(id, userId);
+    await prisma.purchase.deleteMany({
+      where: { id, user_id: userId }
+    });
     return res.json({ ok: true });
   } catch (err) {
     console.error(err);
-    return res.status(500).json({ error: 'internal_error' });
+    return res.status(500).json({ error: 'internal_error', message: err.message });
+  }
+});
+
+// Income Settings endpoints
+app.get('/api/income-settings', async (req, res) => {
+  try {
+    const userId = req.auth?.sub;
+    if (!userId) return res.status(401).json({ error: 'unauthorized' });
+
+    const rows = await prisma.incomeSetting.findMany({
+      where: { user_id: userId },
+      select: {
+        id: true,
+        split_id: true,
+        expected_amount: true,
+        frequency: true,
+        next_payday: true,
+        use_expected_when_no_actual: true,
+        created_at: true,
+        updated_at: true
+      }
+    });
+    return res.json(rows);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'internal_error', message: err.message });
+  }
+});
+
+app.post('/api/income-settings', async (req, res) => {
+  try {
+    const userId = req.auth?.sub;
+    if (!userId) return res.status(401).json({ error: 'unauthorized' });
+
+    const { id, split_id, expected_amount, frequency, next_payday, use_expected_when_no_actual } = req.body;
+    if (!split_id) {
+      return res.status(400).json({ error: 'invalid_payload', message: 'split_id is required' });
+    }
+
+    const settingId = id || `income-setting-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const useExpected = use_expected_when_no_actual !== false;
+
+    const saved = await prisma.incomeSetting.upsert({
+      where: { split_id },
+      update: {
+        expected_amount: Math.abs(Number(expected_amount) || 0),
+        frequency: frequency || 'monthly',
+        next_payday: next_payday || null,
+        use_expected_when_no_actual: useExpected,
+        updated_at: new Date()
+      },
+      create: {
+        id: settingId,
+        user_id: userId,
+        split_id,
+        expected_amount: Math.abs(Number(expected_amount) || 0),
+        frequency: frequency || 'monthly',
+        next_payday: next_payday || null,
+        use_expected_when_no_actual: useExpected
+      }
+    });
+    
+    return res.json(saved);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'internal_error', message: err.message });
+  }
+});
+
+app.delete('/api/income-settings/:id', async (req, res) => {
+  try {
+    const userId = req.auth?.sub;
+    if (!userId) return res.status(401).json({ error: 'unauthorized' });
+    
+    const id = req.params.id;
+    await prisma.incomeSetting.deleteMany({
+      where: { id, user_id: userId }
+    });
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'internal_error', message: err.message });
   }
 });
 
@@ -285,43 +430,66 @@ app.post('/api/reset', async (req, res) => {
     const userId = req.auth?.sub;
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
 
-    const txResult = db.prepare('DELETE FROM transactions WHERE user_id = ?').run(userId);
-    const purchaseResult = db.prepare('DELETE FROM purchases WHERE user_id = ?').run(userId);
-    const splitResult = db.prepare('DELETE FROM splits WHERE user_id = ?').run(userId);
+    const [txResult, purchaseResult, splitResult, incomeSettingsResult] = await Promise.all([
+      prisma.transaction.deleteMany({ where: { user_id: userId } }),
+      prisma.purchase.deleteMany({ where: { user_id: userId } }),
+      prisma.split.deleteMany({ where: { user_id: userId } }),
+      prisma.incomeSetting.deleteMany({ where: { user_id: userId } })
+    ]);
 
     return res.json({
       ok: true,
       cleared: {
-        transactions: txResult.changes,
-        purchases: purchaseResult.changes,
-        splits: splitResult.changes,
+        transactions: txResult.count,
+        purchases: purchaseResult.count,
+        splits: splitResult.count,
+        incomeSettings: incomeSettingsResult.count,
       },
     });
   } catch (err) {
     console.error('Error resetting user data:', err);
-    return res.status(500).json({ error: 'internal_error' });
+    return res.status(500).json({ error: 'internal_error', message: err.message });
   }
 });
 
+// Test database connection on startup
+async function testConnection() {
+  try {
+    await prisma.$connect();
+    console.log('✅ Connected to Supabase PostgreSQL database');
+    return true;
+  } catch (err) {
+    console.error('❌ Failed to connect to database:', err.message);
+    return false;
+  }
+}
+
 // start
-ensureTables();
 const port = process.env.PORT || 4000;
-const server = app.listen(port, '0.0.0.0', () => {
-  console.log(`Backend running on http://localhost:${port} (SQLite)`);
-  console.log(`Server is listening and ready for connections...`);
-});
 
-// Keep process alive
-process.on('SIGINT', () => {
-  console.log('\nShutting down gracefully...');
-  server.close(() => {
-    db.close();
-    process.exit(0);
+testConnection().then(connected => {
+  if (!connected) {
+    console.error('Database connection failed. Please check your DATABASE_URL.');
+    process.exit(1);
+  }
+  
+  const server = app.listen(port, '0.0.0.0', () => {
+    console.log(`Backend running on http://localhost:${port} (Supabase PostgreSQL)`);
+    console.log(`Server is listening and ready for connections...`);
   });
-});
 
-// Handle errors
-server.on('error', (err) => {
-  console.error('Server error:', err);
-  process.exit(1);
+  // Keep process alive
+  process.on('SIGINT', async () => {
+    console.log('\nShutting down gracefully...');
+    await prisma.$disconnect();
+    server.close(() => {
+      process.exit(0);
+    });
+  });
+
+  // Handle errors
+  server.on('error', (err) => {
+    console.error('Server error:', err);
+    process.exit(1);
+  });
 });

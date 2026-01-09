@@ -55,9 +55,10 @@ export function TransactionsProvider({ children }) {
           let token;
           
           if (isDevMode) {
-            // In dev mode, use a dummy token (backend uses mock auth)
+            // In dev mode, use a consistent dummy token (backend uses mock auth)
+            // Must match the token used in other files like tracker.jsx
             console.log(`[Attempt ${attempt}] Dev mode - using dummy token`);
-            token = 'dev-token';
+            token = localStorage.getItem("walletwarden-token") || 'dev-user';
           } else {
             console.log(`[Attempt ${attempt}] Fetching access token from Auth0...`);
             token = await getAccessTokenSilently({ audience: import.meta.env.VITE_AUTH0_AUDIENCE });
@@ -168,7 +169,7 @@ export function TransactionsProvider({ children }) {
     const isDevMode = import.meta.env.VITE_DEV_MODE === 'true';
     if (!isAuthenticated && !isDevMode) return;
     try {
-      const token = isDevMode ? 'dev-token' : await getAccessTokenSilently({ audience: import.meta.env.VITE_AUTH0_AUDIENCE });
+      const token = isDevMode ? (localStorage.getItem('walletwarden-token') || 'dev-user') : await getAccessTokenSilently({ audience: import.meta.env.VITE_AUTH0_AUDIENCE });
       const res = await fetch(`${API_BASE}/api/transactions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -190,7 +191,7 @@ export function TransactionsProvider({ children }) {
     const isDevMode = import.meta.env.VITE_DEV_MODE === 'true';
     if (!isAuthenticated && !isDevMode) return;
     try {
-      const token = isDevMode ? 'dev-token' : await getAccessTokenSilently({ audience: import.meta.env.VITE_AUTH0_AUDIENCE });
+      const token = isDevMode ? (localStorage.getItem('walletwarden-token') || 'dev-user') : await getAccessTokenSilently({ audience: import.meta.env.VITE_AUTH0_AUDIENCE });
       await fetch(`${API_BASE}/api/transactions/bulk`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -206,7 +207,7 @@ export function TransactionsProvider({ children }) {
     const isDevMode = import.meta.env.VITE_DEV_MODE === 'true';
     if (!isAuthenticated && !isDevMode) return;
     try {
-      const token = isDevMode ? 'dev-token' : await getAccessTokenSilently({ audience: import.meta.env.VITE_AUTH0_AUDIENCE });
+      const token = isDevMode ? (localStorage.getItem('walletwarden-token') || 'dev-user') : await getAccessTokenSilently({ audience: import.meta.env.VITE_AUTH0_AUDIENCE });
       await fetch(`${API_BASE}/api/transactions/${encodeURIComponent(id)}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` },
@@ -222,7 +223,7 @@ export function TransactionsProvider({ children }) {
     const isDevMode = import.meta.env.VITE_DEV_MODE === 'true';
     if (!isAuthenticated && !isDevMode) return;
     try {
-      const token = isDevMode ? 'dev-token' : await getAccessTokenSilently({ audience: import.meta.env.VITE_AUTH0_AUDIENCE });
+      const token = isDevMode ? (localStorage.getItem('walletwarden-token') || 'dev-user') : await getAccessTokenSilently({ audience: import.meta.env.VITE_AUTH0_AUDIENCE });
       await fetch(`${API_BASE}/api/transactions/${encodeURIComponent(id)}`, {
         method: 'PUT',
         headers: { 
@@ -244,7 +245,7 @@ export function TransactionsProvider({ children }) {
     if (!isAuthenticated && !isDevMode) return;
     
     try {
-      const token = isDevMode ? 'dev-token' : await getAccessTokenSilently({ audience: import.meta.env.VITE_AUTH0_AUDIENCE });
+      const token = isDevMode ? (localStorage.getItem('walletwarden-token') || 'dev-user') : await getAccessTokenSilently({ audience: import.meta.env.VITE_AUTH0_AUDIENCE });
       
       // Delete each transaction from the backend
       for (const transaction of currentTransactions) {

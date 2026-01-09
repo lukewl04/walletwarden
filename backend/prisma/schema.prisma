@@ -1,14 +1,68 @@
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
-  provider = "prisma-client"
-  output   = "../generated/prisma"
+  provider = "prisma-client-js"
 }
 
 datasource db {
   provider = "postgresql"
+}
+
+model Transaction {
+  id          String   @id
+  user_id     String
+  type        String
+  amount      Float
+  date        String
+  category    String?
+  description String?
+  created_at  DateTime @default(now())
+
+  @@index([user_id])
+  @@map("transactions")
+}
+
+model Split {
+  id         String   @id
+  user_id    String
+  name       String
+  frequency  String
+  categories String   // JSON stored as string
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now()) @updatedAt
+
+  @@index([user_id])
+  @@map("splits")
+}
+
+model Purchase {
+  id             String   @id
+  user_id        String
+  split_id       String
+  transaction_id String?
+  date           String
+  amount         Float
+  category       String
+  description    String?
+  created_at     DateTime @default(now())
+
+  @@index([user_id])
+  @@index([split_id])
+  @@map("purchases")
+}
+
+model IncomeSetting {
+  id                          String   @id
+  user_id                     String
+  split_id                    String   @unique
+  expected_amount             Float    @default(0)
+  frequency                   String   @default("monthly")
+  next_payday                 String?
+  use_expected_when_no_actual Boolean  @default(true)
+  created_at                  DateTime @default(now())
+  updated_at                  DateTime @default(now()) @updatedAt
+
+  @@index([user_id])
+  @@map("income_settings")
 }
