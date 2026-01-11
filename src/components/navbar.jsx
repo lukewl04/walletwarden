@@ -16,6 +16,7 @@ const Navbar = () => {
     return localStorage.getItem(PROFILE_PICTURE_KEY);
   });
   const [showProfileDropdown, setShowProfileDropdown] = useState(false);
+  const [showSettingsTooltip, setShowSettingsTooltip] = useState(false);
 
   useEffect(() => {
     if (typeof document === "undefined") return;
@@ -46,6 +47,22 @@ const Navbar = () => {
     document.addEventListener('click', handleClickOutside);
     return () => document.removeEventListener('click', handleClickOutside);
   }, [showProfileDropdown]);
+
+  // Show settings tooltip after 30 seconds, then hide after 15 seconds
+  useEffect(() => {
+    const showTimer = setTimeout(() => {
+      setShowSettingsTooltip(true);
+    }, 30000); // 30 seconds
+
+    const hideTimer = setTimeout(() => {
+      setShowSettingsTooltip(false);
+    }, 45000); // 45 seconds (30 + 15)
+
+    return () => {
+      clearTimeout(showTimer);
+      clearTimeout(hideTimer);
+    };
+  }, []);
 
   const toggleTheme = () => {
     setTheme((prev) => (prev === "light" ? "dark" : "light"));
@@ -114,6 +131,40 @@ const Navbar = () => {
                     title={user.name || user.email}
                   />
                 </button>
+
+                {showSettingsTooltip && (
+                  <div 
+                    className="settings-tooltip"
+                    style={{
+                      position: 'absolute',
+                      top: '50px',
+                      right: '0',
+                      backgroundColor: 'var(--card-bg)',
+                      border: '2px solid #0d6efd',
+                      borderRadius: '0.5rem',
+                      padding: '0.75rem 1rem',
+                      whiteSpace: 'nowrap',
+                      fontSize: '0.9rem',
+                      zIndex: 1001,
+                      animation: 'fadeInOut 15s ease-in-out',
+                      boxShadow: '0 4px 12px rgba(13, 110, 253, 0.3)',
+                    }}
+                  >
+                    <div 
+                      style={{
+                        position: 'absolute',
+                        top: '-10px',
+                        right: '15px',
+                        width: '0',
+                        height: '0',
+                        borderLeft: '8px solid transparent',
+                        borderRight: '8px solid transparent',
+                        borderBottom: '10px solid #0d6efd',
+                      }}
+                    />
+                    Settings can be found here ☝️
+                  </div>
+                )}
 
                 {showProfileDropdown && (
                   <div

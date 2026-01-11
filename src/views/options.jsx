@@ -25,6 +25,7 @@ export default function Options() {
   
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [resetMessage, setResetMessage] = useState("");
+  const [isResetting, setIsResetting] = useState(false);
   const [selectedCurrency, setSelectedCurrency] = useState(() => {
     return localStorage.getItem(CURRENCY_STORAGE_KEY) || 'GBP';
   });
@@ -56,6 +57,7 @@ export default function Options() {
 
   const confirmReset = async () => {
     try {
+      setIsResetting(true);
       setResetMessage("Resetting your data...");
 
       // Clear data on backend (Supabase) first
@@ -90,12 +92,14 @@ export default function Options() {
       setShowConfirmModal(false);
       setTimeout(() => {
         setResetMessage("");
+        setIsResetting(false);
         // Reload the page to reset all state
         window.location.reload();
       }, 2000);
     } catch (error) {
       console.error("Error clearing data:", error);
       setResetMessage("Error clearing data. Please try again.");
+      setIsResetting(false);
     }
   };
 
@@ -194,7 +198,7 @@ export default function Options() {
             className={`nav-link ${activeTab === "account" ? "active" : ""}`}
             onClick={() => setActiveTab("account")}
           >
-            Account
+            👤 Account
           </button>
         </li>
         <li className="nav-item">
@@ -202,7 +206,7 @@ export default function Options() {
             className={`nav-link ${activeTab === "currency" ? "active" : ""}`}
             onClick={() => setActiveTab("currency")}
           >
-            Currency
+            💱 Currency
           </button>
         </li>
         <li className="nav-item">
@@ -210,7 +214,7 @@ export default function Options() {
             className={`nav-link ${activeTab === "categories" ? "active" : ""}`}
             onClick={() => setActiveTab("categories")}
           >
-            Categories
+            🏷️ Categories
           </button>
         </li>
         <li className="nav-item">
@@ -218,7 +222,7 @@ export default function Options() {
             className={`nav-link ${activeTab === "data" ? "active" : ""}`}
             onClick={() => setActiveTab("data")}
           >
-            Data
+            📊 Data
           </button>
         </li>
       </ul>
@@ -253,7 +257,7 @@ export default function Options() {
                     />
                     <div className="d-flex flex-column gap-2">
                       <div className="d-flex gap-2">
-                        <label className="btn btn-sm btn-primary">
+                        <label className="btn btn-primary">
                           📤 Upload
                           <input
                             type="file"
@@ -264,7 +268,7 @@ export default function Options() {
                         </label>
                         {uploadedProfilePicture && (
                           <button
-                            className="btn btn-sm btn-outline-danger"
+                            className="btn btn-secondary"
                             onClick={handleRemoveProfilePicture}
                           >
                             🗑️ Remove
@@ -290,7 +294,7 @@ export default function Options() {
             <div>
               <h6 className="mb-3">Sign Out</h6>
               <button
-                className="btn btn-outline-danger"
+                className="btn btn-secondary"
                 onClick={() => logout({ logoutParams: { returnTo: window.location.origin } })}
               >
                 🚪 Sign Out
@@ -413,10 +417,12 @@ export default function Options() {
 
             <div className="d-grid gap-2">
               <button
-                className="btn btn-outline-danger"
+                className="btn btn-secondary"
                 onClick={handleResetClick}
+                disabled={isResetting}
+                style={{ opacity: isResetting ? 0.6 : 1, cursor: isResetting ? 'not-allowed' : 'pointer' }}
               >
-                🗑️ Clear All Transactions
+                {isResetting ? "⏳ Clearing..." : "🗑️ Clear All Transactions"}
               </button>
             </div>
             <p className="text-muted small mt-3 mb-0">
@@ -453,6 +459,7 @@ export default function Options() {
                   type="button"
                   className="btn btn-secondary"
                   onClick={() => setShowConfirmModal(false)}
+                  disabled={isResetting}
                 >
                   Cancel
                 </button>
@@ -460,8 +467,10 @@ export default function Options() {
                   type="button"
                   className="btn btn-danger"
                   onClick={confirmReset}
+                  disabled={isResetting}
+                  style={{ opacity: isResetting ? 0.6 : 1, cursor: isResetting ? 'not-allowed' : 'pointer' }}
                 >
-                  Delete All
+                  {isResetting ? "Deleting..." : "Delete All"}
                 </button>
               </div>
             </div>
