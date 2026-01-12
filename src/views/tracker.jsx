@@ -895,7 +895,7 @@ export default function Tracker() {
     setShowImportModal(false);
   };
 
-  const handleImportFromWardenInsights = () => {
+  const handleImportFromWardenInsights = async () => {
     if (isImportingFromInsights) return;
     setIsImportingFromInsights(true);
 
@@ -1018,16 +1018,56 @@ export default function Tracker() {
       transaction_id: t.id,
       date: toDateOnlyString(t.date),
       amount: Math.abs(Number(t.amount) || 0),
-      category: t.category || "Income",
+      category: "Income",
       description: t.description || "",
       type: "income",
     }));
 
+    // Save new purchases to backend immediately
     if (newPurchases.length > 0) {
+      const token = localStorage.getItem("walletwarden-token") || "dev-user";
+      for (const purchase of newPurchases) {
+        try {
+          await fetch(`${API_URL}/purchases`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify(purchase),
+          });
+        } catch (err) {
+          console.error("Error saving purchase to backend:", err);
+        }
+      }
       setPurchases(prev => [...prev, ...newPurchases]);
     }
 
+    // Save new incomes to backend immediately
     if (newIncomes.length > 0) {
+      const token = localStorage.getItem("walletwarden-token") || "dev-user";
+      for (const income of newIncomes) {
+        try {
+          await fetch(`${API_URL}/purchases`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              id: income.id,
+              split_id: income.split_id,
+              transaction_id: income.transaction_id,
+              date: income.date,
+              amount: income.amount,
+              category: "Income",
+              description: income.description,
+            }),
+          });
+        } catch (err) {
+          console.error("Error saving income to backend:", err);
+        }
+      }
       setSplitIncomes(prev => [...prev, ...newIncomes.map(sanitizeIncome).filter(Boolean)]);
     }
 

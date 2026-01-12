@@ -73,6 +73,10 @@ app.use((err, req, res, next) => {
   next(err);
 });
 
+// TrueLayer Open Banking routes
+const trueLayerRoutes = require('./routes/banks.truelayer');
+app.use('/api/banks/truelayer', trueLayerRoutes(prisma));
+
 // health
 app.get('/health', (req, res) => res.json({ ok: true, database: 'supabase' }));
 
@@ -162,6 +166,33 @@ app.post('/api/transactions', async (req, res) => {
         category: category || null,
         description: description || null
       }
+    });
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'internal_error', message: err.message });
+  }
+});
+
+// Update transaction
+app.patch('/api/transactions/:id', async (req, res) => {
+  try {
+    const userId = req.auth?.sub;
+    if (!userId) return res.status(401).json({ error: 'unauthorized' });
+    
+    const id = req.params.id;
+    const { type, amount, date, category, description } = req.body;
+    
+    const updateData = {};
+    if (type !== undefined) updateData.type = type;
+    if (amount !== undefined) updateData.amount = amount;
+    if (date !== undefined) updateData.date = date;
+    if (category !== undefined) updateData.category = category;
+    if (description !== undefined) updateData.description = description;
+    
+    await prisma.transaction.updateMany({
+      where: { id, user_id: userId },
+      data: updateData
     });
     return res.json({ ok: true });
   } catch (err) {

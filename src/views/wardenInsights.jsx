@@ -26,6 +26,84 @@ export default function WardenInsights() {
   const [monthsBack, setMonthsBack] = useState(6);
   const [showCumulative, setShowCumulative] = useState(true);
 
+  // Bank connection state
+  const [bankStatus, setBankStatus] = useState(null);
+  const [bankLoading, setBankLoading] = useState(false);
+  const [bankSyncing, setBankSyncing] = useState(false);
+
+  const API_URL = "http://localhost:4000/api";
+  const getAuthHeaders = () => {
+    const token = localStorage.getItem("walletwarden-token") || "dev-user";
+    return { Authorization: `Bearer ${token}` };
+  };
+
+  // Check bank connection status on mount
+  React.useEffect(() => {
+    const checkBankStatus = async () => {
+      try {
+        const res = await fetch(`${API_URL}/banks/truelayer/status`, {
+          headers: getAuthHeaders(),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setBankStatus(data);
+        }
+      } catch (err) {
+        console.error("Failed to check bank status:", err);
+      }
+    };
+    checkBankStatus();
+
+    // Check for callback params
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("bankConnected")) {
+      setBankStatus({ connected: true });
+      window.history.replaceState({}, "", window.location.pathname);
+    } else if (params.get("bankError")) {
+      alert(`Bank connection error: ${params.get("bankError")}`);
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  }, []);
+
+  const handleConnectBank = async () => {
+    setBankLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/banks/truelayer/connect`, {
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) throw new Error("Failed to get connect URL");
+      const { url } = await res.json();
+      window.location.href = url;
+    } catch (err) {
+      console.error("Connect bank error:", err);
+      alert("Failed to connect bank. Please try again.");
+      setBankLoading(false);
+    }
+  };
+
+  const handleSyncBank = async () => {
+    setBankSyncing(true);
+    try {
+      const res = await fetch(`${API_URL}/banks/truelayer/sync`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.message || "Sync failed");
+      }
+      const result = await res.json();
+      alert(`Synced ${result.accounts} accounts: ${result.inserted} new transactions`);
+      window.location.reload();
+    } catch (err) {
+      console.error("Sync error:", err);
+      alert(`Sync failed: ${err.message}`);
+    } finally {
+      setBankSyncing(false);
+    }
+  };
+
   const formattedBalance = useMemo(() => {
     const b = globalTotals?.balance ?? 0;
     const sign = b < 0 ? "-" : "";
@@ -414,14 +492,35 @@ export default function WardenInsights() {
               <h2 className="h6 mb-0">Import Transactions</h2>
             </div>
             <p className="text-muted small mt-2 mb-3">
-              Upload your bank statements in CSV or PDF format to import transactions
+              Upload your bank statements in CSV or PDF format, or connect your bank directly
             </p>
-            <button 
-              className="btn btn-primary w-100"
-              onClick={() => setShowImportModal(true)}
-            >
-              Import Bank Statement
-            </button>
+            <div className="d-flex flex-column gap-2">
+              <button 
+                className="btn btn-primary w-100"
+                onClick={() => setShowImportModal(true)}
+              >
+                📄 Import CSV/PDF Statement
+              </button>
+              
+              {/* TrueLayer Open Banking */}
+              {bankStatus?.connected ? (
+                <button
+                  className="btn btn-success w-100"
+                  onClick={handleSyncBank}
+                  disabled={bankSyncing}
+                >
+                  {bankSyncing ? "⏳ Syncing..." : "🔄 Sync from Bank"}
+                </button>
+              ) : (
+                <button
+                  className="btn btn-outline-primary w-100"
+                  onClick={handleConnectBank}
+                  disabled={bankLoading}
+                >
+                  {bankLoading ? "⏳ Connecting..." : "🏦 Connect Bank (Open Banking)"}
+                </button>
+              )}
+            </div>
           </div>
         </div>
 

@@ -41,15 +41,165 @@ export default function Options() {
   });
   const [uploadMessage, setUploadMessage] = useState("");
 
+  // Bank connection state
+  const [bankStatus, setBankStatus] = useState(null);
+  const [bankLoading, setBankLoading] = useState(false);
+  const [bankMessage, setBankMessage] = useState("");
+
+  // Expected income state
+  const [savedSplits, setSavedSplits] = useState([]);
+  const [selectedSplitForIncome, setSelectedSplitForIncome] = useState(null);
+  const [incomeSettings, setIncomeSettings] = useState([]);
+  const [expectedIncomeForm, setExpectedIncomeForm] = useState({
+    expected_amount: "",
+    next_payday: "",
+    frequency: "monthly",
+    use_expected_when_no_actual: true,
+  });
+  const [incomeSaveMessage, setIncomeSaveMessage] = useState("");
+  const [isLoadingIncome, setIsLoadingIncome] = useState(false);
+
   // Save currency to localStorage when it changes
   useEffect(() => {
     localStorage.setItem(CURRENCY_STORAGE_KEY, selectedCurrency);
   }, [selectedCurrency]);
 
+  // Load bank connection status on mount
+  useEffect(() => {
+    const checkBankStatus = async () => {
+      try {
+        const token = localStorage.getItem("walletwarden-token") || "dev-user";
+        const res = await fetch(`${API_URL}/banks/truelayer/status`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setBankStatus(data);
+        }
+      } catch (err) {
+        console.error("Failed to check bank status:", err);
+      }
+    };
+    checkBankStatus();
+  }, []);
+
   // Save custom categories to localStorage when they change
   useEffect(() => {
     localStorage.setItem(CUSTOM_CATEGORIES_KEY, JSON.stringify(customCategories));
   }, [customCategories]);
+
+  // Load splits and income settings when Income tab is active
+  useEffect(() => {
+    if (activeTab === "income") {
+      loadSplitsAndIncomeSettings();
+    }
+  }, [activeTab]);
+
+  // Update form when selected split changes
+  useEffect(() => {
+    if (selectedSplitForIncome && incomeSettings.length > 0) {
+      const settings = incomeSettings.find(s => s.split_id === selectedSplitForIncome);
+      const splitData = savedSplits.find(s => s.id === selectedSplitForIncome);
+      if (settings) {
+        setExpectedIncomeForm({
+          expected_amount: settings.expected_amount?.toString() || "",
+          next_payday: settings.next_payday || "",
+          frequency: settings.frequency || splitData?.frequency || "monthly",
+          use_expected_when_no_actual: settings.use_expected_when_no_actual !== false,
+        });
+      } else {
+        setExpectedIncomeForm({
+          expected_amount: "",
+          next_payday: "",
+          frequency: splitData?.frequency || "monthly",
+          use_expected_when_no_actual: true,
+        });
+      }
+    }
+  }, [selectedSplitForIncome, incomeSettings, savedSplits]);
+
+  const loadSplitsAndIncomeSettings = async () => {
+    setIsLoadingIncome(true);
+    try {
+      const token = localStorage.getItem("walletwarden-token") || "dev-user";
+
+      // Load splits
+      const splitsResponse = await fetch(`${API_URL}/splits`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (splitsResponse.ok) {
+        const splits = await splitsResponse.json();
+        setSavedSplits(splits);
+        if (splits.length > 0 && !selectedSplitForIncome) {
+          setSelectedSplitForIncome(splits[0].id);
+        }
+      }
+
+      // Load income settings
+      const incomeSettingsResponse = await fetch(`${API_URL}/income-settings`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (incomeSettingsResponse.ok) {
+        const settings = await incomeSettingsResponse.json();
+        setIncomeSettings(settings);
+      }
+    } catch (err) {
+      console.error("Error loading splits and income settings:", err);
+    } finally {
+      setIsLoadingIncome(false);
+    }
+  };
+
+  const handleSaveExpectedIncome = async () => {
+    if (!selectedSplitForIncome) return;
+
+    try {
+      const token = localStorage.getItem("walletwarden-token") || "dev-user";
+      const payload = {
+        split_id: selectedSplitForIncome,
+        expected_amount: Math.abs(parseFloat(expectedIncomeForm.expected_amount) || 0),
+        frequency: expectedIncomeForm.frequency,
+        next_payday: expectedIncomeForm.next_payday || null,
+        use_expected_when_no_actual: expectedIncomeForm.use_expected_when_no_actual,
+      };
+
+      const response = await fetch(`${API_URL}/income-settings`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (response.ok) {
+        const saved = await response.json();
+        setIncomeSettings((prev) => {
+          const existing = prev.findIndex((s) => s.split_id === selectedSplitForIncome);
+          if (existing >= 0) {
+            const updated = [...prev];
+            updated[existing] = saved;
+            return updated;
+          }
+          return [...prev, saved];
+        });
+        setIncomeSaveMessage("Expected income saved successfully!");
+        setTimeout(() => setIncomeSaveMessage(""), 3000);
+      } else {
+        setIncomeSaveMessage("Error: Failed to save expected income");
+        setTimeout(() => setIncomeSaveMessage(""), 3000);
+      }
+    } catch (err) {
+      console.error("Error saving expected income:", err);
+      setIncomeSaveMessage("Error: Failed to save expected income");
+      setTimeout(() => setIncomeSaveMessage(""), 3000);
+    }
+  };
+
+  const selectedIncomeSettings = incomeSettings.find(s => s.split_id === selectedSplitForIncome);
+  const selectedSplitData = savedSplits.find(s => s.id === selectedSplitForIncome);
 
   const handleResetClick = () => {
     setShowConfirmModal(true);
@@ -169,6 +319,46 @@ export default function Options() {
     setTimeout(() => setUploadMessage(''), 3000);
   };
 
+  const handleDisconnectBank = async () => {
+    setBankLoading(true);
+    try {
+      const token = localStorage.getItem("walletwarden-token") || "dev-user";
+      const res = await fetch(`${API_URL}/banks/truelayer/disconnect`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        setBankStatus({ connected: false });
+        setBankMessage("Bank disconnected successfully!");
+      } else {
+        setBankMessage("Failed to disconnect bank");
+      }
+    } catch (err) {
+      console.error("Error disconnecting bank:", err);
+      setBankMessage("Error disconnecting bank");
+    } finally {
+      setBankLoading(false);
+      setTimeout(() => setBankMessage(""), 3000);
+    }
+  };
+
+  const handleConnectBank = async () => {
+    setBankLoading(true);
+    try {
+      const token = localStorage.getItem("walletwarden-token") || "dev-user";
+      const res = await fetch(`${API_URL}/banks/truelayer/connect`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error("Failed to get connect URL");
+      const { url } = await res.json();
+      window.location.href = url;
+    } catch (err) {
+      console.error("Connect bank error:", err);
+      setBankMessage("Failed to connect bank. Please try again.");
+      setBankLoading(false);
+    }
+  };
+
   const currencyInfo = CURRENCY_OPTIONS.find(c => c.code === selectedCurrency);
 
   return (
@@ -215,6 +405,22 @@ export default function Options() {
             onClick={() => setActiveTab("categories")}
           >
             🏷️ Categories
+          </button>
+        </li>
+        <li className="nav-item">
+          <button
+            className={`nav-link ${activeTab === "income" ? "active" : ""}`}
+            onClick={() => setActiveTab("income")}
+          >
+            💰 Income
+          </button>
+        </li>
+        <li className="nav-item">
+          <button
+            className={`nav-link ${activeTab === "banking" ? "active" : ""}`}
+            onClick={() => setActiveTab("banking")}
+          >
+            🏦 Banking
           </button>
         </li>
         <li className="nav-item">
@@ -400,6 +606,210 @@ export default function Options() {
                     </div>
                   ))}
                 </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Expected Income Tab */}
+      {activeTab === "income" && (
+        <div className="card shadow-sm mb-4">
+          <div className="card-body">
+            <h5 className="card-title mb-4">Expected Income Settings</h5>
+            
+            {incomeSaveMessage && (
+              <div className={`alert alert-${incomeSaveMessage.includes("Error") ? "danger" : "success"} alert-dismissible fade show`} role="alert">
+                {incomeSaveMessage}
+                <button
+                  type="button"
+                  className="btn-close"
+                  onClick={() => setIncomeSaveMessage("")}
+                />
+              </div>
+            )}
+
+            {isLoadingIncome ? (
+              <div className="text-center py-4">
+                <div className="spinner-border text-primary" role="status">
+                  <span className="visually-hidden">Loading...</span>
+                </div>
+                <p className="text-muted mt-2">Loading splits...</p>
+              </div>
+            ) : savedSplits.length === 0 ? (
+              <div className="alert alert-info">
+                <strong>No splits found.</strong> Create a budget split in the Tracker to configure expected income.
+              </div>
+            ) : (
+              <>
+                <div className="mb-4">
+                  <label className="form-label">Select Budget Split</label>
+                  <select
+                    className="form-select"
+                    value={selectedSplitForIncome || ""}
+                    onChange={(e) => setSelectedSplitForIncome(e.target.value)}
+                  >
+                    {savedSplits.map(split => (
+                      <option key={split.id} value={split.id}>
+                        {split.name} ({split.frequency})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <hr className="my-4" />
+
+                <p className="text-muted mb-3">
+                  Set expected income for <strong>{selectedSplitData?.name || 'this split'}</strong>. 
+                  This will be used for budget calculations when no actual income has been imported yet.
+                </p>
+
+                <div className="mb-3">
+                  <label className="form-label">Expected Amount (£)</label>
+                  <input
+                    type="number"
+                    className="form-control"
+                    value={expectedIncomeForm.expected_amount}
+                    onChange={(e) => setExpectedIncomeForm(prev => ({
+                      ...prev,
+                      expected_amount: e.target.value
+                    }))}
+                    placeholder="0.00"
+                    step="0.01"
+                    min="0"
+                  />
+                </div>
+
+                <div className="mb-3">
+                  <label className="form-label">Next Payday</label>
+                  <input
+                    type="date"
+                    className="form-control"
+                    value={expectedIncomeForm.next_payday}
+                    onChange={(e) => setExpectedIncomeForm(prev => ({
+                      ...prev,
+                      next_payday: e.target.value
+                    }))}
+                  />
+                </div>
+
+                <div className="mb-3">
+                  <label className="form-label">Pay Frequency</label>
+                  <select
+                    className="form-select"
+                    value={expectedIncomeForm.frequency}
+                    onChange={(e) => setExpectedIncomeForm(prev => ({
+                      ...prev,
+                      frequency: e.target.value
+                    }))}
+                  >
+                    <option value="weekly">Weekly</option>
+                    <option value="fortnightly">Fortnightly</option>
+                    <option value="monthly">Monthly</option>
+                  </select>
+                </div>
+
+                <div className="form-check mb-4">
+                  <input
+                    type="checkbox"
+                    className="form-check-input"
+                    id="useExpectedCheckboxOptions"
+                    checked={expectedIncomeForm.use_expected_when_no_actual}
+                    onChange={(e) => setExpectedIncomeForm(prev => ({
+                      ...prev,
+                      use_expected_when_no_actual: e.target.checked
+                    }))}
+                  />
+                  <label className="form-check-label" htmlFor="useExpectedCheckboxOptions">
+                    Use expected income when no actual income imported
+                  </label>
+                </div>
+
+                {selectedIncomeSettings && (
+                  <div className="alert alert-info py-2 small mb-4">
+                    <i className="bi bi-info-circle me-1"></i>
+                    Current settings: £{Number(selectedIncomeSettings.expected_amount || 0).toFixed(2)} {selectedIncomeSettings.frequency}
+                  </div>
+                )}
+
+                <button
+                  className="btn btn-primary"
+                  onClick={handleSaveExpectedIncome}
+                  disabled={!expectedIncomeForm.expected_amount || Number(expectedIncomeForm.expected_amount) <= 0}
+                >
+                  💾 Save Expected Income
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Banking Tab */}
+      {activeTab === "banking" && (
+        <div className="card shadow-sm mb-4">
+          <div className="card-body">
+            <h5 className="card-title mb-4">Open Banking Connection</h5>
+            
+            {bankMessage && (
+              <div className={`alert alert-${bankMessage.includes("Error") || bankMessage.includes("Failed") ? "danger" : "success"} alert-dismissible fade show`} role="alert">
+                {bankMessage}
+                <button
+                  type="button"
+                  className="btn-close"
+                  onClick={() => setBankMessage("")}
+                />
+              </div>
+            )}
+
+            <p className="text-muted mb-4">
+              Connect your UK bank account via Open Banking (TrueLayer) to automatically import transactions.
+            </p>
+
+            {bankStatus?.connected ? (
+              <div>
+                <div className="alert alert-success mb-4">
+                  <strong>✅ Bank Connected</strong>
+                  <br />
+                  <small className="text-muted">
+                    Connected on: {bankStatus.connectedAt ? new Date(bankStatus.connectedAt).toLocaleDateString() : "Unknown"}
+                  </small>
+                </div>
+
+                <div className="d-grid gap-2">
+                  <button
+                    className="btn btn-outline-danger"
+                    onClick={handleDisconnectBank}
+                    disabled={bankLoading}
+                  >
+                    {bankLoading ? "⏳ Disconnecting..." : "🔌 Disconnect Bank"}
+                  </button>
+                </div>
+                <p className="text-muted small mt-3 mb-0">
+                  Disconnecting will remove your bank connection. You can reconnect the same or a different bank afterwards.
+                  Your existing imported transactions will remain.
+                </p>
+              </div>
+            ) : (
+              <div>
+                <div className="alert alert-secondary mb-4">
+                  <strong>No bank connected</strong>
+                  <br />
+                  <small>Connect a bank to automatically sync transactions.</small>
+                </div>
+
+                <div className="d-grid gap-2">
+                  <button
+                    className="btn btn-primary"
+                    onClick={handleConnectBank}
+                    disabled={bankLoading}
+                  >
+                    {bankLoading ? "⏳ Connecting..." : "🏦 Connect Bank"}
+                  </button>
+                </div>
+                <p className="text-muted small mt-3 mb-0">
+                  You'll be redirected to TrueLayer to securely link your bank account.
+                </p>
               </div>
             )}
           </div>

@@ -1,0 +1,318 @@
+/**
+ * TrueLayer Service
+ * Higher-level business logic for bank connections and sync
+ */
+
+const crypto = require('crypto');
+const client = require('./client');
+
+// In-memory state store with TTL (5 minutes)
+// In production, use Redis or DB-backed store
+const stateStore = new Map();
+const STATE_TTL_MS = 5 * 60 * 1000;
+
+/**
+ * Generate and store a CSRF-safe state token for OAuth
+ * @param {string} userId - Current user ID
+ * @returns {string} State token
+ */
+function createState(userId) {
+  const state = crypto.randomBytes(32).toString('hex');
+  stateStore.set(state, {
+    userId,
+    createdAt: Date.now(),
+  });
+  
+  // Clean up expired states periodically
+  cleanExpiredStates();
+  
+  return state;
+}
+
+/**
+ * Validate and consume a state token
+ * @param {string} state - State token from callback
+ * @returns {string|null} User ID if valid, null otherwise
+ */
+function validateState(state) {
+  const entry = stateStore.get(state);
+  if (!entry) return null;
+  
+  stateStore.delete(state); // Consume (one-time use)
+  
+  // Check TTL
+  if (Date.now() - entry.createdAt > STATE_TTL_MS) {
+    return null;
+  }
+  
+  return entry.userId;
+}
+
+function cleanExpiredStates() {
+  const now = Date.now();
+  for (const [state, entry] of stateStore.entries()) {
+    if (now - entry.createdAt > STATE_TTL_MS) {
+      stateStore.delete(state);
+    }
+  }
+}
+
+/**
+ * Store or update bank connection tokens
+ * @param {Object} prisma - Prisma client
+ * @param {string} userId - User ID
+ * @param {Object} tokenResponse - Token response from TrueLayer
+ */
+async function storeConnection(prisma, userId, tokenResponse) {
+  const expiresAt = tokenResponse.expires_in
+    ? new Date(Date.now() + tokenResponse.expires_in * 1000)
+    : null;
+
+  await prisma.bankConnection.upsert({
+    where: {
+      user_id_provider: {
+        user_id: userId,
+        provider: 'truelayer',
+      },
+    },
+    update: {
+      access_token: tokenResponse.access_token,
+      refresh_token: tokenResponse.refresh_token || null,
+      token_expires_at: expiresAt,
+    },
+    create: {
+      user_id: userId,
+      provider: 'truelayer',
+      access_token: tokenResponse.access_token,
+      refresh_token: tokenResponse.refresh_token || null,
+      token_expires_at: expiresAt,
+    },
+  });
+}
+
+/**
+ * Get valid access token, refreshing if needed
+ * @param {Object} prisma - Prisma client
+ * @param {string} userId - User ID
+ * @returns {Promise<string|null>} Valid access token or null
+ */
+async function getValidAccessToken(prisma, userId) {
+  const connection = await prisma.bankConnection.findUnique({
+    where: {
+      user_id_provider: {
+        user_id: userId,
+        provider: 'truelayer',
+      },
+    },
+  });
+
+  if (!connection) return null;
+
+  // Check if token expires within 5 minutes
+  const buffer = 5 * 60 * 1000;
+  const needsRefresh = connection.token_expires_at && 
+    new Date(connection.token_expires_at).getTime() - Date.now() < buffer;
+
+  if (needsRefresh && connection.refresh_token) {
+    try {
+      const newTokens = await client.refreshToken({
+        refresh_token: connection.refresh_token,
+      });
+      await storeConnection(prisma, userId, newTokens);
+      return newTokens.access_token;
+    } catch (err) {
+      console.error('Failed to refresh token:', err.message);
+      // Token refresh failed - connection may need re-auth
+      return null;
+    }
+  }
+
+  return connection.access_token;
+}
+
+/**
+ * Check if user has a bank connection
+ * @param {Object} prisma - Prisma client
+ * @param {string} userId - User ID
+ * @returns {Promise<Object|null>} Connection status
+ */
+async function getConnectionStatus(prisma, userId) {
+  const connection = await prisma.bankConnection.findUnique({
+    where: {
+      user_id_provider: {
+        user_id: userId,
+        provider: 'truelayer',
+      },
+    },
+    select: {
+      created_at: true,
+      token_expires_at: true,
+    },
+  });
+
+  if (!connection) return null;
+
+  return {
+    connected: true,
+    provider: 'truelayer',
+    connectedAt: connection.created_at,
+    tokenExpiresAt: connection.token_expires_at,
+  };
+}
+
+/**
+ * Sync accounts and transactions from TrueLayer to local DB
+ * @param {Object} prisma - Prisma client
+ * @param {string} userId - User ID
+ * @param {Object} options
+ * @param {string} [options.fromDate] - Start date YYYY-MM-DD
+ * @param {string} [options.toDate] - End date YYYY-MM-DD
+ * @returns {Promise<Object>} Sync summary
+ */
+async function syncAccountsAndTransactions(prisma, userId, { fromDate, toDate } = {}) {
+  const accessToken = await getValidAccessToken(prisma, userId);
+  if (!accessToken) {
+    throw new Error('No valid bank connection. Please reconnect your bank.');
+  }
+
+  // Default date range: last 90 days
+  const now = new Date();
+  const defaultFrom = new Date(now);
+  defaultFrom.setDate(defaultFrom.getDate() - 90);
+  
+  const from = fromDate || defaultFrom.toISOString().slice(0, 10);
+  const to = toDate || now.toISOString().slice(0, 10);
+
+  // Fetch accounts
+  const accounts = await client.getAccounts({ access_token: accessToken });
+  
+  // Upsert accounts
+  for (const acc of accounts) {
+    await prisma.bankAccount.upsert({
+      where: {
+        user_id_provider_provider_account_id: {
+          user_id: userId,
+          provider: 'truelayer',
+          provider_account_id: acc.account_id,
+        },
+      },
+      update: {
+        account_name: acc.display_name || acc.account_number?.number || null,
+        currency: acc.currency || null,
+      },
+      create: {
+        user_id: userId,
+        provider: 'truelayer',
+        provider_account_id: acc.account_id,
+        account_name: acc.display_name || acc.account_number?.number || null,
+        currency: acc.currency || null,
+      },
+    });
+  }
+
+  let totalInserted = 0;
+  let totalSkipped = 0;
+
+  // Fetch and sync transactions for each account
+  for (const acc of accounts) {
+    try {
+      const transactions = await client.getTransactions({
+        access_token: accessToken,
+        account_id: acc.account_id,
+        from,
+        to,
+      });
+
+      for (const tx of transactions) {
+        const normalized = normalizeTransaction(tx, userId);
+        
+        try {
+          await prisma.transaction.upsert({
+            where: { id: normalized.id },
+            update: {}, // Don't update existing
+            create: normalized,
+          });
+          totalInserted++;
+        } catch (err) {
+          // Ignore duplicate key errors
+          if (err.code === 'P2002') {
+            totalSkipped++;
+          } else {
+            throw err;
+          }
+        }
+      }
+    } catch (err) {
+      console.error(`Failed to sync account ${acc.account_id}:`, err.message);
+    }
+  }
+
+  return {
+    accounts: accounts.length,
+    inserted: totalInserted,
+    skipped: totalSkipped,
+    dateRange: { from, to },
+  };
+}
+
+/**
+ * Normalize TrueLayer transaction to our Transaction table format
+ */
+function normalizeTransaction(tx, userId) {
+  // TrueLayer transaction IDs are stable
+  const id = `tl_${tx.transaction_id}`;
+  
+  // Determine type based on amount sign
+  // TrueLayer: negative = money out, positive = money in
+  const rawAmount = parseFloat(tx.amount) || 0;
+  const type = rawAmount < 0 ? 'expense' : 'income';
+  const amount = Math.abs(rawAmount);
+  
+  // Date as YYYY-MM-DD string
+  const date = tx.timestamp 
+    ? tx.timestamp.slice(0, 10) 
+    : new Date().toISOString().slice(0, 10);
+  
+  // Description from merchant or transaction description
+  const description = tx.merchant_name || tx.description || '';
+  
+  // Category: TrueLayer provides transaction_category
+  // Map to "Other" for now (could map to our categories later)
+  const category = tx.transaction_category || 'Other';
+
+  return {
+    id,
+    user_id: userId,
+    type,
+    amount,
+    date,
+    category,
+    description,
+  };
+}
+
+/**
+ * Remove bank connection for user
+ * @param {Object} prisma - Prisma client
+ * @param {string} userId - User ID
+ */
+async function disconnectBank(prisma, userId) {
+  await prisma.bankConnection.deleteMany({
+    where: { user_id: userId, provider: 'truelayer' },
+  });
+  
+  // Optionally clean up accounts (but keep transactions)
+  await prisma.bankAccount.deleteMany({
+    where: { user_id: userId, provider: 'truelayer' },
+  });
+}
+
+module.exports = {
+  createState,
+  validateState,
+  storeConnection,
+  getValidAccessToken,
+  getConnectionStatus,
+  syncAccountsAndTransactions,
+  disconnectBank,
+};

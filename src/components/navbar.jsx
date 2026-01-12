@@ -72,7 +72,12 @@ const Navbar = () => {
     <nav className="navbar navbar-expand-lg shadow-sm fixed-top">
       <div className="container">
         {/* Brand */}
-        <Link className="navbar-brand fw-bold" to="/">
+        <Link className="navbar-brand fw-bold d-flex align-items-center gap-1" to="/">
+          <img 
+            src="/logonoback.png" 
+            alt="WalletWarden Logo" 
+            style={{ width: '50px', height: '50px', objectFit: 'contain' }} 
+          />
           Warden <span className="text-primary">Wallet</span>
         </Link>
 
