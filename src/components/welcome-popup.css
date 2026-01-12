@@ -1,0 +1,93 @@
+.welcome-popup-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.welcome-popup {
+  background-color: white;
+  border-radius: 12px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+  animation: slideUp 0.3s ease-in-out;
+  max-width: 400px;
+  width: 90%;
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(30px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.welcome-popup-content {
+  padding: 30px;
+  text-align: center;
+}
+
+.welcome-popup-title {
+  margin: 0 0 20px 0;
+  font-size: 24px;
+  font-weight: 600;
+  color: #333;
+}
+
+.welcome-popup-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.welcome-popup-buttons .btn {
+  padding: 10px 20px;
+  font-size: 16px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-decoration: none;
+  display: inline-block;
+}
+
+.welcome-popup-buttons .btn-primary {
+  background-color: #0d6efd;
+  color: white;
+}
+
+.welcome-popup-buttons .btn-primary:hover {
+  background-color: #0b5ed7;
+  transform: translateY(-2px);
+}
+
+.welcome-popup-buttons .btn-outline-secondary {
+  background-color: transparent;
+  color: #6c757d;
+  border: 1px solid #6c757d;
+}
+
+.welcome-popup-buttons .btn-outline-secondary:hover {
+  background-color: #e2e3e5;
+  color: #495057;
+  transform: translateY(-2px);
+}

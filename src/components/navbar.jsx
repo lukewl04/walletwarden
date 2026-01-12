@@ -17,6 +17,7 @@ const Navbar = () => {
   });
   const [showProfileDropdown, setShowProfileDropdown] = useState(false);
   const [showSettingsTooltip, setShowSettingsTooltip] = useState(false);
+  const [hasSplits, setHasSplits] = useState(false);
 
   useEffect(() => {
     if (typeof document === "undefined") return;
@@ -37,6 +38,21 @@ const Navbar = () => {
     return () => window.removeEventListener("storage", handleStorageChange);
   }, []);
 
+  // Check if user has any splits
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const savedSplits = JSON.parse(localStorage.getItem("walletwardenSplits") || "[]");
+    setHasSplits(savedSplits.length > 0);
+    
+    // Listen for changes to splits
+    const handleStorageChange = () => {
+      const updated = JSON.parse(localStorage.getItem("walletwardenSplits") || "[]");
+      setHasSplits(updated.length > 0);
+    };
+    window.addEventListener("storage", handleStorageChange);
+    return () => window.removeEventListener("storage", handleStorageChange);
+  }, []);
+
   // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (e) => {
@@ -48,20 +64,30 @@ const Navbar = () => {
     return () => document.removeEventListener('click', handleClickOutside);
   }, [showProfileDropdown]);
 
-  // Show settings tooltip after 30 seconds, then hide after 15 seconds
+  // Show settings tooltip after 30 seconds, then hide after 15 seconds (max 4 times)
   useEffect(() => {
-    const showTimer = setTimeout(() => {
-      setShowSettingsTooltip(true);
-    }, 30000); // 30 seconds
+    if (typeof window === "undefined") return;
+    
+    const SETTINGS_TOOLTIP_KEY = "walletwarden:settingsTooltipCount";
+    const tooltipCount = parseInt(localStorage.getItem(SETTINGS_TOOLTIP_KEY) || "0", 10);
+    
+    // Only show if we haven't shown it 4 times yet
+    if (tooltipCount < 4) {
+      const showTimer = setTimeout(() => {
+        setShowSettingsTooltip(true);
+      }, 30000); // 30 seconds
 
-    const hideTimer = setTimeout(() => {
-      setShowSettingsTooltip(false);
-    }, 45000); // 45 seconds (30 + 15)
+      const hideTimer = setTimeout(() => {
+        setShowSettingsTooltip(false);
+        // Increment the count when tooltip is hidden
+        localStorage.setItem(SETTINGS_TOOLTIP_KEY, String(tooltipCount + 1));
+      }, 45000); // 45 seconds (30 + 15)
 
-    return () => {
-      clearTimeout(showTimer);
-      clearTimeout(hideTimer);
-    };
+      return () => {
+        clearTimeout(showTimer);
+        clearTimeout(hideTimer);
+      };
+    }
   }, []);
 
   const toggleTheme = () => {
@@ -102,12 +128,14 @@ const Navbar = () => {
                 Insights
               </Link>
             </li>
-                        
-            <li className="nav-item">
-              <Link className="nav-link active" to="/tracker">
-                Tracker
-              </Link>
-            </li>
+            
+            {hasSplits && (
+              <li className="nav-item">
+                <Link className="nav-link active" to="/tracker">
+                  Tracker
+                </Link>
+              </li>
+            )}
             {/* Call to Action */}
             <li className="nav-item">
               <Link className="btn btn-primary px-4 rounded-pill" to="/splitmaker">

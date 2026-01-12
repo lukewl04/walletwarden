@@ -1,10 +1,15 @@
 import React, { useMemo, useState } from "react";
+import { useLocation } from "react-router-dom";
 import CsvPdfUpload from "../components/csv-pdf-upload.jsx";
 import Navbar from "../components/navbar.jsx";
+import HelpPanel from "../components/help-panel.jsx";
 import { useTransactions } from "../state/TransactionsContext";
 import { TRANSACTION_CATEGORIES } from "../utils/categories";
 
 export default function WardenInsights() {
+  const location = useLocation();
+  const shouldShowHelp = location.state?.showHelp || localStorage.getItem("walletwarden-show-help");
+
   const {
     transactions = [],
     totals: globalTotals,
@@ -406,6 +411,8 @@ export default function WardenInsights() {
     style={{ maxWidth: 900, minHeight: "100vh", overflowY: "auto" }}
   >
     <Navbar />
+
+    {shouldShowHelp && <HelpPanel />}
 
     {/* Put everything else inside a card like SplitMaker */}
     <div className="card shadow-sm mb-4">

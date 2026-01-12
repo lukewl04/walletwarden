@@ -1293,19 +1293,6 @@ export default function Tracker() {
                 ))}
               </select>
             </div>
-            <div>
-              <label className="form-label small fw-semibold">View</label>
-              <select
-                className="form-select form-select-sm"
-                value={viewMode}
-                onChange={(e) => setViewMode(e.target.value)}
-                style={{ minWidth: "120px" }}
-              >
-                <option value="weekly">Weekly</option>
-                <option value="monthly">Monthly</option>
-                <option value="yearly">Yearly</option>
-              </select>
-            </div>
             <h1 className="h4 mb-0 ms-auto">Warden <span className="text-primary">Tracker</span></h1>
           </div>
         )}
@@ -1544,6 +1531,26 @@ export default function Tracker() {
                 <div className="card-body">
                   <div className="d-flex align-items-center justify-content-between mb-3">
                     <h5 className="mb-0">Purchases</h5>
+                    <div className="btn-group" role="group">
+                      <button
+                        className={`btn btn-sm ${viewMode === "weekly" ? "btn-primary" : "btn-outline-secondary"}`}
+                        onClick={() => setViewMode("weekly")}
+                      >
+                        Weekly
+                      </button>
+                      <button
+                        className={`btn btn-sm ${viewMode === "monthly" ? "btn-primary" : "btn-outline-secondary"}`}
+                        onClick={() => setViewMode("monthly")}
+                      >
+                        Monthly
+                      </button>
+                      <button
+                        className={`btn btn-sm ${viewMode === "yearly" ? "btn-primary" : "btn-outline-secondary"}`}
+                        onClick={() => setViewMode("yearly")}
+                      >
+                        Yearly
+                      </button>
+                    </div>
                   </div>
 
                   {viewMode === "weekly" ? (

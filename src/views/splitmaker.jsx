@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import Navbar from "../components/navbar.jsx";
 import { useTransactions } from "../state/TransactionsContext";
 
@@ -6,6 +7,9 @@ const API_URL = "http://localhost:4000/api";
 
 // SplitMaker: split a total amount across named categories (or people) using % or £.
 export default function SplitMaker() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const shouldShowHelp = location.state?.showHelp || localStorage.getItem("walletwarden-show-help");
   const { addTransaction } = useTransactions?.() ?? {};
 
   // Presets: mapping from category name -> percent
@@ -93,6 +97,7 @@ export default function SplitMaker() {
       }));
     setPeople(newPeople);
     setSelectedPreset(preset.label);
+    setSplitName(preset.label);
     setMessage({ type: "success", text: `Applied preset: ${preset.label}` });
     setNeedsPreset(false);
   };
@@ -201,6 +206,12 @@ export default function SplitMaker() {
         localStorage.setItem("walletwardenSplits", JSON.stringify(savedSplits));
 
         setMessage({ type: "success", text: `Split saved as "${savedSplit.name}"! 💾` });
+        setShowFrequencyModal(false);
+        
+        // Navigate to tracker page
+        setTimeout(() => {
+          navigate("/tracker");
+        }, 500);
       } else {
         setMessage({
           type: "danger",
@@ -222,6 +233,14 @@ export default function SplitMaker() {
     return (
       <div className="container py-5" style={{ maxWidth: 960, minHeight: "100vh" }}>
         <Navbar />
+        
+        {shouldShowHelp && (
+          <div className="alert alert-info alert-dismissible fade show mt-4" role="alert">
+            <strong>👋 Getting Started:</strong> First pick the split that best aligns with your goals
+            <button type="button" className="btn-close" onClick={() => localStorage.removeItem("walletwarden-show-help")} />
+          </div>
+        )}
+
         <div className="card shadow-sm mt-4">
           <div className="card-body">
             <h1 className="h4 mb-2">Choose a preset to get started</h1>
@@ -283,17 +302,17 @@ export default function SplitMaker() {
             <div className="col-12 col-lg-3">
               <div className="card border-0 shadow-sm" style={{ position: "sticky", top: "100px" }}>
                 <div className="card-body">
-                  <h6 className="card-title mb-3 fw-bold">Income Details</h6>
+                  <h6 className="card-title mb-3 fw-bold"></h6>
                   
                   {/* Total Amount removed; splits operate on percents only */}
 
                   <div className="mb-4">
-                    <label className="form-label small fw-semibold d-block mb-2">Label</label>
+                    <label className="form-label small fw-semibold d-block mb-2">Split Name</label>
                     <input
                       className="form-control form-control-sm"
                       value={description}
                       onChange={(e) => setDescription(e.target.value)}
-                      placeholder="e.g. Monthly Income"
+                      placeholder="e.g. Main Split"
                     />
                   </div>
 
@@ -390,7 +409,7 @@ export default function SplitMaker() {
                               <input
                                 className="form-control form-control-sm"
                                 type="number"
-                                step="0.01"
+                                step="1"
                                 min="0"
                                 max="100"
                                 value={p.percent}

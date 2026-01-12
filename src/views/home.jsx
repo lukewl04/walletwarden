@@ -1,9 +1,11 @@
 import Navbar from "../components/navbar.jsx";
+import WelcomePopup from "../components/welcome-popup.jsx";
 import { Link } from "react-router-dom";
 
 export default function Home() {
   return (
     <div className="container-fluid py-5 mt-5" style={{ minHeight: "100vh" }}>
+      <WelcomePopup />
       <Navbar />
 
       <div className="container text-center" style={{ maxWidth: 900 }}>
