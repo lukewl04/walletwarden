@@ -118,8 +118,8 @@ router.post('/sync', requireConfig, async (req, res) => {
   } catch (err) {
     console.error('Error syncing transactions:', err);
     
-    if (err.message.includes('No valid bank connection')) {
-      return res.status(400).json({ error: 'no_connection', message: err.message });
+    if (err.code === 'TOKEN_EXPIRED' || err.message.includes('No valid bank connection')) {
+      return res.status(401).json({ error: 'token_expired', message: err.message, requiresReconnect: true });
     }
     
     return res.status(500).json({ error: 'sync_failed', message: err.message });

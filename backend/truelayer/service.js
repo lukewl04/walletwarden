@@ -172,7 +172,9 @@ async function getConnectionStatus(prisma, userId) {
 async function syncAccountsAndTransactions(prisma, userId, { fromDate, toDate } = {}) {
   const accessToken = await getValidAccessToken(prisma, userId);
   if (!accessToken) {
-    throw new Error('No valid bank connection. Please reconnect your bank.');
+    const error = new Error('No valid bank connection. Please reconnect your bank.');
+    error.code = 'TOKEN_EXPIRED';
+    throw error;
   }
 
   // Default date range: last 90 days
@@ -184,7 +186,21 @@ async function syncAccountsAndTransactions(prisma, userId, { fromDate, toDate } 
   const to = toDate || now.toISOString().slice(0, 10);
 
   // Fetch accounts
-  const accounts = await client.getAccounts({ access_token: accessToken });
+  let accounts;
+  try {
+    accounts = await client.getAccounts({ access_token: accessToken });
+  } catch (err) {
+    if (err.message.includes('Access token expired or invalid')) {
+      // Mark connection as invalid by deleting it
+      await prisma.bankConnection.deleteMany({
+        where: { user_id: userId, provider: 'truelayer' },
+      });
+      const error = new Error('Access token expired. Please reconnect your bank.');
+      error.code = 'TOKEN_EXPIRED';
+      throw error;
+    }
+    throw err;
+  }
   
   // Upsert accounts
   for (const acc of accounts) {

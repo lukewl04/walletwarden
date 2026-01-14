@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import CsvPdfUpload from "../components/csv-pdf-upload.jsx";
 import Navbar from "../components/navbar.jsx";
 import HelpPanel from "../components/help-panel.jsx";
@@ -8,6 +8,7 @@ import { TRANSACTION_CATEGORIES } from "../utils/categories";
 
 export default function WardenInsights() {
   const location = useLocation();
+  const navigate = useNavigate();
   const shouldShowHelp = location.state?.showHelp || localStorage.getItem("walletwarden-show-help");
 
   const {
@@ -87,6 +88,13 @@ export default function WardenInsights() {
   };
 
   const handleSyncBank = async () => {
+    // Check if bank is connected before syncing
+    if (!bankStatus?.connected) {
+      alert("Please connect your bank first.");
+      navigate("/options");
+      return;
+    }
+
     setBankSyncing(true);
     try {
       const res = await fetch(`${API_URL}/banks/truelayer/sync`, {
@@ -96,6 +104,13 @@ export default function WardenInsights() {
       });
       if (!res.ok) {
         const err = await res.json();
+        if (err.requiresReconnect || res.status === 401) {
+          alert(`Your bank connection has expired. Please reconnect your bank.`);
+          setBankStatus(null);
+          setBankSyncing(false);
+          navigate("/options");
+          return;
+        }
         throw new Error(err.message || "Sync failed");
       }
       const result = await res.json();
@@ -623,7 +638,7 @@ export default function WardenInsights() {
                         </div>
 
                         {t.description && (
-                          <div className="text-muted small" style={{ fontSize: "0.85rem" }}>
+                          <div className="text-light small" style={{ fontSize: "0.85rem" }}>
                             {t.description}
                           </div>
                         )}

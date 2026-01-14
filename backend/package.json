@@ -5,6 +5,11 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
+    "dev": "node index.js",
+    "db:generate": "npx prisma generate",
+    "db:push": "npx prisma db push",
+    "db:migrate": "npx prisma migrate dev",
+    "db:setup": "npx prisma generate && npx prisma db push",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],

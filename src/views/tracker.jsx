@@ -1285,7 +1285,7 @@ export default function Tracker() {
                 onChange={(e) => setSelectedSplit(e.target.value)}
                 style={{ minWidth: "180px" }}
               >
-                <option value="">Choose a split…</option>
+                <option value="" disabled>Choose a split…</option>
                 {savedSplits.map((split) => (
                   <option key={split.id} value={split.id}>
                     {split.name} ({split.frequency})
@@ -1516,7 +1516,7 @@ export default function Tracker() {
                                 <td>
                                   <span className="badge text-bg-secondary">{tx.category || "Income"}</span>
                                 </td>
-                                <td className="text-body-secondary">{tx.description || "—"}</td>
+                                <td className="text-light">{tx.description || "—"}</td>
                               </tr>
                             ))}
                         </tbody>
@@ -1646,7 +1646,7 @@ export default function Tracker() {
                                             </button>
                                           )}
                                           {purchase.description && (
-                                            <div className="text-body-secondary text-truncate" title={purchase.description}>
+                                            <div className="text-light text-truncate" title={purchase.description}>
                                               {purchase.description}
                                             </div>
                                           )}
@@ -1770,7 +1770,7 @@ export default function Tracker() {
                                             </button>
                                           )}
                                           {purchase.description && (
-                                            <div className="text-body-secondary text-truncate" title={purchase.description}>
+                                            <div className="text-light text-truncate" title={purchase.description}>
                                               {purchase.description}
                                             </div>
                                           )}
