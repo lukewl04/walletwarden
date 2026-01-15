@@ -39,10 +39,29 @@ export default function WardenInsights() {
   const [bankLoading, setBankLoading] = useState(false);
   const [bankSyncing, setBankSyncing] = useState(false);
   const [lastSyncMessage, setLastSyncMessage] = useState("");
+  const [bankBalance, setBankBalance] = useState(null); // Actual bank balance from TrueLayer
 
   const API_URL = "http://localhost:4000/api";
   const getAuthHeaders = () => {
     return { Authorization: `Bearer ${getUserToken()}` };
+  };
+
+  // Fetch actual bank balance
+  const fetchBankBalance = async () => {
+    try {
+      const res = await fetch(`${API_URL}/banks/truelayer/balance`, {
+        headers: getAuthHeaders(),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        console.log("[Balance] Fetched from API:", data);
+        if (data.totalBalance !== undefined) {
+          setBankBalance(data);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to fetch bank balance:", err);
+    }
   };
 
   // Sync bank transactions
@@ -54,7 +73,7 @@ export default function WardenInsights() {
     
     // Add timeout for sync
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+    const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout for full sync
     
     try {
       const res = await fetch(`${API_URL}/banks/truelayer/sync`, {
@@ -77,13 +96,23 @@ export default function WardenInsights() {
       }
       
       const result = await res.json();
-      const message = `Synced ${result.accounts} account(s): ${result.inserted} new transaction(s)`;
-      setLastSyncMessage(message);
+      
+      // Check if we got transactions or just balance updates
+      if (result.inserted > 0) {
+        const message = `Synced ${result.accounts} account(s): ${result.inserted} new, ${result.skipped || 0} existing`;
+        setLastSyncMessage(message);
+      } else if (result.accounts > 0) {
+        // Got balances but no new transactions - this is the SCA limitation
+        setLastSyncMessage(`Updated ${result.accounts} account balance(s). To sync new transactions, reconnect your bank.`);
+      } else {
+        setLastSyncMessage("No updates available.");
+      }
       
       // Refresh transactions from backend to show new data
-      if (result.inserted > 0) {
-        await refreshTransactions();
-      }
+      await refreshTransactions();
+      
+      // Also fetch the updated bank balance
+      await fetchBankBalance();
     } catch (err) {
       clearTimeout(timeoutId);
       console.error("Sync error:", err);
@@ -116,6 +145,10 @@ export default function WardenInsights() {
         if (res.ok) {
           const data = await res.json();
           setBankStatus(data);
+          // If connected, also fetch the bank balance
+          if (data.connected) {
+            fetchBankBalance();
+          }
         }
       } catch (err) {
         clearTimeout(timeoutId);
@@ -133,6 +166,19 @@ export default function WardenInsights() {
     if (params.get("bankConnected")) {
       setBankStatus({ connected: true });
       setBankStatusLoading(false);
+      
+      // Show sync result from callback
+      const synced = params.get("synced");
+      const syncError = params.get("syncError");
+      if (synced) {
+        setLastSyncMessage(`Connected! Imported ${synced} transactions from your bank.`);
+        // Refresh to show new transactions
+        refreshTransactions();
+        fetchBankBalance();
+      } else if (syncError) {
+        setLastSyncMessage("Bank connected, but couldn't sync transactions. Try the refresh button.");
+      }
+      
       window.history.replaceState({}, "", window.location.pathname);
     } else if (params.get("bankError")) {
       alert(`Bank connection error: ${params.get("bankError")}`);
@@ -200,10 +246,11 @@ export default function WardenInsights() {
   };
 
   const formattedBalance = useMemo(() => {
-    const b = globalTotals?.balance ?? 0;
+    // Use actual bank balance if available, otherwise fall back to calculated balance
+    const b = bankBalance?.totalBalance ?? globalTotals?.balance ?? 0;
     const sign = b < 0 ? "-" : "";
     return `${sign}£${Math.abs(b).toFixed(2)}`;
-  }, [globalTotals]);
+  }, [globalTotals, bankBalance]);
 
   const handleAddTransaction = (type) => {
     const value = Number(amount);
@@ -591,13 +638,23 @@ export default function WardenInsights() {
           <div className="card-body">
             <div className="d-flex align-items-center justify-content-between gap-3">
               <div>
-                <div className="text-muted small">Current Balance</div>
-                <div className={`display-6 mb-0 ${(globalTotals?.balance ?? 0) < 0 ? "text-danger" : "text-success"}`}>
+                <div className="text-muted small">
+                  {bankBalance?.totalBalance !== undefined ? "Bank Balance" : "Current Balance"}
+                  {bankBalance?.totalBalance !== undefined && (
+                    <span className="badge bg-info ms-2" style={{fontSize: '0.65rem'}}>Live</span>
+                  )}
+                </div>
+                <div className={`display-6 mb-0 ${(bankBalance?.totalBalance ?? globalTotals?.balance ?? 0) < 0 ? "text-danger" : "text-success"}`}>
                   {formattedBalance}
                 </div>
+                {bankBalance?.availableBalance !== undefined && Math.abs(bankBalance.availableBalance - bankBalance.totalBalance) > 0.01 && (
+                  <div className="text-muted small mt-1">
+                    Available: £{bankBalance.availableBalance.toFixed(2)}
+                  </div>
+                )}
               </div>
-              <span className={`badge rounded-pill ${(globalTotals?.balance ?? 0) < 0 ? "text-bg-danger" : "text-bg-success"}`}>
-                {(globalTotals?.balance ?? 0) < 0 ? "Over budget" : "Looking good"}
+              <span className={`badge rounded-pill ${(bankBalance?.totalBalance ?? globalTotals?.balance ?? 0) < 0 ? "text-bg-danger" : "text-bg-success"}`}>
+                {(bankBalance?.totalBalance ?? globalTotals?.balance ?? 0) < 0 ? "Over budget" : "Looking good"}
               </span>
             </div>
           </div>

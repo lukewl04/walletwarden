@@ -107,15 +107,16 @@ async function getAccounts({ access_token }) {
 }
 
 /**
- * Get transactions for a specific account
+ * Get transactions for a specific account (handles pagination)
  * @param {Object} options
  * @param {string} options.access_token - Valid access token
  * @param {string} options.account_id - TrueLayer account ID
  * @param {string} [options.from] - Start date YYYY-MM-DD
  * @param {string} [options.to] - End date YYYY-MM-DD
- * @returns {Promise<Array>} List of transactions
+ * @returns {Promise<Array>} List of all transactions
  */
 async function getTransactions({ access_token, account_id, from, to }) {
+  let allTransactions = [];
   let url = `${config.DATA_BASE_URL}/data/v1/accounts/${account_id}/transactions`;
   
   const params = new URLSearchParams();
@@ -126,18 +127,68 @@ async function getTransactions({ access_token, account_id, from, to }) {
     url += `?${params.toString()}`;
   }
 
-  const response = await fetch(url, {
+  // Fetch all pages of transactions
+  let hasMore = true;
+  let currentUrl = url;
+  
+  while (hasMore) {
+    const response = await fetch(currentUrl, {
+      headers: { Authorization: `Bearer ${access_token}` },
+    });
+
+    if (!response.ok) {
+      const status = response.status;
+      if (status === 401) throw new Error('Access token expired or invalid');
+      if (status === 403) {
+        // 403 can mean: bank doesn't support transactions, consent not granted, or account type doesn't support it
+        const errorBody = await response.text().catch(() => '');
+        console.log(`[TrueLayer] 403 response for transactions: ${errorBody}`);
+        throw new Error(`Transaction access denied (403). This account may not support transaction history.`);
+      }
+      throw new Error(`Failed to fetch transactions: ${status}`);
+    }
+
+    const data = await response.json();
+    const results = data.results || [];
+    allTransactions = allTransactions.concat(results);
+    
+    // Check for next page
+    if (data.next) {
+      currentUrl = data.next;
+    } else {
+      hasMore = false;
+    }
+  }
+  
+  console.log(`[TrueLayer] Fetched ${allTransactions.length} transactions for account ${account_id}`);
+  return allTransactions;
+}
+
+/**
+ * Get account balance from TrueLayer
+ * @param {Object} options
+ * @param {string} options.access_token - Valid access token
+ * @param {string} options.account_id - TrueLayer account ID
+ * @returns {Promise<Object>} Balance info { current, available, currency }
+ */
+async function getBalance({ access_token, account_id }) {
+  const response = await fetch(`${config.DATA_BASE_URL}/data/v1/accounts/${account_id}/balance`, {
     headers: { Authorization: `Bearer ${access_token}` },
   });
 
   if (!response.ok) {
     const status = response.status;
     if (status === 401) throw new Error('Access token expired or invalid');
-    throw new Error(`Failed to fetch transactions: ${status}`);
+    throw new Error(`Failed to fetch balance: ${status}`);
   }
 
   const data = await response.json();
-  return data.results || [];
+  const balance = data.results?.[0] || {};
+  return {
+    current: balance.current || 0,
+    available: balance.available || balance.current || 0,
+    currency: balance.currency || 'GBP',
+  };
 }
 
 module.exports = {
@@ -146,4 +197,5 @@ module.exports = {
   refreshToken,
   getAccounts,
   getTransactions,
+  getBalance,
 };

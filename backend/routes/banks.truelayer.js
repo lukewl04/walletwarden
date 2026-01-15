@@ -84,8 +84,19 @@ router.get('/callback', requireConfig, async (req, res) => {
     // Store connection
     await service.storeConnection(prisma, userId, tokenResponse);
 
-    // Redirect to frontend with success
-    return res.redirect(`${config.FRONTEND_URL}/wardeninsights?bankConnected=1`);
+    // IMPORTANT: Sync transactions immediately!
+    // UK Open Banking SCA rules only allow transaction access within 5 minutes of authentication
+    console.log('[TrueLayer] Syncing transactions immediately after connection (SCA window)...');
+    try {
+      const syncResult = await service.syncAccountsAndTransactions(prisma, userId, {});
+      console.log(`[TrueLayer] Initial sync complete: ${syncResult.inserted} transactions`);
+      // Redirect with sync count
+      return res.redirect(`${config.FRONTEND_URL}/wardeninsights?bankConnected=1&synced=${syncResult.inserted}`);
+    } catch (syncErr) {
+      console.error('[TrueLayer] Initial sync failed:', syncErr.message);
+      // Still redirect as connected, but note the sync issue
+      return res.redirect(`${config.FRONTEND_URL}/wardeninsights?bankConnected=1&syncError=1`);
+    }
   } catch (err) {
     console.error('Error in TrueLayer callback:', err);
     return res.redirect(`${config.FRONTEND_URL}/wardeninsights?bankError=token_exchange_failed`);
@@ -145,6 +156,60 @@ router.get('/status', async (req, res) => {
     });
   } catch (err) {
     console.error('Error checking status:', err);
+    return res.status(500).json({ error: 'internal_error', message: err.message });
+  }
+});
+
+/**
+ * GET /api/banks/truelayer/balance
+ * Get the actual bank balance from connected accounts
+ */
+router.get('/balance', async (req, res) => {
+  try {
+    const userId = req.auth?.sub;
+    if (!userId) {
+      return res.status(401).json({ error: 'unauthorized' });
+    }
+
+    // Get all bank accounts for user
+    const accounts = await prisma.bankAccount.findMany({
+      where: { user_id: userId, provider: 'truelayer' },
+      select: {
+        account_name: true,
+        balance: true,
+        available_balance: true,
+        currency: true,
+        provider_account_id: true,
+      },
+    });
+
+    if (accounts.length === 0) {
+      return res.json({ totalBalance: null, accounts: [] });
+    }
+
+    // Find the main account (for Monzo, it's the first one / the one with the user's name)
+    // Pots typically have descriptive names like "Savings", "Holiday", etc.
+    // The main account is usually the first account returned or has a personal name
+    const mainAccount = accounts[0]; // TrueLayer returns main account first
+    
+    // Sum up all account balances for reference
+    const totalAllAccounts = accounts.reduce((sum, acc) => sum + (acc.balance || 0), 0);
+
+    console.log(`[Balance API] User ${userId}: Main account £${(mainAccount.balance || 0).toFixed(2)}, Total (all pots) £${totalAllAccounts.toFixed(2)}`);
+
+    return res.json({
+      totalBalance: mainAccount.balance || 0,
+      availableBalance: mainAccount.available_balance || 0,
+      currency: accounts[0]?.currency || 'GBP',
+      accounts: accounts.map(a => ({
+        name: a.account_name,
+        balance: a.balance,
+        available: a.available_balance,
+        currency: a.currency,
+      })),
+    });
+  } catch (err) {
+    console.error('Error fetching balance:', err);
     return res.status(500).json({ error: 'internal_error', message: err.message });
   }
 });
