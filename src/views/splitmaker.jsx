@@ -306,15 +306,7 @@ export default function SplitMaker() {
                   
                   {/* Total Amount removed; splits operate on percents only */}
 
-                  <div className="mb-4">
-                    <label className="form-label small fw-semibold d-block mb-2">Split Name</label>
-                    <input
-                      className="form-control form-control-sm"
-                      value={description}
-                      onChange={(e) => setDescription(e.target.value)}
-                      placeholder="e.g. Main Split"
-                    />
-                  </div>
+
 
                   <hr className="my-3" />
 
