@@ -2,8 +2,12 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import Navbar from "../components/navbar.jsx";
 import { useTransactions } from "../state/TransactionsContext";
+import { getUserToken } from "../utils/userToken";
 
 const API_URL = "http://localhost:4000/api";
+
+// Helper to get auth headers with unique user token
+const getAuthHeaders = () => ({ Authorization: `Bearer ${getUserToken()}` });
 
 // SplitMaker: split a total amount across named categories (or people) using % or £.
 export default function SplitMaker() {
@@ -184,12 +188,11 @@ export default function SplitMaker() {
 
     try {
       // Save to backend
-      const token = localStorage.getItem("walletwarden-token") || "dev-user";
       const response = await fetch(`${API_URL}/splits`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`,
+          ...getAuthHeaders(),
         },
         body: JSON.stringify({
           id: savedSplit.id,

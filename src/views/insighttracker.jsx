@@ -3,8 +3,12 @@ import { Link } from "react-router-dom";
 import Navbar from "../components/navbar.jsx";
 import CsvPdfUpload from "../components/csv-pdf-upload.jsx";
 import { useTransactions } from "../state/TransactionsContext";
+import { getUserToken } from "../utils/userToken";
 
 const API_URL = "http://localhost:4000/api";
+
+// Helper to get auth headers with unique user token
+const getAuthHeaders = () => ({ Authorization: `Bearer ${getUserToken()}` });
 
 export default function InsightTracker() {
   const { addTransaction, bulkAddTransactions } = useTransactions?.() ?? {};
@@ -62,11 +66,9 @@ export default function InsightTracker() {
     const loadDataFromBackend = async () => {
       setIsLoading(true);
       try {
-        const token = localStorage.getItem("auth0Token") || "dev-user";
-
         // Load splits
         const splitsResponse = await fetch(`${API_URL}/splits`, {
-          headers: { "Authorization": `Bearer ${token}` },
+          headers: { ...getAuthHeaders() },
         });
 
         let loadedSplits = [];
@@ -175,13 +177,12 @@ export default function InsightTracker() {
       if (savedSplits.length === 0) return;
       
       try {
-        const token = localStorage.getItem("auth0Token") || "dev-user";
         for (const split of savedSplits) {
           await fetch(`${API_URL}/splits`, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              "Authorization": `Bearer ${token}`,
+              ...getAuthHeaders(),
             },
             body: JSON.stringify({
               id: split.id,
@@ -207,7 +208,6 @@ export default function InsightTracker() {
       if (purchases.length === 0 || !selectedSplit) return;
 
       try {
-        const token = localStorage.getItem("auth0Token") || "dev-user";
         const purchasesToSync = purchases.filter((p) => p.split_id === selectedSplit);
         
         for (const purchase of purchasesToSync) {
@@ -215,7 +215,7 @@ export default function InsightTracker() {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              "Authorization": `Bearer ${token}`,
+              ...getAuthHeaders(),
             },
             body: JSON.stringify({
               id: purchase.id,
@@ -423,11 +423,10 @@ export default function InsightTracker() {
     if (!confirm("Are you sure you want to delete this purchase?")) return;
 
     try {
-      const token = localStorage.getItem("auth0Token") || "dev-user";
       const response = await fetch(`${API_URL}/purchases/${purchaseId}`, {
         method: "DELETE",
         headers: {
-          "Authorization": `Bearer ${token}`,
+          ...getAuthHeaders(),
         },
       });
 

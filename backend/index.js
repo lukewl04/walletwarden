@@ -201,7 +201,25 @@ app.patch('/api/transactions/:id', async (req, res) => {
   }
 });
 
-// delete
+// Bulk delete all transactions for user - MUST come before :id route
+app.delete('/api/transactions/clear', async (req, res) => {
+  try {
+    const userId = req.auth?.sub;
+    if (!userId) return res.status(401).json({ error: 'unauthorized' });
+    
+    const result = await prisma.transaction.deleteMany({
+      where: { user_id: userId }
+    });
+    
+    console.log(`Cleared ${result.count} transactions for user ${userId}`);
+    return res.json({ ok: true, deleted: result.count });
+  } catch (err) {
+    console.error('Error clearing transactions:', err);
+    return res.status(500).json({ error: 'internal_error', message: err.message });
+  }
+});
+
+// delete single transaction
 app.delete('/api/transactions/:id', async (req, res) => {
   try {
     const userId = req.auth?.sub;

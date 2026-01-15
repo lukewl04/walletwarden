@@ -3,6 +3,7 @@ import Navbar from "../components/navbar.jsx";
 import { useTransactions } from "../state/TransactionsContext";
 import { useAuth0 } from "@auth0/auth0-react";
 import { TRANSACTION_CATEGORIES } from "../utils/categories";
+import { getUserToken, clearAuth0User } from "../utils/userToken";
 
 const CURRENCY_OPTIONS = [
   { code: 'GBP', symbol: '£', name: 'British Pound' },
@@ -18,6 +19,9 @@ const CUSTOM_CATEGORIES_KEY = 'walletwarden:customCategories';
 const PROFILE_PICTURE_KEY = 'walletwarden:profilePicture';
 
 const API_URL = "http://localhost:4000/api";
+
+// Helper to get auth headers with unique user token
+const getAuthHeaders = () => ({ Authorization: `Bearer ${getUserToken()}` });
 
 export default function Options() {
   const { clearTransactions } = useTransactions();
@@ -43,6 +47,7 @@ export default function Options() {
 
   // Bank connection state
   const [bankStatus, setBankStatus] = useState(null);
+  const [bankStatusLoading, setBankStatusLoading] = useState(true); // Loading state for initial status check
   const [bankLoading, setBankLoading] = useState(false);
   const [bankMessage, setBankMessage] = useState("");
 
@@ -66,21 +71,40 @@ export default function Options() {
 
   // Load bank connection status on mount
   useEffect(() => {
+    // Reset loading state on mount (in case user navigated back)
+    setBankLoading(false);
+    setBankStatusLoading(true);
+    
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+    
     const checkBankStatus = async () => {
       try {
-        const token = localStorage.getItem("walletwarden-token") || "dev-user";
         const res = await fetch(`${API_URL}/banks/truelayer/status`, {
-          headers: { Authorization: `Bearer ${token}` },
+          headers: { ...getAuthHeaders() },
+          signal: controller.signal,
         });
+        clearTimeout(timeoutId);
         if (res.ok) {
           const data = await res.json();
           setBankStatus(data);
         }
       } catch (err) {
-        console.error("Failed to check bank status:", err);
+        clearTimeout(timeoutId);
+        if (err.name !== 'AbortError') {
+          console.error("Failed to check bank status:", err);
+        }
+      } finally {
+        setBankStatusLoading(false);
       }
     };
     checkBankStatus();
+    
+    // Cleanup on unmount
+    return () => {
+      clearTimeout(timeoutId);
+      controller.abort();
+    };
   }, []);
 
   // Save custom categories to localStorage when they change
@@ -121,11 +145,9 @@ export default function Options() {
   const loadSplitsAndIncomeSettings = async () => {
     setIsLoadingIncome(true);
     try {
-      const token = localStorage.getItem("walletwarden-token") || "dev-user";
-
       // Load splits
       const splitsResponse = await fetch(`${API_URL}/splits`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { ...getAuthHeaders() },
       });
 
       if (splitsResponse.ok) {
@@ -138,7 +160,7 @@ export default function Options() {
 
       // Load income settings
       const incomeSettingsResponse = await fetch(`${API_URL}/income-settings`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { ...getAuthHeaders() },
       });
 
       if (incomeSettingsResponse.ok) {
@@ -156,7 +178,6 @@ export default function Options() {
     if (!selectedSplitForIncome) return;
 
     try {
-      const token = localStorage.getItem("walletwarden-token") || "dev-user";
       const payload = {
         split_id: selectedSplitForIncome,
         expected_amount: Math.abs(parseFloat(expectedIncomeForm.expected_amount) || 0),
@@ -169,7 +190,7 @@ export default function Options() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
+          ...getAuthHeaders(),
         },
         body: JSON.stringify(payload),
       });
@@ -208,43 +229,19 @@ export default function Options() {
   const confirmReset = async () => {
     try {
       setIsResetting(true);
-      setResetMessage("Resetting your data...");
+      setResetMessage("Clearing transactions...");
 
-      // Clear data on backend (Supabase) first
-      const token = localStorage.getItem("walletwarden-token") || "dev-user";
-      try {
-        const response = await fetch(`${API_URL}/reset`, {
-          method: "POST",
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        
-        if (response.ok) {
-          const result = await response.json();
-          console.log("Backend reset result:", result);
-        } else {
-          console.error("Backend reset failed:", response.status);
-        }
-      } catch (err) {
-        console.error("Error resetting data on backend:", err);
-      }
-
-      // Clear insights transactions via context/API
+      // Clear all transactions via context (single bulk delete API call)
       await clearTransactions();
 
-      // Clear all localStorage data related to the app
-      localStorage.removeItem("walletwardenSplits");
-      localStorage.removeItem("walletwardenSelectedSplit");
-      localStorage.removeItem("walletwardenCategoryRules");
-      localStorage.removeItem("walletwardenSplitIncomes");
+      // Clear localStorage data related to transactions
       localStorage.removeItem("walletwarden:transactions:v1");
 
-      setResetMessage("All data has been cleared from your account successfully!");
+      setResetMessage("All transactions have been cleared successfully!");
       setShowConfirmModal(false);
       setTimeout(() => {
         setResetMessage("");
         setIsResetting(false);
-        // Reload the page to reset all state
-        window.location.reload();
       }, 2000);
     } catch (error) {
       console.error("Error clearing data:", error);
@@ -322,10 +319,9 @@ export default function Options() {
   const handleDisconnectBank = async () => {
     setBankLoading(true);
     try {
-      const token = localStorage.getItem("walletwarden-token") || "dev-user";
       const res = await fetch(`${API_URL}/banks/truelayer/disconnect`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { ...getAuthHeaders() },
       });
       if (res.ok) {
         setBankStatus({ connected: false });
@@ -344,17 +340,42 @@ export default function Options() {
 
   const handleConnectBank = async () => {
     setBankLoading(true);
+    setBankMessage(""); // Clear any previous messages
+    
+    // Create abort controller for timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+    
     try {
-      const token = localStorage.getItem("walletwarden-token") || "dev-user";
       const res = await fetch(`${API_URL}/banks/truelayer/connect`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { ...getAuthHeaders() },
+        signal: controller.signal,
       });
-      if (!res.ok) throw new Error("Failed to get connect URL");
-      const { url } = await res.json();
-      window.location.href = url;
+      
+      clearTimeout(timeoutId);
+      
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.message || `Server error: ${res.status}`);
+      }
+      
+      const data = await res.json();
+      
+      if (!data.url) {
+        throw new Error("No redirect URL received from server");
+      }
+      
+      // Redirect to TrueLayer - keep loading state since we're navigating away
+      window.location.href = data.url;
     } catch (err) {
+      clearTimeout(timeoutId);
       console.error("Connect bank error:", err);
-      setBankMessage("Failed to connect bank. Please try again.");
+      
+      if (err.name === 'AbortError') {
+        setBankMessage("Connection timed out. Please check your internet connection and try again.");
+      } else {
+        setBankMessage(err.message || "Failed to connect bank. Please try again.");
+      }
       setBankLoading(false);
     }
   };
@@ -501,7 +522,10 @@ export default function Options() {
               <h6 className="mb-3">Sign Out</h6>
               <button
                 className="btn btn-secondary"
-                onClick={() => logout({ logoutParams: { returnTo: window.location.origin } })}
+                onClick={() => {
+                  clearAuth0User(); // Clear stored Auth0 user ID
+                  logout({ logoutParams: { returnTo: window.location.origin } });
+                }}
               >
                 🚪 Sign Out
               </button>
@@ -752,7 +776,7 @@ export default function Options() {
             <h5 className="card-title mb-4">Open Banking Connection</h5>
             
             {bankMessage && (
-              <div className={`alert alert-${bankMessage.includes("Error") || bankMessage.includes("Failed") ? "danger" : "success"} alert-dismissible fade show`} role="alert">
+              <div className={`alert alert-${bankMessage.includes("Error") || bankMessage.includes("Failed") || bankMessage.includes("timed out") ? "danger" : "success"} alert-dismissible fade show`} role="alert">
                 {bankMessage}
                 <button
                   type="button"
@@ -766,7 +790,14 @@ export default function Options() {
               Connect your UK bank account via Open Banking (TrueLayer) to automatically import transactions.
             </p>
 
-            {bankStatus?.connected ? (
+            {bankStatusLoading ? (
+              <div className="text-center py-4">
+                <div className="spinner-border text-primary" role="status">
+                  <span className="visually-hidden">Loading...</span>
+                </div>
+                <p className="text-muted mt-2 mb-0">Checking bank connection status...</p>
+              </div>
+            ) : bankStatus?.connected ? (
               <div>
                 <div className="alert alert-success mb-4">
                   <strong>✅ Bank Connected</strong>

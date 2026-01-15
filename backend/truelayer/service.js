@@ -242,19 +242,26 @@ async function syncAccountsAndTransactions(prisma, userId, { fromDate, toDate } 
       for (const tx of transactions) {
         const normalized = normalizeTransaction(tx, userId);
         
-        try {
-          await prisma.transaction.upsert({
-            where: { id: normalized.id },
-            update: {}, // Don't update existing
-            create: normalized,
-          });
-          totalInserted++;
-        } catch (err) {
-          // Ignore duplicate key errors
-          if (err.code === 'P2002') {
-            totalSkipped++;
-          } else {
-            throw err;
+        // Check if transaction already exists
+        const existing = await prisma.transaction.findUnique({
+          where: { id: normalized.id },
+        });
+        
+        if (existing) {
+          totalSkipped++;
+        } else {
+          try {
+            await prisma.transaction.create({
+              data: normalized,
+            });
+            totalInserted++;
+          } catch (err) {
+            // Ignore duplicate key errors (race condition)
+            if (err.code === 'P2002') {
+              totalSkipped++;
+            } else {
+              throw err;
+            }
           }
         }
       }

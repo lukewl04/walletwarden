@@ -7,6 +7,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { Auth0Provider } from "@auth0/auth0-react";
 
 import ProtectedRoute from "./auth/ProtectedRoute";
+import AuthSync from "./auth/AuthSync";
 import Home from "./views/home";
 import Import from "./components/csv-pdf-upload";
 import SplitMaker from "./views/splitmaker";
@@ -38,19 +39,21 @@ ReactDOM.createRoot(document.getElementById("root")).render(
       useRefreshTokens={true}
       cacheLocation="localstorage"
     >
-      <TransactionsProvider>
-        <BrowserRouter>
-          <Routes>
-            <Route path="/" element={<ProtectedHome />} />
-            <Route path="/import" element={<ProtectedImport />} />
-            <Route path="/splitmaker" element={<ProtectedSplit />} />
-            <Route path="/wardeninsights" element={<ProtectedWardenInsights />} />
-            <Route path="/tracker" element={<ProtectedTracker />} />
-            <Route path="/insighttracker" element={<ProtectedInsightTracker />} />
-            <Route path="/options" element={<ProtectedOptions />} />
-          </Routes>
-        </BrowserRouter>
-      </TransactionsProvider>
+      <AuthSync>
+        <TransactionsProvider>
+          <BrowserRouter>
+            <Routes>
+              <Route path="/" element={<ProtectedHome />} />
+              <Route path="/import" element={<ProtectedImport />} />
+              <Route path="/splitmaker" element={<ProtectedSplit />} />
+              <Route path="/wardeninsights" element={<ProtectedWardenInsights />} />
+              <Route path="/tracker" element={<ProtectedTracker />} />
+              <Route path="/insighttracker" element={<ProtectedInsightTracker />} />
+              <Route path="/options" element={<ProtectedOptions />} />
+            </Routes>
+          </BrowserRouter>
+        </TransactionsProvider>
+      </AuthSync>
     </Auth0Provider>
   </React.StrictMode>
 );
