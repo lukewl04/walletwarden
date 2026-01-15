@@ -786,7 +786,7 @@ export default function WardenInsights() {
             </div>
 
             {/* Top Expense Categories and Top Merchants - Side by Side */}
-            <div className="row g-3">
+            <div className="row g-3 mb-3">
               <div className="col-12 col-lg-6">
                 <div className="card p-2">
                   <div className="d-flex align-items-center justify-content-between mb-2">
@@ -831,48 +831,46 @@ export default function WardenInsights() {
 
             {/* Spending Forecast - Insight #14 */}
             {spendingForecast && (
-              <div className="col-12">
-                <div className="card p-3">
-                  <div className="mb-3">
-                    <strong>Spending Forecast</strong>
-                    <div className="text-muted small">Next month projection</div>
+              <div className="card p-3 mb-3">
+                <div className="mb-3">
+                  <strong>Spending Forecast</strong>
+                  <div className="text-muted small">Next month projection</div>
+                </div>
+
+                <div className="row g-3">
+                  <div className="col-12 col-sm-6">
+                    <div className="p-3 rounded" style={{ backgroundColor: "var(--card-border)", color: "var(--text)" }}>
+                      <div className="text-muted small mb-1">Forecast</div>
+                      <div className="h5 mb-0 text-primary">£{spendingForecast.forecast.toFixed(2)}</div>
+                      <small className="text-muted d-block">Based on last 3 months avg</small>
+                    </div>
                   </div>
 
-                  <div className="row g-3">
-                    <div className="col-12 col-sm-6">
-                      <div className="p-3 rounded" style={{ backgroundColor: "var(--card-border)", color: "var(--text)" }}>
-                        <div className="text-muted small mb-1">Forecast</div>
-                        <div className="h5 mb-0 text-primary">£{spendingForecast.forecast.toFixed(2)}</div>
-                        <small className="text-muted d-block">Based on last 3 months avg</small>
+                  <div className="col-12 col-sm-6">
+                    <div className="p-3 rounded" style={{ backgroundColor: "var(--card-border)", color: "var(--text)" }}>
+                      <div className="text-muted small mb-1">Trend</div>
+                      <div className={`h5 mb-0 ${spendingForecast.trend === "increasing" ? "text-danger" : "text-success"}`}>
+                        {spendingForecast.trend === "increasing" ? "📈 Increasing" : "📉 Decreasing"}
                       </div>
+                      <small className="text-muted d-block">
+                        vs historical average (£{spendingForecast.average.toFixed(2)})
+                      </small>
                     </div>
+                  </div>
 
-                    <div className="col-12 col-sm-6">
-                      <div className="p-3 rounded" style={{ backgroundColor: "var(--card-border)", color: "var(--text)" }}>
-                        <div className="text-muted small mb-1">Trend</div>
-                        <div className={`h5 mb-0 ${spendingForecast.trend === "increasing" ? "text-danger" : "text-success"}`}>
-                          {spendingForecast.trend === "increasing" ? "📈 Increasing" : "📉 Decreasing"}
-                        </div>
-                        <small className="text-muted d-block">
-                          vs historical average (£{spendingForecast.average.toFixed(2)})
-                        </small>
-                      </div>
+                  <div className="col-12 col-sm-6">
+                    <div className="p-3 rounded" style={{ backgroundColor: "var(--card-border)", color: "var(--text)" }}>
+                      <div className="text-muted small mb-1">Last Month</div>
+                      <div className="h5 mb-0">£{spendingForecast.lastMonth.toFixed(2)}</div>
+                      <small className="text-muted d-block">Actual spending</small>
                     </div>
+                  </div>
 
-                    <div className="col-12 col-sm-6">
-                      <div className="p-3 rounded" style={{ backgroundColor: "var(--card-border)", color: "var(--text)" }}>
-                        <div className="text-muted small mb-1">Last Month</div>
-                        <div className="h5 mb-0">£{spendingForecast.lastMonth.toFixed(2)}</div>
-                        <small className="text-muted d-block">Actual spending</small>
-                      </div>
-                    </div>
-
-                    <div className="col-12 col-sm-6">
-                      <div className="p-3 rounded" style={{ backgroundColor: "var(--card-border)", color: "var(--text)" }}>
-                        <div className="text-muted small mb-1">Average</div>
-                        <div className="h5 mb-0">£{spendingForecast.average.toFixed(2)}</div>
-                        <small className="text-muted d-block">Over {monthsBack} months</small>
-                      </div>
+                  <div className="col-12 col-sm-6">
+                    <div className="p-3 rounded" style={{ backgroundColor: "var(--card-border)", color: "var(--text)" }}>
+                      <div className="text-muted small mb-1">Average</div>
+                      <div className="h5 mb-0">£{spendingForecast.average.toFixed(2)}</div>
+                      <small className="text-muted d-block">Over {monthsBack} months</small>
                     </div>
                   </div>
                 </div>
