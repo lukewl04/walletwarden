@@ -406,7 +406,7 @@ export default function WardenInsights() {
 
           return (
             <g key={idx}>
-              <rect x={x} y={y} width={bw} height={barH} fill="#c53030" rx={6} />
+              <rect x={x} y={y} width={bw} height={barH} fill="#0d6efd" rx={6} />
               <text x={x + bw / 2} y={height - 12} fontSize={11} fill="#333" textAnchor="middle">
                 {it.category.length > 12 ? it.category.slice(0, 12) + "…" : it.category}
               </text>

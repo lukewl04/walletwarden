@@ -315,16 +315,226 @@ export default function InsightTracker() {
     const matchCategory = (importedCat, description = "") => {
       // Generic keywords that work with any category name
       const keywordsByType = {
-        food: ["tesco", "sainsbury", "asda", "morrisons", "lidl", "aldi", "waitrose", "co-op", "coop", "grocery", "supermarket", "bakery", "deli", "market", "restaurant", "cafe", "pizza", "burger", "mcdonald", "kfc", "subway", "starbucks", "costa", "pub", "bar", "meals", "food", "greggs", "pret", "leon"],
-        petrol: ["bp", "shell", "esso", "tesco fuel", "sainsbury fuel", "motorbike", "taxi", "uber", "lyft", "train", "rail", "bus", "transport", "parking", "petrol", "diesel", "fuel", "car", "auto", "chevron"],
-        entertainment: ["cinema", "netflix", "spotify", "game", "steam", "playstation", "xbox", "nintendo", "theatre", "concert", "ticket", "movie", "film", "music", "entertainment"],
-        utilities: ["water", "gas", "electric", "council tax", "broadband", "internet", "phone", "mobile", "virgin", "bt", "plusnet", "bills"],
-        health: ["pharmacy", "doctor", "dentist", "hospital", "medical", "gym", "fitness", "health", "optician", "boots", "nhs", "wellbeing"],
-        shopping: ["amazon", "ebay", "argos", "john lewis", "marks spencer", "h&m", "zara", "clothes", "fashion", "homeware", "furniture", "ikea", "b&q", "wickes", "screwfix", "shop", "john lewis"],
-        subscriptions: ["subscription", "spotify", "netflix", "adobe", "microsoft", "apple"],
-        bills: ["bill", "council tax", "water", "gas", "electric", "broadband", "phone", "utility", "council", "rates"],
-        savings: ["savings", "save", "transfer", "saving"],
-        investing: ["invest", "investment", "broker", "trading"],
+        food: [
+          // UK Supermarkets
+          "tesco", "sainsbury", "sainsburys", "asda", "morrisons", "lidl", "aldi", "waitrose", "co-op", "coop", "iceland", "poundland", "home bargains", "ocado",
+          // Grocery & Markets
+          "grocery", "supermarket", "bakery", "deli", "market", "farmers market", "butcher", "fishmonger",
+          // Restaurants & Dining
+          "restaurant", "cafe", "coffee", "bistro", "brasserie", "dining", "pizzeria",
+          // Fast Food Chains
+          "mcdonald", "kfc", "burger king", "wendy's", "subway", "taco bell", "chipotle", "dominos", "pizza hut",
+          // Coffee & Tea
+          "starbucks", "costa", "caffe nero", "pret", "leon", "greggs", "coffee", "tea room", "tea house",
+          // Pubs & Bars
+          "pub", "bar", "bar & grill", "bistro", "lounge", "tavern", "inn",
+          // Food Delivery
+          "deliveroo", "uber eats", "just eat", "grubhub", "doordash", "food delivery",
+          // Asian Cuisine
+          "chinese", "indian", "thai", "japanese", "ramen", "sushi", "curry",
+          // Beverages & Alcohol
+          "brewery", "winery", "distillery", "bar", "cocktail",
+          // Vegan/Health
+          "vegan", "vegetarian", "organic", "health food",
+          // General
+          "meals", "food", "lunch", "dinner", "breakfast", "snack", "provisions",
+        ],
+        petrol: [
+          // Fuel Stations
+          "bp", "shell", "esso", "texaco", "chevron", "aral", "jet", "total", "sunoco", "marathon",
+          "tesco fuel", "sainsbury fuel", "asda fuel", "morrisons fuel", "costco fuel",
+          // Parking & Tolls
+          "parking", "car park", "parkway", "parkwhiz", "just park", "parking meter", "toll", "congestion charge",
+          // Vehicle Related
+          "petrol", "diesel", "fuel", "gas station", "filling station", "pump", "forecourt",
+          // Ride Sharing & Taxis
+          "uber", "lyft", "bolt", "ola", "taxify", "gett", "mytaxi", "addison lee", "minicab", "taxi",
+          // Public Transport
+          "train", "rail", "railway", "tfl", "national express", "stagecoach", "arriva", "go-ahead", "bus", "coach", "tram", "metro", "underground", "tube",
+          // Car Services
+          "car wash", "carwash", "valet", "valeting", "auto wash",
+          // Vehicle Purchase/Rental
+          "hertz", "europcar", "avis", "budget", "enterprise", "zipcar", "car rental", "car hire",
+          // General
+          "transport", "motorbike", "motorcycle", "scooter", "transportation",
+        ],
+        entertainment: [
+          // Streaming Services
+          "netflix", "spotify", "disney", "prime video", "hulu", "apple tv", "now tv", "britbox", "bbc iplayer", "channel 4", "itv hub", "all 4",
+          // Gaming Platforms
+          "steam", "playstation", "xbox", "nintendo", "epic games", "itch.io", "ubisoft", "activision", "ea", "rockstar", "take two",
+          // Games & Gaming
+          "game", "gamestop", "gaming", "esports", "twitch",
+          // Music & Audio
+          "spotify", "apple music", "tidal", "soundcloud", "bandcamp", "lastfm", "deezer",
+          // Cinemas & Movies
+          "cinema", "movie", "film", "odeon", "vue", "cineworld", "picturehouse", "multiplex", "screening", "imax",
+          // Theater & Arts
+          "theatre", "theater", "opera", "ballet", "concert", "live music", "comedy", "stand-up",
+          // Events & Tickets
+          "ticketmaster", "eventbrite", "eventim", "ticketek", "ticket", "live nation", "songkick", "bandsintown",
+          // Hobbies & Crafts
+          "hobby", "craft", "art supply", "lego", "collectible", "puzzle",
+          // Media & Publishing
+          "ebook", "kindle", "audiobook", "audible", "scribd", "wattpad", "medium",
+          // General
+          "entertainment", "music", "show", "performance", "amusement", "fun",
+        ],
+        utilities: [
+          // Energy
+          "water", "gas", "electric", "electricity", "fuel", "power", "supply", "utility",
+          // Energy Companies
+          "edf", "eon", "npower", "scottish power", "sse", "british gas", "centrica", "ovo", "bulb", "octopus energy",
+          // Broadband & Internet
+          "broadband", "internet", "isp", "bt broadband", "virgin media", "sky broadband", "talktalk", "plusnet", "vodafone", "ee", "o2",
+          // Phone & Mobile
+          "phone", "mobile", "sim", "phone bill", "contract", "pay as you go",
+          "virgin", "bt", "plusnet", "talk talk", "vodafone", "o2", "ee", "three", "giffgaff",
+          // Council & Local
+          "council", "council tax", "bin", "waste", "refuse", "local authority",
+          // Household Services
+          "boiler", "plumber", "electrician", "heating", "maintenance", "repairs",
+          // General
+          "bills", "bill payment", "household",
+        ],
+        health: [
+          // Pharmacies & Medicine
+          "pharmacy", "chemist", "boots", "lloyds", "asda pharmacy", "tesco pharmacy", "sainsbury pharmacy", "boots pharmacist",
+          "medicine", "medication", "prescription", "pharma",
+          // Hospitals & Clinics
+          "hospital", "clinic", "health centre", "medical centre", "surgery", "gp",
+          // Doctors & Medical
+          "doctor", "gp", "physician", "consultant", "medical", "healthcare",
+          // Dentists
+          "dentist", "dental", "orthodontist", "teeth", "braces",
+          // Opticians & Vision
+          "optician", "eye care", "glasses", "contact lens", "vision",
+          // Fitness & Gym
+          "gym", "fitness", "health club", "leisure centre", "yoga", "pilates", "spin class", "crossfit", "peloton", "fitbit",
+          "pure gym", "budget gym", "virgin active", "david lloyd", "f45",
+          // Wellbeing & Therapy
+          "therapy", "counseling", "psychology", "physio", "physiotherapy", "massage", "spa", "sauna", "wellness",
+          // Sports & Recreation
+          "sports", "swimming", "pool", "tennis", "golf", "cricket",
+          // Mental Health
+          "mental health", "therapy", "counselor", "psychiatry",
+          // General
+          "health", "wellbeing", "wellness", "medical",
+        ],
+        shopping: [
+          // Online Retail
+          "amazon", "ebay", "etsy", "aliexpress", "wish", "shein", "boohoo", "asos", "depop", "vinted", "mercari",
+          // Department Stores
+          "john lewis", "selfridges", "harrods", "liberty", "fortnum mason", "arnotts", "boots",
+          // Clothing & Fashion
+          "h&m", "zara", "uniqlo", "gap", "river island", "new look", "topshop", "urban outfitters", "primark", "next", "m&s", "marks spencer",
+          "asos", "boohoo", "nasty gal", "very", "jd sports", "footpatrol",
+          // Designer & Luxury
+          "louis vuitton", "gucci", "prada", "chanel", "dior", "hermes", "burberry", "versace", "dolce gabbana",
+          // Shoes & Footwear
+          "schuh", "office", "dune", "clarks", "timberland", "nike", "adidas", "puma", "vans", "converse", "sketchers",
+          // Homeware & Furniture
+          "ikea", "dunelm", "next home", "habitat", "maisons du monde", "cox & cox", "wayfair", "wayfair.co.uk",
+          "argos", "john lewis", "furniture village", "dreams", "sofa",
+          // DIY & Hardware
+          "b&q", "wickes", "screwfix", "toolstation", "homebase", "focus diy", "b and q",
+          // Electronics & Computing
+          "currys", "john lewis", "argos", "ao.com", "laptops direct", "scan", "overclockers",
+          // Books & Media
+          "waterstones", "foyles", "WHSmith", "WH smith", "book depository",
+          // Sports & Outdoor
+          "sports direct", "decathlon", "blacks", "go outdoors", "cotswold outdoor", "wiggle",
+          // Toys & Games
+          "toys r us", "hasbro", "lego", "smyths", "mothercare",
+          // Beauty & Personal Care
+          "boots", "superdrug", "sephora", "ulta", "spacenk", "beauty", "makeup",
+          // Home & Garden
+          "garden centre", "garden furniture", "wyevale", "thompson morgan", "crocus",
+          // General
+          "shop", "shopping", "retail", "store", "mall", "boutique", "outlet",
+        ],
+        subscriptions: [
+          // Streaming Video
+          "netflix", "disney", "prime video", "hulu", "apple tv", "now tv", "britbox",
+          // Music Streaming
+          "spotify", "apple music", "amazon music", "tidal", "soundcloud", "deezer",
+          // Software & Productivity
+          "adobe", "microsoft", "office 365", "creative cloud", "photoshop", "office", "windows",
+          "slack", "asana", "monday.com", "notion", "trello", "monday",
+          // Cloud & Storage
+          "dropbox", "onedrive", "google drive", "google one", "icloud",
+          // VPN & Security
+          "nordvpn", "expressvpn", "surfshark", "bitdefender", "norton", "mcafee", "kaspersky",
+          // Gaming Subscriptions
+          "game pass", "playstation plus", "xbox live", "nintendo switch online", "ea play",
+          // Learning & Education
+          "masterclass", "udemy", "coursera", "skillshare", "duolingo", "babbel",
+          // News & Publishing
+          "medium", "substack", "patreon", "newsletter",
+          // Fitness & Health
+          "peloton", "apple fitness", "headspace", "calm", "fitbit",
+          // Dating & Social
+          "tinder", "bumble", "match", "eharmony", "hinge",
+          // Other Services
+          "subscription", "member", "membership", "recurring", "subscription box",
+        ],
+        bills: [
+          // Utilities
+          "bill", "bills", "utility", "utilities",
+          "council tax", "council", "rates", "local authority",
+          "water", "sewage", "waste water",
+          "gas", "electric", "electricity", "fuel",
+          // Broadband & Phone
+          "broadband", "internet", "isp", "phone", "mobile", "phone bill",
+          "virgin", "bt", "sky", "talktalk", "plusnet", "vodafone", "o2", "ee",
+          // Insurance
+          "insurance", "home insurance", "contents insurance", "car insurance", "breakdown cover",
+          "direct line", "go compare", "confused", "churchill", "admiral",
+          // Subscriptions (recurring payments)
+          "subscription", "monthly", "annual", "yearly", "renewal",
+          // Rent & Housing
+          "rent", "mortgage", "landlord", "housing association",
+          // Council & Government
+          "hmrc", "tv licence", "bbc", "parking fine", "penalty",
+          // General
+          "payment", "invoice", "statement", "account",
+        ],
+        savings: [
+          // Banks & Accounts
+          "bank", "savings", "account", "deposit",
+          "hsbc", "barclays", "lloyds", "santander", "natwest", "rbs", "nationwide", "building society",
+          // Transfer
+          "transfer", "wire", "standing order", "direct debit", "bank transfer",
+          // Savings Products
+          "savings account", "isa", "premium bonds", "savings bonds", "fixed rate", "notice account",
+          // Save & Reserve
+          "save", "saving", "reserve", "rainy day", "emergency fund",
+          // Investment Apps
+          "vanguard", "vanguard", "hargreaves lansdown",
+          // General
+          "move", "moved", "allocation",
+        ],
+        investing: [
+          // Stock Markets & Trading
+          "invest", "investment", "trading", "trader", "exchange", "shares", "stock", "stocks",
+          // Brokerage Platforms
+          "etoro", "plus500", "ig", "interactive brokers", "capital.com", "lmax", "saxo bank",
+          "hargreaves lansdown", "charles schwab", "fidelity", "td ameritrade",
+          // Robo Advisors & Investment Apps
+          "vanguard", "fidelity", "wealthify", "nutmeg", "betterment", "robinhood", "trading 212", "freetrade", "webuying",
+          // Crypto & Digital Assets
+          "crypto", "bitcoin", "ethereum", "blockchain", "coinbase", "kraken", "binance", "bitstamp", "gemini",
+          // Funds & ETFs
+          "fund", "etf", "mutual fund", "index fund", "pension",
+          // P2P & Alternative
+          "p2p", "peer to peer", "funding circle", "zopa", "rate setter", "lending club",
+          // Financial Advisor
+          "financial advisor", "ifa", "advisor", "wealth management",
+          // Broker & Trading
+          "broker", "brokerage", "spread betting", "cfd", "forex",
+          // General
+          "investor", "trader", "investment portfolio", "portfolio",
+        ],
       };
 
       const searchText = (importedCat + " " + description).toLowerCase();

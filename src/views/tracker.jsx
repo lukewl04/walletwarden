@@ -1555,123 +1555,123 @@ export default function Tracker() {
 
                   {viewMode === "weekly" ? (
                     /* Weekly Spreadsheet Grid - Days as columns */
-                    <div className="table-responsive" style={{ maxHeight: "320px", overflowY: "auto" }}>
-                      <table className="table table-bordered mb-0" style={{ tableLayout: "fixed" }}>
-                        <thead>
-                          <tr>
-                            {weekDays.map((day, idx) => {
-                              const isToday = toDateOnlyString(day) === toDateOnlyString(new Date());
-                              const dayTotal = getPurchasesForDate(day).reduce((sum, p) => sum + p.amount, 0);
-                              return (
-                                <th 
-                                  key={idx} 
-                                  className="text-center"
-                                  style={{ 
-                                    width: `${100/7}%`,
-                                    backgroundColor: isToday ? "rgba(13, 110, 253, 0.1)" : "inherit",
-                                    borderBottom: isToday ? "2px solid #0d6efd" : undefined
-                                  }}
-                                >
-                                  <div className="fw-bold">{dayNames[idx]}</div>
-                                  <div className="small text-body-secondary">
-                                    {day.toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
-                                  </div>
-                                  {dayTotal > 0 && (
-                                    <div className="badge bg-secondary mt-1">- £{dayTotal.toFixed(2)}</div>
-                                  )}
-                                </th>
-                              );
-                            })}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          <tr>
-                            {weekDays.map((day, idx) => {
-                              const dayPurchases = getPurchasesForDate(day);
-                              const isToday = toDateOnlyString(day) === toDateOnlyString(new Date());
-                              return (
-                                <td 
-                                  key={idx} 
-                                  className="align-top p-2"
-                                  style={{ 
-                                    minHeight: "200px",
-                                    backgroundColor: isToday ? "rgba(13, 110, 253, 0.05)" : "inherit",
-                                    verticalAlign: "top"
-                                  }}
-                                >
-                                  {dayPurchases.length === 0 ? (
-                                    <div className="text-body-secondary small text-center py-3">—</div>
-                                  ) : (
-                                    <div className="d-flex flex-column gap-2">
-                                      {dayPurchases.map((purchase) => (
-                                        <div 
-                                          key={purchase.id} 
-                                          className="card card-body p-2"
-                                          style={{ fontSize: "0.8rem" }}
-                                        >
-                                          <div className="d-flex justify-content-between align-items-start mb-1">
-                                            <span className="fw-bold" style={{ color: "var(--tracker-accent)" }}>£{purchase.amount.toFixed(2)}</span>
-                                            <button
-                                              className="btn btn-sm p-0 text-danger"
-                                              onClick={() => handleDeletePurchase(purchase.id)}
-                                              title="Delete"
-                                              style={{ lineHeight: 1 }}
-                                            >
-                                              ×
-                                            </button>
-                                          </div>
-                                          {editingPurchaseId === purchase.id ? (
-                                            <select
-                                              className="form-select form-select-sm mb-1"
-                                              value={purchase.category}
-                                              onChange={(e) => handleUpdatePurchaseCategory(purchase.id, e.target.value)}
-                                              onBlur={() => setEditingPurchaseId(null)}
-                                              autoFocus
-                                              style={{ fontSize: "0.75rem" }}
-                                            >
-                                              {selectedSplitData?.categories.map((cat) => (
-                                                <option key={cat.id} value={cat.name}>
-                                                  {cat.name}
-                                                </option>
-                                              ))}
-                                            </select>
-                                          ) : (
-                                            <button
-                                              className="badge bg-primary mb-1 border-0"
-                                              style={{ cursor: "pointer", fontSize: "0.7rem" }}
-                                              onClick={() => setEditingPurchaseId(purchase.id)}
-                                              title="Click to edit category"
-                                            >
-                                              {purchase.category}
-                                            </button>
-                                          )}
-                                          {purchase.description && (
-                                            <div className="text-light text-truncate" title={purchase.description}>
-                                              {purchase.description}
-                                            </div>
-                                          )}
-                                        </div>
-                                      ))}
+                    <>
+                      <div className="table-responsive" style={{ maxHeight: "320px", overflowY: "auto" }}>
+                        <table className="table table-bordered mb-0" style={{ tableLayout: "fixed" }}>
+                          <thead>
+                            <tr>
+                              {weekDays.map((day, idx) => {
+                                const isToday = toDateOnlyString(day) === toDateOnlyString(new Date());
+                                const dayTotal = getPurchasesForDate(day).reduce((sum, p) => sum + p.amount, 0);
+                                return (
+                                  <th 
+                                    key={idx} 
+                                    className="text-center"
+                                    style={{ 
+                                      width: `${100/7}%`,
+                                      backgroundColor: isToday ? "rgba(13, 110, 253, 0.1)" : "inherit",
+                                      borderBottom: isToday ? "2px solid #0d6efd" : undefined
+                                    }}
+                                  >
+                                    <div className="fw-bold">{dayNames[idx]}</div>
+                                    <div className="small text-body-secondary">
+                                      {day.toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
                                     </div>
-                                  )}
-                                </td>
-                              );
-                            })}
-                          </tr>
-                        </tbody>
-                        <tfoot>
-                          <tr>
-                            <td colSpan="7" className="text-end fw-bold py-2">
-                              Week Total: £{getWeekTotal.toFixed(2)}
-                            </td>
-                          </tr>
-                        </tfoot>
-                      </table>
-                    </div>
+                                    {dayTotal > 0 && (
+                                      <div className="badge bg-secondary mt-1">- £{dayTotal.toFixed(2)}</div>
+                                    )}
+                                  </th>
+                                );
+                              })}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            <tr>
+                              {weekDays.map((day, idx) => {
+                                const dayPurchases = getPurchasesForDate(day);
+                                const isToday = toDateOnlyString(day) === toDateOnlyString(new Date());
+                                return (
+                                  <td 
+                                    key={idx} 
+                                    className="align-top p-2"
+                                    style={{ 
+                                      minHeight: "200px",
+                                      backgroundColor: isToday ? "rgba(13, 110, 253, 0.05)" : "inherit",
+                                      verticalAlign: "top"
+                                    }}
+                                  >
+                                    {dayPurchases.length === 0 ? (
+                                      <div className="text-body-secondary small text-center py-3">—</div>
+                                    ) : (
+                                      <div className="d-flex flex-column gap-2">
+                                        {dayPurchases.map((purchase) => (
+                                          <div 
+                                            key={purchase.id} 
+                                            className="card card-body p-2"
+                                            style={{ fontSize: "0.8rem" }}
+                                          >
+                                            <div className="d-flex justify-content-between align-items-start mb-1">
+                                              <span className="fw-bold" style={{ color: "var(--tracker-accent)" }}>£{purchase.amount.toFixed(2)}</span>
+                                              <button
+                                                className="btn btn-sm p-0 text-danger"
+                                                onClick={() => handleDeletePurchase(purchase.id)}
+                                                title="Delete"
+                                                style={{ lineHeight: 1 }}
+                                              >
+                                                ×
+                                              </button>
+                                            </div>
+                                            {editingPurchaseId === purchase.id ? (
+                                              <select
+                                                className="form-select form-select-sm mb-1"
+                                                value={purchase.category}
+                                                onChange={(e) => handleUpdatePurchaseCategory(purchase.id, e.target.value)}
+                                                onBlur={() => setEditingPurchaseId(null)}
+                                                autoFocus
+                                                style={{ fontSize: "0.75rem" }}
+                                              >
+                                                {selectedSplitData?.categories.map((cat) => (
+                                                  <option key={cat.id} value={cat.name}>
+                                                    {cat.name}
+                                                  </option>
+                                                ))}
+                                              </select>
+                                            ) : (
+                                              <button
+                                                className="badge bg-primary mb-1 border-0"
+                                                style={{ cursor: "pointer", fontSize: "0.7rem" }}
+                                                onClick={() => setEditingPurchaseId(purchase.id)}
+                                                title="Click to edit category"
+                                              >
+                                                {purchase.category}
+                                              </button>
+                                            )}
+                                            {purchase.description && (
+                                              <div className="text-light text-truncate" title={purchase.description}>
+                                                {purchase.description}
+                                              </div>
+                                            )}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                      <div className="mt-2 text-end fw-bold">
+                        Week Total: £{getWeekTotal.toFixed(2)}
+                      </div>
+                    </>
+
                   ) : viewMode === "monthly" ? (
                     /* Monthly Spreadsheet Grid - Weeks as columns */
-                    <div className="table-responsive" style={{ maxHeight: "400px", overflowY: "auto" }}>
-                      <table className="table table-bordered mb-0" style={{ tableLayout: "fixed" }}>
+                    <>
+                      <div className="table-responsive" style={{ maxHeight: "400px", overflowY: "auto" }}>
+                        <table className="table table-bordered mb-0" style={{ tableLayout: "fixed" }}>
                         <thead>
                           <tr>
                             {monthWeeks.map((week) => {
@@ -1783,19 +1783,17 @@ export default function Tracker() {
                             })}
                           </tr>
                         </tbody>
-                        <tfoot>
-                          <tr>
-                            <td colSpan={monthWeeks.length} className="text-end fw-bold py-2">
-                              Month Total: £{getMonthTotal.toFixed(2)}
-                            </td>
-                          </tr>
-                        </tfoot>
                       </table>
-                    </div>
+                      </div>
+                      <div className="mt-2 text-end fw-bold">
+                        Month Total: £{getMonthTotal.toFixed(2)}
+                      </div>
+                    </>
                   ) : (
                     /* Yearly Spreadsheet Grid - Months as columns */
-                    <div className="table-responsive" style={{ maxHeight: "400px", overflowY: "auto" }}>
-                      <table className="table table-bordered mb-0" style={{ tableLayout: "fixed" }}>
+                    <>
+                      <div className="table-responsive" style={{ maxHeight: "400px", overflowY: "auto" }}>
+                        <table className="table table-bordered mb-0" style={{ tableLayout: "fixed" }}>
                         <thead>
                           <tr>
                             {monthNames.map((monthName, idx) => {
@@ -1906,15 +1904,12 @@ export default function Tracker() {
                             })}
                           </tr>
                         </tbody>
-                        <tfoot>
-                          <tr>
-                            <td colSpan="12" className="text-end fw-bold py-2">
-                              Year Total: £{getYearTotal.toFixed(2)}
-                            </td>
-                          </tr>
-                        </tfoot>
                       </table>
-                    </div>
+                      </div>
+                      <div className="mt-2 text-end fw-bold">
+                        Year Total: £{getYearTotal.toFixed(2)}
+                      </div>
+                    </>
                   )}
                 </div>
               </div>

@@ -1,20 +1,21 @@
 // Transaction categories for categorization
 export const TRANSACTION_CATEGORIES = [
-  'Petrol',
-  'Subscriptions',
+  'Rent',
+  'Utilities',
   'Groceries',
   'Restaurants',
-  'Entertainment',
-  'Shopping',
+  'Petrol',
   'Transport',
-  'Utilities',
-  'Rent',
-  'Transfer',
-  'Fees',
-  'Other',
+  'Shopping',
+  'Entertainment',
+  'Subscriptions',
   'Education',
   'Gifts',
-  'Charity'
+  'Charity',
+  'Transfer',
+  'Fees',
+  'Salary',
+  'Other'
 ];
 
 export const CATEGORY_COLORS = {
