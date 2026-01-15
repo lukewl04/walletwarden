@@ -409,6 +409,43 @@ export default function WardenInsights() {
       .slice(0, 6);
   }, [parsed]);
 
+  // Top merchants (insight #9)
+  const topMerchants = useMemo(() => {
+    const map = {};
+    parsed.forEach((t) => {
+      if (t.type !== "expense" || !t.description) return;
+      // Extract first 30 chars or first meaningful words
+      const vendor = t.description.split(/[\s-]/).slice(0, 2).join(" ").substring(0, 30);
+      map[vendor] = (map[vendor] || 0) + t.amount;
+    });
+
+    return Object.entries(map)
+      .map(([vendor, amount]) => ({ vendor, amount }))
+      .sort((a, b) => b.amount - a.amount)
+      .slice(0, 8);
+  }, [parsed]);
+
+  // Spending forecast (insight #14)
+  const spendingForecast = useMemo(() => {
+    if (monthly.length === 0) return null;
+
+    // Get last month's data
+    const lastMonth = monthly[monthly.length - 1];
+    const avgMonthly = monthly.reduce((sum, m) => sum + m.expense, 0) / monthly.length;
+
+    // Simple forecast: average of last 3 months
+    const last3Avg = monthly
+      .slice(-3)
+      .reduce((sum, m) => sum + m.expense, 0) / Math.min(3, monthly.length);
+
+    return {
+      lastMonth: lastMonth.expense,
+      average: avgMonthly,
+      forecast: last3Avg,
+      trend: last3Avg > avgMonthly ? "increasing" : "decreasing",
+    };
+  }, [monthly]);
+
   // ---- charts ----
   const Donut = ({ income, expense, size = 160, thickness = 22 }) => {
     const total = income + expense || 1;
@@ -511,7 +548,7 @@ export default function WardenInsights() {
   const Bars = ({ items = [], width = 700, height = 220 }) => {
     if (!items.length) return null;
 
-    const pad = { l: 12, r: 12, t: 20, b: 36 };
+    const pad = { l: 12, r: 12, t: 20, b: 60 };
     const w = width - pad.l - pad.r;
     const h = height - pad.t - pad.b;
 
@@ -528,9 +565,17 @@ export default function WardenInsights() {
 
           return (
             <g key={idx}>
-              <rect x={x} y={y} width={bw} height={barH} fill="#c53030" rx={6} />
-              <text x={x + bw / 2} y={height - 12} fontSize={11} fill="#333" textAnchor="middle">
-                {it.category.length > 12 ? it.category.slice(0, 12) + "…" : it.category}
+              <rect x={x} y={y} width={bw} height={barH} fill="#0d6efd" rx={6} />
+              <text 
+                x={x + bw / 2} 
+                y={pad.t + h + 10} 
+                fontSize={10} 
+                fill="#333" 
+                textAnchor="end"
+                transform={`rotate(-45 ${x + bw / 2} ${pad.t + h + 10})`}
+                dominantBaseline="middle"
+              >
+                {it.category.length > 16 ? it.category.slice(0, 16) + "…" : it.category}
               </text>
               <text x={x + bw / 2} y={y - 8} fontSize={11} fill="#333" textAnchor="middle">
                 £{it.amount.toFixed(0)}
@@ -740,25 +785,99 @@ export default function WardenInsights() {
               </div>
             </div>
 
-            <div className="col-12">
-              <div className="card p-2">
-                <div className="d-flex align-items-center justify-content-between mb-2">
-                  <div>
-                    <strong>Top Expense Categories</strong>
-                    <div className="text-muted small">Largest buckets</div>
+            {/* Top Expense Categories and Top Merchants - Side by Side */}
+            <div className="row g-3">
+              <div className="col-12 col-lg-6">
+                <div className="card p-2">
+                  <div className="d-flex align-items-center justify-content-between mb-2">
+                    <div>
+                      <strong>Top Expense Categories</strong>
+                      <div className="text-muted small">Largest buckets</div>
+                    </div>
+                    <div className="text-muted small">{topExpenses.length}</div>
                   </div>
-                  <div className="text-muted small">{topExpenses.length} shown</div>
-                </div>
 
-                {topExpenses.length === 0 ? (
-                  <div className="text-muted">No expense data available.</div>
-                ) : (
-                  <div style={{ minHeight: 260 }}>
-                    <Bars items={topExpenses} width={700} height={220} />
+                  {topExpenses.length === 0 ? (
+                    <div className="text-muted">No expense data available.</div>
+                  ) : (
+                    <div style={{ minHeight: 220 }}>
+                      <Bars items={topExpenses} width={400} height={180} />
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Top Merchants - Insight #9 */}
+              <div className="col-12 col-lg-6">
+                <div className="card p-2">
+                  <div className="d-flex align-items-center justify-content-between mb-2">
+                    <div>
+                      <strong>Top Merchants & Vendors</strong>
+                      <div className="text-muted small">Where you spend most</div>
+                    </div>
+                    <div className="text-muted small">{topMerchants.length}</div>
                   </div>
-                )}
+
+                  {topMerchants.length === 0 ? (
+                    <div className="text-muted">No merchant data available.</div>
+                  ) : (
+                    <div style={{ minHeight: 220 }}>
+                      <Bars items={topMerchants.map(m => ({ category: m.vendor, amount: m.amount }))} width={400} height={180} />
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
+
+            {/* Spending Forecast - Insight #14 */}
+            {spendingForecast && (
+              <div className="col-12">
+                <div className="card p-3">
+                  <div className="mb-3">
+                    <strong>Spending Forecast</strong>
+                    <div className="text-muted small">Next month projection</div>
+                  </div>
+
+                  <div className="row g-3">
+                    <div className="col-12 col-sm-6">
+                      <div className="p-3 rounded" style={{ backgroundColor: "var(--card-border)", color: "var(--text)" }}>
+                        <div className="text-muted small mb-1">Forecast</div>
+                        <div className="h5 mb-0 text-primary">£{spendingForecast.forecast.toFixed(2)}</div>
+                        <small className="text-muted d-block">Based on last 3 months avg</small>
+                      </div>
+                    </div>
+
+                    <div className="col-12 col-sm-6">
+                      <div className="p-3 rounded" style={{ backgroundColor: "var(--card-border)", color: "var(--text)" }}>
+                        <div className="text-muted small mb-1">Trend</div>
+                        <div className={`h5 mb-0 ${spendingForecast.trend === "increasing" ? "text-danger" : "text-success"}`}>
+                          {spendingForecast.trend === "increasing" ? "📈 Increasing" : "📉 Decreasing"}
+                        </div>
+                        <small className="text-muted d-block">
+                          vs historical average (£{spendingForecast.average.toFixed(2)})
+                        </small>
+                      </div>
+                    </div>
+
+                    <div className="col-12 col-sm-6">
+                      <div className="p-3 rounded" style={{ backgroundColor: "var(--card-border)", color: "var(--text)" }}>
+                        <div className="text-muted small mb-1">Last Month</div>
+                        <div className="h5 mb-0">£{spendingForecast.lastMonth.toFixed(2)}</div>
+                        <small className="text-muted d-block">Actual spending</small>
+                      </div>
+                    </div>
+
+                    <div className="col-12 col-sm-6">
+                      <div className="p-3 rounded" style={{ backgroundColor: "var(--card-border)", color: "var(--text)" }}>
+                        <div className="text-muted small mb-1">Average</div>
+                        <div className="h5 mb-0">£{spendingForecast.average.toFixed(2)}</div>
+                        <small className="text-muted d-block">Over {monthsBack} months</small>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
