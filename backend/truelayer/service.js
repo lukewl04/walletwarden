@@ -177,13 +177,15 @@ async function syncAccountsAndTransactions(prisma, userId, { fromDate, toDate } 
     throw error;
   }
 
-  // Default date range: last 90 days
+  // Default date range: last 2 years (to get full transaction history)
   const now = new Date();
   const defaultFrom = new Date(now);
-  defaultFrom.setDate(defaultFrom.getDate() - 90);
+  defaultFrom.setFullYear(defaultFrom.getFullYear() - 2); // 2 years back
   
   const from = fromDate || defaultFrom.toISOString().slice(0, 10);
   const to = toDate || now.toISOString().slice(0, 10);
+
+  console.log(`[TrueLayer] Syncing transactions from ${from} to ${to}`);
 
   // Fetch accounts
   let accounts;
@@ -202,8 +204,16 @@ async function syncAccountsAndTransactions(prisma, userId, { fromDate, toDate } 
     throw err;
   }
   
-  // Upsert accounts
+  // Upsert accounts and fetch balances
   for (const acc of accounts) {
+    let balance = null;
+    try {
+      balance = await client.getBalance({ access_token: accessToken, account_id: acc.account_id });
+      console.log(`[TrueLayer] Account ${acc.display_name || acc.account_id} balance: ${balance.current} ${balance.currency}`);
+    } catch (err) {
+      console.error(`Failed to fetch balance for account ${acc.account_id}:`, err.message);
+    }
+    
     await prisma.bankAccount.upsert({
       where: {
         user_id_provider_provider_account_id: {
@@ -214,14 +224,18 @@ async function syncAccountsAndTransactions(prisma, userId, { fromDate, toDate } 
       },
       update: {
         account_name: acc.display_name || acc.account_number?.number || null,
-        currency: acc.currency || null,
+        currency: acc.currency || balance?.currency || null,
+        balance: balance?.current || null,
+        available_balance: balance?.available || null,
       },
       create: {
         user_id: userId,
         provider: 'truelayer',
         provider_account_id: acc.account_id,
         account_name: acc.display_name || acc.account_number?.number || null,
-        currency: acc.currency || null,
+        currency: acc.currency || balance?.currency || null,
+        balance: balance?.current || null,
+        available_balance: balance?.available || null,
       },
     });
   }
@@ -239,29 +253,45 @@ async function syncAccountsAndTransactions(prisma, userId, { fromDate, toDate } 
         to,
       });
 
+      console.log(`[TrueLayer] Processing ${transactions.length} transactions for account ${acc.display_name || acc.account_id}`);
+
       for (const tx of transactions) {
         const normalized = normalizeTransaction(tx, userId);
         
-        try {
-          await prisma.transaction.upsert({
-            where: { id: normalized.id },
-            update: {}, // Don't update existing
-            create: normalized,
-          });
-          totalInserted++;
-        } catch (err) {
-          // Ignore duplicate key errors
-          if (err.code === 'P2002') {
-            totalSkipped++;
-          } else {
-            throw err;
+        // Check if transaction already exists
+        const existing = await prisma.transaction.findUnique({
+          where: { id: normalized.id },
+        });
+        
+        if (existing) {
+          totalSkipped++;
+        } else {
+          try {
+            await prisma.transaction.create({
+              data: normalized,
+            });
+            totalInserted++;
+          } catch (err) {
+            // Ignore duplicate key errors (race condition)
+            if (err.code === 'P2002') {
+              totalSkipped++;
+            } else {
+              throw err;
+            }
           }
         }
       }
     } catch (err) {
-      console.error(`Failed to sync account ${acc.account_id}:`, err.message);
+      // Log but don't fail the whole sync if one account has issues
+      if (err.message.includes('403')) {
+        console.log(`[TrueLayer] Skipping transactions for ${acc.display_name || acc.account_id}: Bank may not support transaction access`);
+      } else {
+        console.error(`Failed to sync account ${acc.account_id}:`, err.message);
+      }
     }
   }
+
+  console.log(`[TrueLayer] Sync complete: ${totalInserted} new, ${totalSkipped} existing`);
 
   return {
     accounts: accounts.length,

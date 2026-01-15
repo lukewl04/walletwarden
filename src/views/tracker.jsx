@@ -4,8 +4,12 @@ import Navbar from "../components/navbar.jsx";
 import CsvPdfUpload from "../components/csv-pdf-upload.jsx";
 import { useTransactions } from "../state/TransactionsContext";
 import { generateId } from "../models/transaction";
+import { getUserToken } from "../utils/userToken";
 
 const API_URL = "http://localhost:4000/api";
+
+// Helper to get auth headers with unique user token
+const getAuthHeaders = () => ({ Authorization: `Bearer ${getUserToken()}` });
 
 // Keep dates as day-only strings to avoid timezone shifts
 const formatDateParts = (year, month, day) => {
@@ -175,14 +179,13 @@ export default function Tracker() {
     if (!isLoading && incomesLoadedFromBackend.current && splitIncomes.length > 0) {
       const syncIncomesToBackend = async () => {
         try {
-          const token = localStorage.getItem("walletwarden-token") || "dev-user";
           for (const income of splitIncomes) {
             if (!income.split_id) continue;
             await fetch(`${API_URL}/purchases`, {
               method: "POST",
               headers: {
                 "Content-Type": "application/json",
-                "Authorization": `Bearer ${token}`,
+                ...getAuthHeaders(),
               },
               body: JSON.stringify({
                 id: income.id,
@@ -207,11 +210,9 @@ export default function Tracker() {
   useEffect(() => {
     const loadDataFromBackend = async () => {
       try {
-        const token = localStorage.getItem("walletwarden-token") || "dev-user";
-
         // Load splits from backend
         const splitsResponse = await fetch(`${API_URL}/splits`, {
-          headers: { Authorization: `Bearer ${token}` },
+          headers: { ...getAuthHeaders() },
         });
 
         let loadedSplits = [];
@@ -661,13 +662,12 @@ export default function Tracker() {
       if (savedSplits.length === 0) return;
       
       try {
-        const token = localStorage.getItem("walletwarden-token") || "dev-user";
         for (const split of savedSplits) {
           await fetch(`${API_URL}/splits`, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              "Authorization": `Bearer ${token}`,
+              ...getAuthHeaders(),
             },
             body: JSON.stringify({
               id: split.id,
@@ -694,8 +694,6 @@ export default function Tracker() {
       if (purchases.length === 0) return;
 
       try {
-        const token = localStorage.getItem("walletwarden-token") || "dev-user";
-        
         // Sync ALL purchases, not just filtered by selectedSplit
         for (const purchase of purchases) {
           if (!purchase.split_id) continue;
@@ -703,7 +701,7 @@ export default function Tracker() {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              "Authorization": `Bearer ${token}`,
+              ...getAuthHeaders(),
             },
             body: JSON.stringify({
               id: purchase.id,
@@ -775,11 +773,10 @@ export default function Tracker() {
     if (!confirm("Are you sure you want to delete this purchase?")) return;
 
     try {
-      const token = localStorage.getItem("walletwarden-token") || "dev-user";
       const response = await fetch(`${API_URL}/purchases/${purchaseId}`, {
         method: "DELETE",
         headers: {
-          "Authorization": `Bearer ${token}`,
+          ...getAuthHeaders(),
         },
       });
 
@@ -1025,14 +1022,13 @@ export default function Tracker() {
 
     // Save new purchases to backend immediately
     if (newPurchases.length > 0) {
-      const token = localStorage.getItem("walletwarden-token") || "dev-user";
       for (const purchase of newPurchases) {
         try {
           await fetch(`${API_URL}/purchases`, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              Authorization: `Bearer ${token}`,
+              ...getAuthHeaders(),
             },
             body: JSON.stringify(purchase),
           });
@@ -1045,14 +1041,13 @@ export default function Tracker() {
 
     // Save new incomes to backend immediately
     if (newIncomes.length > 0) {
-      const token = localStorage.getItem("walletwarden-token") || "dev-user";
       for (const income of newIncomes) {
         try {
           await fetch(`${API_URL}/purchases`, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              Authorization: `Bearer ${token}`,
+              ...getAuthHeaders(),
             },
             body: JSON.stringify({
               id: income.id,
@@ -1217,7 +1212,6 @@ export default function Tracker() {
     if (!selectedSplit) return;
 
     try {
-      const token = localStorage.getItem("walletwarden-token") || "dev-user";
       const payload = {
         split_id: selectedSplit,
         expected_amount: Math.abs(parseFloat(expectedIncomeForm.expected_amount) || 0),
@@ -1230,7 +1224,7 @@ export default function Tracker() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
+          ...getAuthHeaders(),
         },
         body: JSON.stringify(payload),
       });

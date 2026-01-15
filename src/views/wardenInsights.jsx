@@ -1,14 +1,14 @@
 import React, { useMemo, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation } from "react-router-dom";
 import CsvPdfUpload from "../components/csv-pdf-upload.jsx";
 import Navbar from "../components/navbar.jsx";
 import HelpPanel from "../components/help-panel.jsx";
 import { useTransactions } from "../state/TransactionsContext";
 import { TRANSACTION_CATEGORIES } from "../utils/categories";
+import { getUserToken } from "../utils/userToken";
 
 export default function WardenInsights() {
   const location = useLocation();
-  const navigate = useNavigate();
   const shouldShowHelp = location.state?.showHelp || localStorage.getItem("walletwarden-show-help");
 
   const {
@@ -17,6 +17,7 @@ export default function WardenInsights() {
     addTransaction,
     bulkAddTransactions,
     updateTransaction,
+    refreshTransactions,
   } = useTransactions();
   const categories = TRANSACTION_CATEGORIES;
 
@@ -34,28 +35,128 @@ export default function WardenInsights() {
 
   // Bank connection state
   const [bankStatus, setBankStatus] = useState(null);
+  const [bankStatusLoading, setBankStatusLoading] = useState(true);
   const [bankLoading, setBankLoading] = useState(false);
   const [bankSyncing, setBankSyncing] = useState(false);
+  const [lastSyncMessage, setLastSyncMessage] = useState("");
+  const [bankBalance, setBankBalance] = useState(null); // Actual bank balance from TrueLayer
 
   const API_URL = "http://localhost:4000/api";
   const getAuthHeaders = () => {
-    const token = localStorage.getItem("walletwarden-token") || "dev-user";
-    return { Authorization: `Bearer ${token}` };
+    return { Authorization: `Bearer ${getUserToken()}` };
+  };
+
+  // Fetch actual bank balance
+  const fetchBankBalance = async () => {
+    try {
+      const res = await fetch(`${API_URL}/banks/truelayer/balance`, {
+        headers: getAuthHeaders(),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        console.log("[Balance] Fetched from API:", data);
+        if (data.totalBalance !== undefined) {
+          setBankBalance(data);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to fetch bank balance:", err);
+    }
+  };
+
+  // Sync bank transactions
+  const handleSyncBank = async (silent = false) => {
+    if (!bankStatus?.connected || bankSyncing) return;
+    
+    setBankSyncing(true);
+    if (!silent) setLastSyncMessage("");
+    
+    // Add timeout for sync
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout for full sync
+    
+    try {
+      const res = await fetch(`${API_URL}/banks/truelayer/sync`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+        signal: controller.signal,
+      });
+      
+      clearTimeout(timeoutId);
+      
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        if (err.requiresReconnect || res.status === 401) {
+          setBankStatus(null);
+          if (!silent) setLastSyncMessage("Bank connection expired. Please reconnect.");
+          return;
+        }
+        throw new Error(err.message || "Sync failed");
+      }
+      
+      const result = await res.json();
+      
+      // Check if we got transactions or just balance updates
+      if (result.inserted > 0) {
+        const message = `Synced ${result.accounts} account(s): ${result.inserted} new, ${result.skipped || 0} existing`;
+        setLastSyncMessage(message);
+      } else if (result.accounts > 0) {
+        // Got balances but no new transactions - this is the SCA limitation
+        setLastSyncMessage(`Updated ${result.accounts} account balance(s). To sync new transactions, reconnect your bank.`);
+      } else {
+        setLastSyncMessage("No updates available.");
+      }
+      
+      // Refresh transactions from backend to show new data
+      await refreshTransactions();
+      
+      // Also fetch the updated bank balance
+      await fetchBankBalance();
+    } catch (err) {
+      clearTimeout(timeoutId);
+      console.error("Sync error:", err);
+      if (err.name === 'AbortError') {
+        if (!silent) setLastSyncMessage("Sync timed out. Try again later.");
+      } else {
+        if (!silent) setLastSyncMessage(`Sync failed: ${err.message}`);
+      }
+    } finally {
+      setBankSyncing(false);
+    }
   };
 
   // Check bank connection status on mount
   React.useEffect(() => {
+    // Reset loading state on mount (in case user navigated back)
+    setBankLoading(false);
+    setBankStatusLoading(true);
+    
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    
     const checkBankStatus = async () => {
       try {
         const res = await fetch(`${API_URL}/banks/truelayer/status`, {
           headers: getAuthHeaders(),
+          signal: controller.signal,
         });
+        clearTimeout(timeoutId);
         if (res.ok) {
           const data = await res.json();
           setBankStatus(data);
+          // If connected, also fetch the bank balance
+          if (data.connected) {
+            fetchBankBalance();
+          }
         }
       } catch (err) {
-        console.error("Failed to check bank status:", err);
+        clearTimeout(timeoutId);
+        if (err.name !== 'AbortError') {
+          console.error("Failed to check bank status:", err);
+        }
+      } finally {
+        setBankStatusLoading(false);
       }
     };
     checkBankStatus();
@@ -64,71 +165,92 @@ export default function WardenInsights() {
     const params = new URLSearchParams(window.location.search);
     if (params.get("bankConnected")) {
       setBankStatus({ connected: true });
+      setBankStatusLoading(false);
+      
+      // Show sync result from callback
+      const synced = params.get("synced");
+      const syncError = params.get("syncError");
+      if (synced) {
+        setLastSyncMessage(`Connected! Imported ${synced} transactions from your bank.`);
+        // Refresh to show new transactions
+        refreshTransactions();
+        fetchBankBalance();
+      } else if (syncError) {
+        setLastSyncMessage("Bank connected, but couldn't sync transactions. Try the refresh button.");
+      }
+      
       window.history.replaceState({}, "", window.location.pathname);
     } else if (params.get("bankError")) {
       alert(`Bank connection error: ${params.get("bankError")}`);
+      setBankStatusLoading(false);
       window.history.replaceState({}, "", window.location.pathname);
     }
+    
+    // Cleanup on unmount
+    return () => {
+      clearTimeout(timeoutId);
+      controller.abort();
+    };
   }, []);
+
+  // Auto-sync when bank is connected on page load
+  React.useEffect(() => {
+    if (bankStatus?.connected && !bankStatusLoading) {
+      // Small delay to let the UI render first
+      const syncTimeout = setTimeout(() => {
+        handleSyncBank(true); // Silent sync on page load
+      }, 500);
+      return () => clearTimeout(syncTimeout);
+    }
+  }, [bankStatus?.connected, bankStatusLoading]);
 
   const handleConnectBank = async () => {
     setBankLoading(true);
+    
+    // Create abort controller for timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+    
     try {
       const res = await fetch(`${API_URL}/banks/truelayer/connect`, {
         headers: getAuthHeaders(),
+        signal: controller.signal,
       });
-      if (!res.ok) throw new Error("Failed to get connect URL");
-      const { url } = await res.json();
-      window.location.href = url;
+      
+      clearTimeout(timeoutId);
+      
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.message || `Server error: ${res.status}`);
+      }
+      
+      const data = await res.json();
+      
+      if (!data.url) {
+        throw new Error("No redirect URL received from server");
+      }
+      
+      // Redirect to TrueLayer
+      window.location.href = data.url;
     } catch (err) {
+      clearTimeout(timeoutId);
       console.error("Connect bank error:", err);
-      alert("Failed to connect bank. Please try again.");
+      
+      if (err.name === 'AbortError') {
+        alert("Connection timed out. Please check your internet connection and try again.");
+      } else {
+        alert(err.message || "Failed to connect bank. Please try again.");
+      }
       setBankLoading(false);
     }
   };
 
-  const handleSyncBank = async () => {
-    // Check if bank is connected before syncing
-    if (!bankStatus?.connected) {
-      alert("Please connect your bank first.");
-      navigate("/options");
-      return;
-    }
-
-    setBankSyncing(true);
-    try {
-      const res = await fetch(`${API_URL}/banks/truelayer/sync`, {
-        method: "POST",
-        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      });
-      if (!res.ok) {
-        const err = await res.json();
-        if (err.requiresReconnect || res.status === 401) {
-          alert(`Your bank connection has expired. Please reconnect your bank.`);
-          setBankStatus(null);
-          setBankSyncing(false);
-          navigate("/options");
-          return;
-        }
-        throw new Error(err.message || "Sync failed");
-      }
-      const result = await res.json();
-      alert(`Synced ${result.accounts} accounts: ${result.inserted} new transactions`);
-      window.location.reload();
-    } catch (err) {
-      console.error("Sync error:", err);
-      alert(`Sync failed: ${err.message}`);
-    } finally {
-      setBankSyncing(false);
-    }
-  };
-
   const formattedBalance = useMemo(() => {
-    const b = globalTotals?.balance ?? 0;
+    // Use actual bank balance if available, otherwise fall back to calculated balance
+    const b = bankBalance?.totalBalance ?? globalTotals?.balance ?? 0;
     const sign = b < 0 ? "-" : "";
     return `${sign}£${Math.abs(b).toFixed(2)}`;
-  }, [globalTotals]);
+  }, [globalTotals, bankBalance]);
 
   const handleAddTransaction = (type) => {
     const value = Number(amount);
@@ -487,6 +609,23 @@ export default function WardenInsights() {
           </div>
 
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            {/* Refresh button - only show if bank is connected */}
+            {bankStatus?.connected && (
+              <button
+                className="btn btn-sm btn-outline-secondary"
+                onClick={() => handleSyncBank(false)}
+                disabled={bankSyncing}
+                title="Refresh bank transactions"
+                style={{ fontSize: "1.1rem", padding: "0.25rem 0.5rem" }}
+              >
+                {bankSyncing ? (
+                  <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                ) : (
+                  "🔄"
+                )}
+              </button>
+            )}
+            
             <div className="btn-group" role="group">
               <button
                 className={`btn btn-sm ${monthsBack === 3 ? "btn-primary" : "btn-outline-secondary"}`}
@@ -523,18 +662,44 @@ export default function WardenInsights() {
           </div>
         </div>
 
+        {/* Sync status message */}
+        {(bankSyncing || lastSyncMessage) && (
+          <div className={`alert ${lastSyncMessage.includes("failed") || lastSyncMessage.includes("expired") ? "alert-warning" : "alert-info"} py-2 mb-3`}>
+            <small>
+              {bankSyncing ? (
+                <>
+                  <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                  Syncing bank transactions...
+                </>
+              ) : (
+                lastSyncMessage
+              )}
+            </small>
+          </div>
+        )}
+
         {/* Balance */}
         <div className="card shadow-sm mb-3">
           <div className="card-body">
             <div className="d-flex align-items-center justify-content-between gap-3">
               <div>
-                <div className="text-muted small">Current Balance</div>
-                <div className={`display-6 mb-0 ${(globalTotals?.balance ?? 0) < 0 ? "text-danger" : "text-success"}`}>
+                <div className="text-muted small">
+                  {bankBalance?.totalBalance !== undefined ? "Bank Balance" : "Current Balance"}
+                  {bankBalance?.totalBalance !== undefined && (
+                    <span className="badge bg-info ms-2" style={{fontSize: '0.65rem'}}>Live</span>
+                  )}
+                </div>
+                <div className={`display-6 mb-0 ${(bankBalance?.totalBalance ?? globalTotals?.balance ?? 0) < 0 ? "text-danger" : "text-success"}`}>
                   {formattedBalance}
                 </div>
+                {bankBalance?.availableBalance !== undefined && Math.abs(bankBalance.availableBalance - bankBalance.totalBalance) > 0.01 && (
+                  <div className="text-muted small mt-1">
+                    Available: £{bankBalance.availableBalance.toFixed(2)}
+                  </div>
+                )}
               </div>
-              <span className={`badge rounded-pill ${(globalTotals?.balance ?? 0) < 0 ? "text-bg-danger" : "text-bg-success"}`}>
-                {(globalTotals?.balance ?? 0) < 0 ? "Over budget" : "Looking good"}
+              <span className={`badge rounded-pill ${(bankBalance?.totalBalance ?? globalTotals?.balance ?? 0) < 0 ? "text-bg-danger" : "text-bg-success"}`}>
+                {(bankBalance?.totalBalance ?? globalTotals?.balance ?? 0) < 0 ? "Over budget" : "Looking good"}
               </span>
             </div>
           </div>
@@ -569,22 +734,30 @@ export default function WardenInsights() {
                 📄 Import CSV/PDF Statement
               </button>
               
-              {/* TrueLayer Open Banking */}
-              {bankStatus?.connected ? (
-                <button
-                  className="btn btn-success w-100"
-                  onClick={handleSyncBank}
-                  disabled={bankSyncing}
-                >
-                  {bankSyncing ? "⏳ Syncing..." : "🔄 Sync from Bank"}
+              {/* TrueLayer Open Banking Connection Status */}
+              {bankStatusLoading ? (
+                <button className="btn btn-outline-secondary w-100" disabled>
+                  <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                  Checking bank connection...
                 </button>
+              ) : bankStatus?.connected ? (
+                <div className="alert alert-success mb-0 py-2">
+                  <small>✅ Bank connected via Open Banking</small>
+                </div>
               ) : (
                 <button
                   className="btn btn-outline-primary w-100"
                   onClick={handleConnectBank}
                   disabled={bankLoading}
                 >
-                  {bankLoading ? "⏳ Connecting..." : "🏦 Connect Bank (Open Banking)"}
+                  {bankLoading ? (
+                    <>
+                      <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                      Connecting...
+                    </>
+                  ) : (
+                    "🏦 Connect Bank (Open Banking)"
+                  )}
                 </button>
               )}
             </div>

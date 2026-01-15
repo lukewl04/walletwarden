@@ -89,7 +89,10 @@ model BankAccount {
   provider_account_id String
   account_name        String?
   currency            String?
+  balance             Float?
+  available_balance   Float?
   created_at          DateTime @default(now())
+  updated_at          DateTime @default(now()) @updatedAt
 
   @@unique([user_id, provider, provider_account_id], name: "user_id_provider_provider_account_id")
   @@index([user_id])
