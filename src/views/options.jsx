@@ -393,14 +393,6 @@ export default function Options() {
         </li>
         <li className="nav-item">
           <button
-            className={`nav-link ${activeTab === "currency" ? "active" : ""}`}
-            onClick={() => setActiveTab("currency")}
-          >
-            💱 Currency
-          </button>
-        </li>
-        <li className="nav-item">
-          <button
             className={`nav-link ${activeTab === "categories" ? "active" : ""}`}
             onClick={() => setActiveTab("categories")}
           >
@@ -508,36 +500,6 @@ export default function Options() {
               <p className="text-muted small mt-3 mb-0">
                 You will be signed out from your account.
               </p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Currency Settings Tab */}
-      {activeTab === "currency" && (
-        <div className="card shadow-sm mb-4">
-          <div className="card-body">
-            <h5 className="card-title mb-4">Currency Preference</h5>
-            
-            <div className="mb-3">
-              <label className="form-label">Select Currency</label>
-              <select
-                className="form-select"
-                value={selectedCurrency}
-                onChange={(e) => setSelectedCurrency(e.target.value)}
-              >
-                {CURRENCY_OPTIONS.map(currency => (
-                  <option key={currency.code} value={currency.code}>
-                    {currency.symbol} {currency.code} - {currency.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="alert alert-info">
-              <strong>Current Selection:</strong> {currencyInfo?.symbol} {currencyInfo?.code} ({currencyInfo?.name})
-              <br />
-              <small className="mt-2 d-block">This setting will be used for all future transactions. Previously entered amounts will remain unchanged.</small>
             </div>
           </div>
         </div>
