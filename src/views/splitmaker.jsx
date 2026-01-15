@@ -14,6 +14,8 @@ export default function SplitMaker() {
   const location = useLocation();
   const navigate = useNavigate();
   const shouldShowHelp = location.state?.showHelp || localStorage.getItem("walletwarden-show-help");
+  const incomingPreset = location.state?.preset;
+  const skipPresetSelection = location.state?.skipPresetSelection;
   const { addTransaction } = useTransactions?.() ?? {};
 
   // Presets: mapping from category name -> percent
@@ -70,7 +72,7 @@ export default function SplitMaker() {
     },
   ];
 
-  const [needsPreset, setNeedsPreset] = useState(true); // gate UI until a preset is chosen
+  const [needsPreset, setNeedsPreset] = useState(!incomingPreset && !skipPresetSelection); // gate UI until a preset is chosen
   const [selectedPreset, setSelectedPreset] = useState("");
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState("Split");
@@ -113,9 +115,13 @@ export default function SplitMaker() {
   };
 
   useEffect(() => {
+    // When coming from home page with a preset, apply it immediately
+    if (incomingPreset && !selectedPreset) {
+      applyPreset(incomingPreset);
+    }
     // When coming back to the screen with an already selected preset, skip the gate
     if (selectedPreset) setNeedsPreset(false);
-  }, [selectedPreset]);
+  }, [selectedPreset, incomingPreset]);
 
   const updatePerson = (id, patch) => {
     setPeople((prev) =>
@@ -309,15 +315,7 @@ export default function SplitMaker() {
                   
                   {/* Total Amount removed; splits operate on percents only */}
 
-                  <div className="mb-4">
-                    <label className="form-label small fw-semibold d-block mb-2">Split Name</label>
-                    <input
-                      className="form-control form-control-sm"
-                      value={description}
-                      onChange={(e) => setDescription(e.target.value)}
-                      placeholder="e.g. Main Split"
-                    />
-                  </div>
+
 
                   <hr className="my-3" />
 
@@ -370,7 +368,7 @@ export default function SplitMaker() {
                       className="btn btn-success"
                       onClick={handleSaveSplit}
                     >
-                      Save as template
+                      Save Split
                     </button>
                   </div>
                 </div>
