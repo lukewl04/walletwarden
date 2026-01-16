@@ -314,10 +314,10 @@ function normalizeTransaction(tx, userId) {
   const type = rawAmount < 0 ? 'expense' : 'income';
   const amount = Math.abs(rawAmount);
   
-  // Date as YYYY-MM-DD string
-  const date = tx.timestamp 
-    ? tx.timestamp.slice(0, 10) 
-    : new Date().toISOString().slice(0, 10);
+  // Date as Date object for Prisma DateTime
+  const date = tx.timestamp
+    ? new Date(tx.timestamp)
+    : new Date();
   
   // Description from merchant or transaction description
   const description = tx.merchant_name || tx.description || '';

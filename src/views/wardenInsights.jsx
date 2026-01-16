@@ -10,6 +10,9 @@ import { getUserToken } from "../utils/userToken";
 export default function WardenInsights() {
   const location = useLocation();
   const shouldShowHelp = location.state?.showHelp || localStorage.getItem("walletwarden-show-help");
+  const [balanceLocked, setBalanceLocked] = useState(false);
+  const [displayBalance, setDisplayBalance] = useState(null); // { totalBalance, availableBalance, ... } or null
+  const autoSyncHasRun = React.useRef(false);
 
   const {
     transactions = [],
@@ -52,17 +55,34 @@ export default function WardenInsights() {
       const res = await fetch(`${API_URL}/banks/truelayer/balance`, {
         headers: getAuthHeaders(),
       });
-      if (res.ok) {
-        const data = await res.json();
-        console.log("[Balance] Fetched from API:", data);
-        if (data.totalBalance !== undefined) {
-          setBankBalance(data);
-        }
+      if (!res.ok) return;
+
+      const data = await res.json();
+
+      // Only accept when the API actually returns a real number
+      const tb = data?.totalBalance;
+      if (typeof tb !== "number" || !Number.isFinite(tb)) return;
+
+      // Lock the UI balance to the bank’s balance the first time we get it
+      if (!balanceLocked) {
+        setBalanceLocked(true);
+        setDisplayBalance(data);
+        setBankBalance(data); // optional: keep this too
+        return;
       }
+
+      // After lock: update ONLY if it’s “stable” (optional)
+      // e.g. if it changed by <£0.01 ignore jitter
+      const prev = displayBalance?.totalBalance;
+      if (typeof prev === "number" && Math.abs(prev - tb) < 0.01) return;
+
+      setDisplayBalance(data);
+      setBankBalance(data);
     } catch (err) {
       console.error("Failed to fetch bank balance:", err);
     }
   };
+
 
   // Sync bank transactions
   const handleSyncBank = async (silent = false) => {
@@ -164,27 +184,37 @@ export default function WardenInsights() {
     // Check for callback params
     const params = new URLSearchParams(window.location.search);
     if (params.get("bankConnected")) {
+      autoSyncHasRun.current = false; // allow auto-sync again after fresh connect
       setBankStatus({ connected: true });
       setBankStatusLoading(false);
-      
-      // Show sync result from callback
-      const synced = params.get("synced");
-      const syncError = params.get("syncError");
-      if (synced) {
-        setLastSyncMessage(`Connected! Imported ${synced} transactions from your bank.`);
-        // Refresh to show new transactions
-        refreshTransactions();
-        fetchBankBalance();
-      } else if (syncError) {
-        setLastSyncMessage("Bank connected, but couldn't sync transactions. Try the refresh button.");
-      }
-      
+
+      // Always refresh right away
+      setLastSyncMessage("Bank connected! Syncing transactions…");
+      refreshTransactions();
+      fetchBankBalance();
+
+      // Poll a few times because the backend sync is now in the background
+      let attempts = 0;
+      const maxAttempts = 8; // ~16 seconds
+      const interval = setInterval(async () => {
+        attempts += 1;
+
+        await refreshTransactions();
+        await fetchBankBalance();
+
+        // Stop polling once we have data OR we ran enough attempts
+        if (attempts >= maxAttempts) {
+          clearInterval(interval);
+          setLastSyncMessage("Bank connected. If transactions don't appear, hit 🔄.");
+        }
+      }, 2000);
+
       window.history.replaceState({}, "", window.location.pathname);
-    } else if (params.get("bankError")) {
-      alert(`Bank connection error: ${params.get("bankError")}`);
-      setBankStatusLoading(false);
-      window.history.replaceState({}, "", window.location.pathname);
+
+      // cleanup interval if component unmounts
+      return () => clearInterval(interval);
     }
+
     
     // Cleanup on unmount
     return () => {
@@ -195,14 +225,16 @@ export default function WardenInsights() {
 
   // Auto-sync when bank is connected on page load
   React.useEffect(() => {
-    if (bankStatus?.connected && !bankStatusLoading) {
-      // Small delay to let the UI render first
-      const syncTimeout = setTimeout(() => {
-        handleSyncBank(true); // Silent sync on page load
-      }, 500);
-      return () => clearTimeout(syncTimeout);
+    if (
+      bankStatus?.connected &&
+      !bankStatusLoading &&
+      !autoSyncHasRun.current
+    ) {
+      autoSyncHasRun.current = true; // lock so it only runs once
+      handleSyncBank(true); // silent auto sync once
     }
   }, [bankStatus?.connected, bankStatusLoading]);
+
 
   const handleConnectBank = async () => {
     setBankLoading(true);
@@ -245,12 +277,25 @@ export default function WardenInsights() {
     }
   };
 
+  const isBankConnected = !!bankStatus?.connected;
+
   const formattedBalance = useMemo(() => {
-    // Use actual bank balance if available, otherwise fall back to calculated balance
-    const b = bankBalance?.totalBalance ?? globalTotals?.balance ?? 0;
+    // If bank is connected, never use globalTotals (it will jump during sync)
+    if (isBankConnected) {
+      const tb = (balanceLocked ? displayBalance?.totalBalance : null) ?? bankBalance?.totalBalance;
+
+      if (typeof tb !== "number" || !Number.isFinite(tb)) return "Loading…";
+
+      const sign = tb < 0 ? "-" : "";
+      return `${sign}£${Math.abs(tb).toFixed(2)}`;
+    }
+
+    // If no bank connected, use calculated balance from transactions
+    const b = globalTotals?.balance ?? 0;
     const sign = b < 0 ? "-" : "";
     return `${sign}£${Math.abs(b).toFixed(2)}`;
-  }, [globalTotals, bankBalance]);
+  }, [isBankConnected, balanceLocked, displayBalance, bankBalance, globalTotals]);
+
 
   const handleAddTransaction = (type) => {
     const value = Number(amount);
@@ -292,16 +337,28 @@ export default function WardenInsights() {
     return new Date();
   };
 
-  const parsed = useMemo(() => {
-    return (transactions || []).map((t) => {
-      const date = safeParseDate(t.date);
-      const amt = Number(t.amount) || 0;
-      const type =
-        (t.type || "expense").toLowerCase() === "income" ? "income" : "expense";
-      const desc = (t.description || "").trim();
-      return { ...t, date, amount: amt, type, description: desc };
-    });
-  }, [transactions]);
+const parsed = useMemo(() => {
+  return (transactions || []).map((t) => {
+    const date = safeParseDate(t.date);
+    const amt = Number(t.amount) || 0;
+    const type =
+      (t.type || "expense").toLowerCase() === "income" ? "income" : "expense";
+    const desc = (t.description || "").trim();
+    return { ...t, date, amount: amt, type, description: desc };
+  });
+}, [transactions]);
+
+
+const recentSorted = useMemo(() => {
+  return [...parsed].sort((a, b) => {
+    const da = a.date?.getTime?.() ?? new Date(a.date).getTime();
+    const db = b.date?.getTime?.() ?? new Date(b.date).getTime();
+    if (db !== da) return db - da; // newest first
+    return String(b.id).localeCompare(String(a.id));
+  });
+}, [parsed]);
+
+
 
   const totals = useMemo(() => {
     let income = 0;
@@ -891,7 +948,7 @@ export default function WardenInsights() {
               <div className="text-muted">No transactions yet</div>
             ) : (
               <ul className="list-group">
-                {transactions.map((t) => (
+                {recentSorted.map((t) => (
                   <li key={t.id} className="list-group-item">
                     <div className="d-flex align-items-start justify-content-between gap-2">
                       <div style={{ flex: 1 }}>
@@ -935,7 +992,7 @@ export default function WardenInsights() {
                       </div>
 
                       <span className="text-muted small ms-3" style={{ whiteSpace: "nowrap" }}>
-                        {new Date(t.date).toLocaleDateString()}
+                        {t.date.toLocaleDateString()}
                       </span>
                     </div>
                   </li>

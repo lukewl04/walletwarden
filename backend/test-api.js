@@ -11,7 +11,6 @@ async function testAPI() {
     console.log('Health:', await health.json());
 
     console.log('\nAdding a test transaction...');
-    const addResponse = await fetch(`${API_BASE}/api/transactions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -22,6 +21,21 @@ async function testAPI() {
         type: 'expense',
         amount: 25.50,
         date: new Date().toISOString(),
+        category: 'Food',
+        description: 'Test transaction'
+      })
+    });
+    const addResponse = await fetch(`${API_BASE}/api/transactions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${TEST_TOKEN}`
+      },
+      body: JSON.stringify({
+        id: 'test-' + Date.now(),
+        type: 'expense',
+        amount: 25.50,
+        date: new Date(), // Use Date object for DateTime
         category: 'Food',
         description: 'Test transaction'
       })

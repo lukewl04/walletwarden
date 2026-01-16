@@ -61,7 +61,9 @@ router.get('/callback', requireConfig, async (req, res) => {
     // Handle OAuth errors
     if (error) {
       console.error('TrueLayer OAuth error:', error, error_description);
-      return res.redirect(`${config.FRONTEND_URL}/wardeninsights?bankError=${encodeURIComponent(error)}`);
+      return res.redirect(
+        `${config.FRONTEND_URL}/wardeninsights?bankError=${encodeURIComponent(error)}`
+      );
     }
 
     // Validate state and get userId
@@ -84,24 +86,30 @@ router.get('/callback', requireConfig, async (req, res) => {
     // Store connection
     await service.storeConnection(prisma, userId, tokenResponse);
 
-    // IMPORTANT: Sync transactions immediately!
-    // UK Open Banking SCA rules only allow transaction access within 5 minutes of authentication
-    console.log('[TrueLayer] Syncing transactions immediately after connection (SCA window)...');
-    try {
-      const syncResult = await service.syncAccountsAndTransactions(prisma, userId, {});
-      console.log(`[TrueLayer] Initial sync complete: ${syncResult.inserted} transactions`);
-      // Redirect with sync count
-      return res.redirect(`${config.FRONTEND_URL}/wardeninsights?bankConnected=1&synced=${syncResult.inserted}`);
-    } catch (syncErr) {
-      console.error('[TrueLayer] Initial sync failed:', syncErr.message);
-      // Still redirect as connected, but note the sync issue
-      return res.redirect(`${config.FRONTEND_URL}/wardeninsights?bankConnected=1&syncError=1`);
-    }
+    // Redirect immediately so the browser doesn't sit on /callback
+    res.redirect(`${config.FRONTEND_URL}/wardeninsights?bankConnected=1&syncing=1`);
+
+    // Background sync (don't await)
+    (async () => {
+      console.log('[TrueLayer] Background sync starting...');
+      try {
+        const syncResult = await service.syncAccountsAndTransactions(prisma, userId, {});
+        console.log(`[TrueLayer] Background sync complete: ${syncResult.inserted} transactions`);
+      } catch (e) {
+        console.error('[TrueLayer] Background sync failed:', e);
+      }
+    })();
+
+    return; // prevent any further response attempts
   } catch (err) {
     console.error('Error in TrueLayer callback:', err);
     return res.redirect(`${config.FRONTEND_URL}/wardeninsights?bankError=token_exchange_failed`);
   }
 });
+
+
+    
+
 
 /**
  * POST /api/banks/truelayer/sync
@@ -174,12 +182,17 @@ router.get('/balance', async (req, res) => {
     // Get all bank accounts for user
     const accounts = await prisma.bankAccount.findMany({
       where: { user_id: userId, provider: 'truelayer' },
+      orderBy: [
+        { created_at: 'asc' },          // deterministic
+        { provider_account_id: 'asc' }, // deterministic tie-breaker
+      ],
       select: {
         account_name: true,
         balance: true,
         available_balance: true,
         currency: true,
         provider_account_id: true,
+        created_at: true,
       },
     });
 
@@ -187,10 +200,11 @@ router.get('/balance', async (req, res) => {
       return res.json({ totalBalance: null, accounts: [] });
     }
 
-    // Find the main account (for Monzo, it's the first one / the one with the user's name)
-    // Pots typically have descriptive names like "Savings", "Holiday", etc.
-    // The main account is usually the first account returned or has a personal name
-    const mainAccount = accounts[0]; // TrueLayer returns main account first
+    // Prefer "current/main" account over pots/savings
+    const mainAccount =
+      accounts.find(a => !/pot|savings|saving|vault|jar/i.test(a.account_name || "")) ||
+      accounts[0];
+
     
     // Sum up all account balances for reference
     const totalAllAccounts = accounts.reduce((sum, acc) => sum + (acc.balance || 0), 0);
@@ -198,9 +212,9 @@ router.get('/balance', async (req, res) => {
     console.log(`[Balance API] User ${userId}: Main account £${(mainAccount.balance || 0).toFixed(2)}, Total (all pots) £${totalAllAccounts.toFixed(2)}`);
 
     return res.json({
-      totalBalance: mainAccount.balance || 0,
-      availableBalance: mainAccount.available_balance || 0,
-      currency: accounts[0]?.currency || 'GBP',
+      totalBalance: mainAccount.balance ?? 0,
+      availableBalance: mainAccount.available_balance ?? 0,
+      currency: mainAccount.currency || 'GBP',
       accounts: accounts.map(a => ({
         name: a.account_name,
         balance: a.balance,
@@ -208,6 +222,7 @@ router.get('/balance', async (req, res) => {
         currency: a.currency,
       })),
     });
+
   } catch (err) {
     console.error('Error fetching balance:', err);
     return res.status(500).json({ error: 'internal_error', message: err.message });

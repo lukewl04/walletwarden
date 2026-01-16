@@ -59,7 +59,7 @@ app.use((req, res, next) => {
   const authHeader = req.headers.authorization || '';
   const token = authHeader.replace('Bearer ', '');
   // For dev, treat token as user_id (in production, validate JWT properly)
-  req.auth = { sub: token || 'dev-user-' + Date.now() };
+  req.auth = { sub: token || 'dev-user' };
   next();
 });
 
@@ -98,7 +98,8 @@ app.get('/api/transactions', async (req, res) => {
         description: true
       }
     });
-    return res.json(rows);
+    // Convert date fields to ISO string for frontend compatibility
+    return res.json(rows.map(r => ({ ...r, date: r.date ? new Date(r.date).toISOString() : null })));
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'internal_error', message: err.message });
@@ -125,7 +126,7 @@ app.post('/api/transactions/bulk', async (req, res) => {
             user_id: userId,
             type: it.type,
             amount: it.amount,
-            date: it.date,
+            date: it.date ? new Date(it.date) : undefined,
             category: it.category || null,
             description: it.description || null
           }
@@ -162,7 +163,7 @@ app.post('/api/transactions', async (req, res) => {
         user_id: userId,
         type,
         amount,
-        date,
+        date: date ? new Date(date) : undefined,
         category: category || null,
         description: description || null
       }
@@ -186,7 +187,7 @@ app.patch('/api/transactions/:id', async (req, res) => {
     const updateData = {};
     if (type !== undefined) updateData.type = type;
     if (amount !== undefined) updateData.amount = amount;
-    if (date !== undefined) updateData.date = date;
+    if (date !== undefined) updateData.date = date ? new Date(date) : undefined;
     if (category !== undefined) updateData.category = category;
     if (description !== undefined) updateData.description = description;
     
@@ -330,7 +331,8 @@ app.get('/api/purchases', async (req, res) => {
         description: true
       }
     });
-    return res.json(rows);
+    // Convert date fields to ISO string for frontend compatibility
+    return res.json(rows.map(r => ({ ...r, date: r.date ? new Date(r.date).toISOString() : null })));
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'internal_error', message: err.message });
@@ -352,7 +354,7 @@ app.post('/api/purchases', async (req, res) => {
       update: {
         split_id,
         transaction_id: transaction_id || null,
-        date,
+        date: date ? new Date(date) : undefined,
         amount,
         category,
         description: description || null
@@ -362,7 +364,7 @@ app.post('/api/purchases', async (req, res) => {
         user_id: userId,
         split_id,
         transaction_id: transaction_id || null,
-        date,
+        date: date ? new Date(date) : undefined,
         amount,
         category,
         description: description || null

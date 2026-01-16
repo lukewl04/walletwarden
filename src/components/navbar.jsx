@@ -104,7 +104,7 @@ const Navbar = () => {
             alt="WalletWarden Logo" 
             style={{ width: '50px', height: '50px', objectFit: 'contain' }} 
           />
-          Warden <span className="text-primary">Wallet</span>
+          <span className="text-primary">Wallet</span>Warden 
         </Link>
 
         {/* Toggle Button */}
