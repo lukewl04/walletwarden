@@ -6,10 +6,10 @@
 const crypto = require('crypto');
 const client = require('./client');
 
-// In-memory state store with TTL (5 minutes)
+// In-memory state store with TTL (15 minutes for OAuth flow + bank auth)
 // In production, use Redis or DB-backed store
 const stateStore = new Map();
-const STATE_TTL_MS = 5 * 60 * 1000;
+const STATE_TTL_MS = 15 * 60 * 1000;
 
 /**
  * Generate and store a CSRF-safe state token for OAuth
@@ -22,6 +22,8 @@ function createState(userId) {
     userId,
     createdAt: Date.now(),
   });
+  
+  console.log(`[TrueLayer] Created state token for userId: ${userId}, storeSize: ${stateStore.size}`);
   
   // Clean up expired states periodically
   cleanExpiredStates();
@@ -36,15 +38,30 @@ function createState(userId) {
  */
 function validateState(state) {
   const entry = stateStore.get(state);
-  if (!entry) return null;
   
-  stateStore.delete(state); // Consume (one-time use)
+  // Debug logging
+  console.log(`[TrueLayer] State validation:`, {
+    stateProvided: state ? state.substring(0, 8) + '...' : 'none',
+    stateFound: !!entry,
+    storeSize: stateStore.size,
+    allStates: Array.from(stateStore.keys()).map(s => s.substring(0, 8) + '...')
+  });
   
-  // Check TTL
-  if (Date.now() - entry.createdAt > STATE_TTL_MS) {
+  if (!entry) {
+    console.warn('[TrueLayer] State not found in store');
     return null;
   }
   
+  // Check TTL
+  const ageMs = Date.now() - entry.createdAt;
+  if (ageMs > STATE_TTL_MS) {
+    console.warn(`[TrueLayer] State token expired: ${ageMs}ms old (max ${STATE_TTL_MS}ms)`);
+    stateStore.delete(state); // Consume (one-time use)
+    return null;
+  }
+  
+  console.log(`[TrueLayer] State valid, age: ${ageMs}ms, userId: ${entry.userId}`);
+  stateStore.delete(state); // Consume (one-time use)
   return entry.userId;
 }
 

@@ -44,6 +44,7 @@ export default function Options() {
     return localStorage.getItem(PROFILE_PICTURE_KEY) || null;
   });
   const [uploadMessage, setUploadMessage] = useState("");
+  const [isUploadButtonDisabled, setIsUploadButtonDisabled] = useState(false);
 
   // Bank connection state
   const [bankStatus, setBankStatus] = useState(null);
@@ -300,6 +301,7 @@ export default function Options() {
       localStorage.setItem(PROFILE_PICTURE_KEY, base64String);
       setUploadedProfilePicture(base64String);
       setUploadMessage('Profile picture updated successfully!');
+      setIsUploadButtonDisabled(true); // Disable button after successful upload
       setTimeout(() => setUploadMessage(''), 3000);
     };
     reader.onerror = () => {
@@ -476,13 +478,14 @@ export default function Options() {
                     />
                     <div className="d-flex flex-column gap-2">
                       <div className="d-flex gap-2">
-                        <label className="btn btn-primary">
+                        <label className="btn btn-primary" style={{ opacity: isUploadButtonDisabled ? 0.5 : 1, cursor: isUploadButtonDisabled ? 'not-allowed' : 'pointer' }}>
                           📤 Upload
                           <input
                             type="file"
                             accept="image/*"
                             onChange={handleProfilePictureUpload}
                             style={{ display: 'none' }}
+                            disabled={isUploadButtonDisabled}
                           />
                         </label>
                         {uploadedProfilePicture && (

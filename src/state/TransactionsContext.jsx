@@ -3,7 +3,7 @@ import { normalizeTransaction, generateId } from '../models/transaction';
 import { useAuth0 } from '@auth0/auth0-react';
 import { getUserToken } from '../utils/userToken';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000/api';
 const TransactionsContext = createContext(null);
 
 /**
@@ -41,7 +41,7 @@ export function TransactionsProvider({ children }) {
         const token = await getToken();
         console.log('[TransactionsContext] Fetching transactions from Supabase...');
         
-        const res = await fetch(`${API_BASE}/api/transactions`, {
+        const res = await fetch(`${API_BASE}/transactions`, {
           headers: { Authorization: `Bearer ${token}` },
         });
 
@@ -71,7 +71,7 @@ export function TransactionsProvider({ children }) {
   const refreshTransactions = async () => {
     try {
       const token = await getToken();
-      const res = await fetch(`${API_BASE}/api/transactions`, {
+      const res = await fetch(`${API_BASE}/transactions`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       
@@ -95,7 +95,7 @@ export function TransactionsProvider({ children }) {
     
     try {
       const token = await getToken();
-      const res = await fetch(`${API_BASE}/api/transactions`, {
+      const res = await fetch(`${API_BASE}/transactions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify(norm),
@@ -118,7 +118,7 @@ export function TransactionsProvider({ children }) {
     
     try {
       const token = await getToken();
-      const res = await fetch(`${API_BASE}/api/transactions/bulk`, {
+      const res = await fetch(`${API_BASE}/transactions/bulk`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify(norms),
@@ -139,7 +139,7 @@ export function TransactionsProvider({ children }) {
   const deleteTransaction = async (id) => {
     try {
       const token = await getToken();
-      const res = await fetch(`${API_BASE}/api/transactions/${encodeURIComponent(id)}`, {
+      const res = await fetch(`${API_BASE}/transactions/${encodeURIComponent(id)}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -158,7 +158,7 @@ export function TransactionsProvider({ children }) {
   const updateTransaction = async (id, updates) => {
     try {
       const token = await getToken();
-      const res = await fetch(`${API_BASE}/api/transactions/${encodeURIComponent(id)}`, {
+      const res = await fetch(`${API_BASE}/transactions/${encodeURIComponent(id)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ ...updates, id }),
@@ -180,7 +180,7 @@ export function TransactionsProvider({ children }) {
       const token = await getToken();
       
       // Bulk delete all transactions from Supabase
-      const res = await fetch(`${API_BASE}/api/transactions/clear`, {
+      const res = await fetch(`${API_BASE}/transactions/clear`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` },
       });

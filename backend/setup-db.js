@@ -1,0 +1,28 @@
+#!/usr/bin/env node
+
+/**
+ * Database setup script for WalletWarden
+ * This pushes the Prisma schema to the database
+ */
+
+const { execSync } = require('child_process');
+
+console.log('🔧 Setting up WalletWarden database...\n');
+
+try {
+  console.log('📊 Pushing schema to database...');
+  execSync('npx prisma db push', { stdio: 'inherit' });
+  
+  console.log('\n✅ Database setup complete!');
+  console.log('\nYour database now has:');
+  console.log('  ✓ transactions table');
+  console.log('  ✓ splits table');
+  console.log('  ✓ purchases table');
+  console.log('  ✓ income_settings table');
+  console.log('  ✓ bank_connections table (for open banking)');
+  console.log('  ✓ bank_accounts table (for bank account tracking)');
+  console.log('\nYou can now connect your bank account via open banking!');
+} catch (error) {
+  console.error('❌ Database setup failed:', error.message);
+  process.exit(1);
+}
