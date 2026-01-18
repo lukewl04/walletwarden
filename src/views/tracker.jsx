@@ -257,7 +257,9 @@ export default function Tracker() {
 
         // Load ALL purchases (don't filter by split - we'll filter in display)
         const purchasesResponse = await fetch(`${API_URL}/purchases`, {
-          headers: { Authorization: `Bearer ${token}` },
+          headers: {
+            ...getAuthHeaders(),
+          },
         });
 
         if (purchasesResponse.ok) {
@@ -306,7 +308,9 @@ export default function Tracker() {
 
         // Load income settings
         const incomeSettingsResponse = await fetch(`${API_URL}/income-settings`, {
-          headers: { Authorization: `Bearer ${token}` },
+          headers: {
+            ...getAuthHeaders(),
+          },
         });
 
         if (incomeSettingsResponse.ok) {
