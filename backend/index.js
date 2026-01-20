@@ -29,6 +29,9 @@ const pool = new Pool({
 const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
 
+console.log('[Prisma] Initialized Prisma client with PostgreSQL adapter');
+console.log('[Prisma] Database URL:', connectionString.split('@')[1] || 'configured');
+
 // Allow both dev ports for CORS
 const corsOrigins = [
   'http://localhost:5173',
@@ -75,6 +78,7 @@ app.use((err, req, res, next) => {
 
 // TrueLayer Open Banking routes
 const trueLayerRoutes = require('./routes/banks.truelayer');
+console.log('[TrueLayer] Setting up routes, prisma available:', !!prisma);
 app.use('/api/banks/truelayer', trueLayerRoutes(prisma));
 
 // health

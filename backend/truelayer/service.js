@@ -81,6 +81,11 @@ function cleanExpiredStates() {
  * @param {Object} tokenResponse - Token response from TrueLayer
  */
 async function storeConnection(prisma, userId, tokenResponse) {
+  if (!prisma || !prisma.bankConnection) {
+    console.error('[TrueLayer] storeConnection: prisma or bankConnection not available');
+    throw new Error('Database client not available');
+  }
+
   const expiresAt = tokenResponse.expires_in
     ? new Date(Date.now() + tokenResponse.expires_in * 1000)
     : null;
@@ -114,6 +119,11 @@ async function storeConnection(prisma, userId, tokenResponse) {
  * @returns {Promise<string|null>} Valid access token or null
  */
 async function getValidAccessToken(prisma, userId) {
+  if (!prisma || !prisma.bankConnection) {
+    console.error('[TrueLayer] getValidAccessToken: prisma or bankConnection not available');
+    return null;
+  }
+
   const connection = await prisma.bankConnection.findUnique({
     where: {
       user_id_provider: {
@@ -154,6 +164,16 @@ async function getValidAccessToken(prisma, userId) {
  * @returns {Promise<Object|null>} Connection status
  */
 async function getConnectionStatus(prisma, userId) {
+  if (!prisma) {
+    console.error('[TrueLayer] getConnectionStatus called with undefined prisma!');
+    return null;
+  }
+
+  if (!prisma.bankConnection) {
+    console.error('[TrueLayer] prisma.bankConnection is not available!');
+    return null;
+  }
+
   const connection = await prisma.bankConnection.findUnique({
     where: {
       user_id_provider: {
@@ -187,6 +207,11 @@ async function getConnectionStatus(prisma, userId) {
  * @returns {Promise<Object>} Sync summary
  */
 async function syncAccountsAndTransactions(prisma, userId, { fromDate, toDate } = {}) {
+  if (!prisma || !prisma.bankConnection || !prisma.bankAccount) {
+    console.error('[TrueLayer] syncAccountsAndTransactions: prisma not fully available');
+    throw new Error('Database client not available');
+  }
+
   const accessToken = await getValidAccessToken(prisma, userId);
   if (!accessToken) {
     const error = new Error('No valid bank connection. Please reconnect your bank.');
@@ -360,6 +385,11 @@ function normalizeTransaction(tx, userId) {
  * @param {string} userId - User ID
  */
 async function disconnectBank(prisma, userId) {
+  if (!prisma || !prisma.bankConnection || !prisma.bankAccount) {
+    console.error('[TrueLayer] disconnectBank: prisma not fully available');
+    throw new Error('Database client not available');
+  }
+
   await prisma.bankConnection.deleteMany({
     where: { user_id: userId, provider: 'truelayer' },
   });
