@@ -100,3 +100,20 @@ model BankAccount {
   @@index([user_id])
   @@map("bank_accounts")
 }
+
+model BankBalanceSnapshot {
+  id              String   @id @default(uuid())
+  user_id         String
+  provider        String   @default("truelayer")
+  total_balance   Float?
+  available_balance Float?
+  currency        String?
+  account_name    String?
+  provider_account_id String?
+  synced_at       DateTime @default(now())
+
+  @@unique([user_id, provider], name: "user_id_provider_balance")
+  @@index([user_id])
+  @@map("bank_balance_snapshots")
+}
+

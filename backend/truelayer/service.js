@@ -394,6 +394,126 @@ async function syncAccountsAndTransactions(prisma, userId, { fromDate, toDate } 
     dateRange: { from, to },
   };
 }
+/**
+ * QUICK SYNC: store balances + latest N transactions (fast)
+ * - fetch accounts + balances and upsert bank_accounts
+ * - fetch tx for a short date window then take most recent `limit`
+ * - bulk insert tx using createMany(skipDuplicates)
+ */
+async function quickSyncLatest(prisma, userId, { limit = 30, daysBack = 60 } = {}) {
+  const accessToken = await getValidAccessToken(prisma, userId);
+  if (!accessToken) {
+    const error = new Error('No valid bank connection. Please reconnect your bank.');
+    error.code = 'TOKEN_EXPIRED';
+    throw error;
+  }
+
+  const now = new Date();
+  const fromDate = new Date(now);
+  fromDate.setDate(fromDate.getDate() - daysBack);
+
+  const from = fromDate.toISOString().slice(0, 10);
+  const to = now.toISOString().slice(0, 10);
+
+  console.log(`[TrueLayer] QUICK sync (latest ${limit}) from ${from} to ${to}`);
+
+  // Fetch accounts
+  const accounts = await client.getAccounts({ access_token: accessToken });
+
+  // Upsert accounts + balances (same as full sync)
+  for (const acc of accounts) {
+    let balance = null;
+    try {
+      balance = await client.getBalance({ access_token: accessToken, account_id: acc.account_id });
+    } catch (err) {
+      console.error(`Failed to fetch balance for account ${acc.account_id}:`, err.message);
+    }
+
+    await prisma.bankAccount.upsert({
+      where: {
+        user_id_provider_provider_account_id: {
+          user_id: userId,
+          provider: 'truelayer',
+          provider_account_id: acc.account_id,
+        },
+      },
+      update: {
+        account_name: acc.display_name || acc.account_number?.number || null,
+        currency: acc.currency || balance?.currency || null,
+        balance: balance?.current || null,
+        available_balance: balance?.available || null,
+      },
+      create: {
+        user_id: userId,
+        provider: 'truelayer',
+        provider_account_id: acc.account_id,
+        account_name: acc.display_name || acc.account_number?.number || null,
+        currency: acc.currency || balance?.currency || null,
+        balance: balance?.current || null,
+        available_balance: balance?.available || null,
+      },
+    });
+  }
+
+  // Fetch transactions for each account (short window), then take top N overall
+  const allTx = [];
+
+  for (const acc of accounts) {
+    try {
+      const txs = await client.getTransactions({
+        access_token: accessToken,
+        account_id: acc.account_id,
+        from,
+        to,
+      });
+
+      for (const tx of txs) {
+        allTx.push(tx);
+      }
+    } catch (err) {
+      if (err.message.includes('403')) {
+        console.log(`[TrueLayer] QUICK: skipping tx for ${acc.account_id} (403)`);
+      } else {
+        console.error(`[TrueLayer] QUICK: tx fetch failed for ${acc.account_id}:`, err.message);
+      }
+    }
+  }
+
+  // Sort newest first
+  allTx.sort((a, b) => {
+    const da = new Date(a.timestamp || 0).getTime();
+    const db = new Date(b.timestamp || 0).getTime();
+    return db - da;
+  });
+
+  const latest = allTx.slice(0, limit);
+  const normalized = latest.map((tx) => normalizeTransaction(tx, userId));
+
+  // Bulk insert (FAST) — relies on id being stable (tl_${transaction_id})
+  const beforeCount = normalized.length;
+
+  // createMany doesn't tell you skipped count directly, so we infer it:
+  // inserted = result.count, skipped = beforeCount - inserted
+  const result = await prisma.transaction.createMany({
+    data: normalized,
+    skipDuplicates: true,
+  });
+
+  const inserted = result.count || 0;
+  const skipped = beforeCount - inserted;
+
+  console.log(`[TrueLayer] QUICK sync complete: ${inserted} new, ${skipped} existing`);
+
+  return {
+    accounts: accounts.length,
+    inserted,
+    skipped,
+    limit,
+    dateRange: { from, to },
+  };
+}
+
+
 
 /**
  * Normalize TrueLayer transaction to our Transaction table format
@@ -459,5 +579,6 @@ module.exports = {
   getValidAccessToken,
   getConnectionStatus,
   syncAccountsAndTransactions,
+  quickSyncLatest,
   disconnectBank,
 };
