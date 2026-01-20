@@ -9,7 +9,8 @@ import { getUserToken } from "../utils/userToken";
 
 export default function WardenInsights() {
   const location = useLocation();
-  const shouldShowHelp = location.state?.showHelp || localStorage.getItem("walletwarden-show-help");
+  const shouldShowHelp =
+    location.state?.showHelp || localStorage.getItem("walletwarden-show-help");
 
   const {
     transactions = [],
@@ -19,9 +20,10 @@ export default function WardenInsights() {
     updateTransaction,
     refreshTransactions,
   } = useTransactions();
+
   const categories = TRANSACTION_CATEGORIES;
 
-  // Edit transaction category state
+  // UI state
   const [editingCategoryId, setEditingCategoryId] = useState(null);
   const [showImportModal, setShowImportModal] = useState(false);
   const [showQuickAddModal, setShowQuickAddModal] = useState(false);
@@ -33,48 +35,90 @@ export default function WardenInsights() {
   const [monthsBack, setMonthsBack] = useState(6);
   const [showCumulative, setShowCumulative] = useState(true);
 
-  // Bank connection state
-  const [bankStatus, setBankStatus] = useState(null);
-  const [bankStatusLoading, setBankStatusLoading] = useState(true);
+  // Bank state
+  const [bankStatus, setBankStatus] = useState(null); // null = unknown/loading
+  const bankStatusLoading = bankStatus === null;
+
   const [bankLoading, setBankLoading] = useState(false);
   const [bankSyncing, setBankSyncing] = useState(false);
   const [lastSyncMessage, setLastSyncMessage] = useState("");
-  const [bankBalance, setBankBalance] = useState(null); // Actual bank balance from TrueLayer
+
+  // Balance state
+  const [displayBalance, setDisplayBalance] = useState(null);
+  const [bankBalance, setBankBalance] = useState(null);
+  const [balanceLocked, setBalanceLocked] = useState(false);
+
+  const autoSyncHasRun = React.useRef(false);
 
   const API_URL = "http://localhost:4000/api";
-  const getAuthHeaders = () => {
-    return { Authorization: `Bearer ${getUserToken()}` };
-  };
+  const getAuthHeaders = () => ({ Authorization: `Bearer ${getUserToken()}` });
 
   // Fetch actual bank balance
   const fetchBankBalance = async () => {
     try {
       const res = await fetch(`${API_URL}/banks/truelayer/balance`, {
         headers: getAuthHeaders(),
+        cache: "no-store",
       });
-      if (res.ok) {
-        const data = await res.json();
-        console.log("[Balance] Fetched from API:", data);
-        if (data.totalBalance !== undefined) {
-          setBankBalance(data);
-        }
+      if (!res.ok) return;
+
+      const data = await res.json();
+      const tb = data?.totalBalance;
+      if (typeof tb !== "number" || !Number.isFinite(tb)) return;
+
+      if (!balanceLocked) {
+        setBalanceLocked(true);
+        setDisplayBalance(data);
+        setBankBalance(data);
+        return;
       }
+
+      // Optional jitter ignore
+      const prev = displayBalance?.totalBalance;
+      if (typeof prev === "number" && Math.abs(prev - tb) < 0.01) return;
+
+      setDisplayBalance(data);
+      setBankBalance(data);
     } catch (err) {
       console.error("Failed to fetch bank balance:", err);
     }
   };
 
+  // Authoritative: if /balance returns a real number, user is connected.
+  const resolveConnectionByBalance = async () => {
+    try {
+      const res = await fetch(`${API_URL}/banks/truelayer/balance`, {
+        headers: getAuthHeaders(),
+        cache: "no-store",
+      });
+      if (!res.ok) return false;
+
+      const data = await res.json();
+      const tb = data?.totalBalance;
+
+      if (typeof tb === "number" && Number.isFinite(tb)) {
+        setBankStatus({ connected: true });
+        setDisplayBalance(data);
+        setBankBalance(data);
+        setBalanceLocked(true);
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  };
+
   // Sync bank transactions
-  const handleSyncBank = async (silent = false) => {
-    if (!bankStatus?.connected || bankSyncing) return;
-    
+  const handleSyncBank = async (silent = false, force = false) => {
+    if ((!bankStatus?.connected && !force) || bankSyncing) return;
+
     setBankSyncing(true);
     if (!silent) setLastSyncMessage("");
-    
-    // Add timeout for sync
+
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout for full sync
-    
+    const timeoutId = setTimeout(() => controller.abort(), 60000);
+
     try {
       const res = await fetch(`${API_URL}/banks/truelayer/sync`, {
         method: "POST",
@@ -82,41 +126,42 @@ export default function WardenInsights() {
         body: JSON.stringify({}),
         signal: controller.signal,
       });
-      
+
       clearTimeout(timeoutId);
-      
+
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         if (err.requiresReconnect || res.status === 401) {
-          setBankStatus(null);
-          if (!silent) setLastSyncMessage("Bank connection expired. Please reconnect.");
+          setBankStatus({ connected: false });
+          if (!silent)
+            setLastSyncMessage("Bank connection expired. Please reconnect.");
           return;
         }
         throw new Error(err.message || "Sync failed");
       }
-      
+
       const result = await res.json();
-      
-      // Check if we got transactions or just balance updates
+
       if (result.inserted > 0) {
-        const message = `Synced ${result.accounts} account(s): ${result.inserted} new, ${result.skipped || 0} existing`;
-        setLastSyncMessage(message);
+        setLastSyncMessage(
+          `Synced ${result.accounts} account(s): ${result.inserted} new, ${
+            result.skipped || 0
+          } existing`
+        );
       } else if (result.accounts > 0) {
-        // Got balances but no new transactions - this is the SCA limitation
-        setLastSyncMessage(`Updated ${result.accounts} account balance(s). To sync new transactions, reconnect your bank.`);
+        setLastSyncMessage(
+          `Updated ${result.accounts} account balance(s). To sync new transactions, reconnect your bank.`
+        );
       } else {
         setLastSyncMessage("No updates available.");
       }
-      
-      // Refresh transactions from backend to show new data
+
       await refreshTransactions();
-      
-      // Also fetch the updated bank balance
       await fetchBankBalance();
     } catch (err) {
       clearTimeout(timeoutId);
       console.error("Sync error:", err);
-      if (err.name === 'AbortError') {
+      if (err.name === "AbortError") {
         if (!silent) setLastSyncMessage("Sync timed out. Try again later.");
       } else {
         if (!silent) setLastSyncMessage(`Sync failed: ${err.message}`);
@@ -126,118 +171,139 @@ export default function WardenInsights() {
     }
   };
 
-  // Check bank connection status on mount
+  // Mount: resolve bank connection + handle callback
   React.useEffect(() => {
-    // Reset loading state on mount (in case user navigated back)
     setBankLoading(false);
-    setBankStatusLoading(true);
-    
+    setBankStatus(null);
+
+    // Reset stale balance on mount (prevents flash)
+    setDisplayBalance(null);
+    setBankBalance(null);
+    setBalanceLocked(false);
+
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 10000);
-    
+
     const checkBankStatus = async () => {
       try {
         const res = await fetch(`${API_URL}/banks/truelayer/status`, {
           headers: getAuthHeaders(),
           signal: controller.signal,
         });
+
         clearTimeout(timeoutId);
+
         if (res.ok) {
           const data = await res.json();
-          setBankStatus(data);
-          // If connected, also fetch the bank balance
+          setBankStatus({ connected: !!data.connected });
+
           if (data.connected) {
             fetchBankBalance();
           }
+        } else {
+          setBankStatus({ connected: false });
         }
       } catch (err) {
         clearTimeout(timeoutId);
-        if (err.name !== 'AbortError') {
+        if (err.name !== "AbortError")
           console.error("Failed to check bank status:", err);
-        }
-      } finally {
-        setBankStatusLoading(false);
+        setBankStatus({ connected: false });
       }
     };
-    checkBankStatus();
 
-    // Check for callback params
+    // OAuth callback param handling
     const params = new URLSearchParams(window.location.search);
-    if (params.get("bankConnected")) {
-      setBankStatus({ connected: true });
-      setBankStatusLoading(false);
-      
-      // Show sync result from callback
-      const synced = params.get("synced");
-      const syncError = params.get("syncError");
-      if (synced) {
-        setLastSyncMessage(`Connected! Imported ${synced} transactions from your bank.`);
-        // Refresh to show new transactions
-        refreshTransactions();
-        fetchBankBalance();
-      } else if (syncError) {
-        setLastSyncMessage("Bank connected, but couldn't sync transactions. Try the refresh button.");
-      }
-      
-      window.history.replaceState({}, "", window.location.pathname);
-    } else if (params.get("bankError")) {
-      alert(`Bank connection error: ${params.get("bankError")}`);
-      setBankStatusLoading(false);
-      window.history.replaceState({}, "", window.location.pathname);
+        if (params.get("bankConnected")) {
+      (async () => {
+        // Prevent the other effect from also auto-syncing
+        autoSyncHasRun.current = true;
+
+        setBankStatus({ connected: true });
+        setLastSyncMessage("Bank connected! Getting balance…");
+
+        //  Kick off balance + transactions immediately (don’t wait for sync)
+        // These read from DB (which quickSyncLatest already populated)
+        const p1 = fetchBankBalance();
+        const p2 = refreshTransactions();
+
+        // Now start sync in the background (so UI doesn't hang on "Loading…")
+        setLastSyncMessage("Bank connected ✅ Syncing in background…");
+
+        // Don’t await this before showing balance
+        handleSyncBank(true, true).catch((err) => {
+          console.error("Post-connect sync failed:", err);
+          setLastSyncMessage("Bank connected ✅ (background sync failed — hit 🔄 to retry)");
+        });
+
+        // Ensure initial UI is populated ASAP
+        await Promise.allSettled([p1, p2]);
+
+        // Clean URL
+        window.history.replaceState({}, "", window.location.pathname);
+      })();
+
+      return () => {
+        clearTimeout(timeoutId);
+        controller.abort();
+      };
     }
-    
-    // Cleanup on unmount
+
+
+
+
+
+    // Otherwise: try /balance first, then /status
+    (async () => {
+      const connected = await resolveConnectionByBalance();
+      if (!connected) await checkBankStatus();
+    })();
+
     return () => {
       clearTimeout(timeoutId);
       controller.abort();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Auto-sync when bank is connected on page load
+  // Auto-sync when bank is connected (runs once)
   React.useEffect(() => {
-    if (bankStatus?.connected && !bankStatusLoading) {
-      // Small delay to let the UI render first
-      const syncTimeout = setTimeout(() => {
-        handleSyncBank(true); // Silent sync on page load
-      }, 500);
-      return () => clearTimeout(syncTimeout);
+    if (bankStatus?.connected && !bankStatusLoading && !autoSyncHasRun.current) {
+      autoSyncHasRun.current = true;
+      handleSyncBank(true);
     }
   }, [bankStatus?.connected, bankStatusLoading]);
 
   const handleConnectBank = async () => {
     setBankLoading(true);
-    
-    // Create abort controller for timeout
+
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
-    
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+
     try {
       const res = await fetch(`${API_URL}/banks/truelayer/connect`, {
         headers: getAuthHeaders(),
         signal: controller.signal,
       });
-      
+
       clearTimeout(timeoutId);
-      
+
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}));
         throw new Error(errorData.message || `Server error: ${res.status}`);
       }
-      
+
       const data = await res.json();
-      
-      if (!data.url) {
-        throw new Error("No redirect URL received from server");
-      }
-      
-      // Redirect to TrueLayer
+      if (!data.url) throw new Error("No redirect URL received from server");
+
       window.location.href = data.url;
     } catch (err) {
       clearTimeout(timeoutId);
       console.error("Connect bank error:", err);
-      
-      if (err.name === 'AbortError') {
-        alert("Connection timed out. Please check your internet connection and try again.");
+
+      if (err.name === "AbortError") {
+        alert(
+          "Connection timed out. Please check your internet connection and try again."
+        );
       } else {
         alert(err.message || "Failed to connect bank. Please try again.");
       }
@@ -245,12 +311,30 @@ export default function WardenInsights() {
     }
   };
 
+  const isBankConnected = !!bankStatus?.connected;
+
+  // ✅ Critical: don't show globalTotals while status is unknown (prevents £1.5k flash)
+  const balanceIsLoading =
+    bankStatusLoading ||
+    (isBankConnected &&
+      !Number.isFinite(displayBalance?.totalBalance) &&
+      !Number.isFinite(bankBalance?.totalBalance));
+
+  const balanceValue =
+    bankStatusLoading
+      ? null
+      : isBankConnected
+      ? displayBalance?.totalBalance ?? bankBalance?.totalBalance
+      : globalTotals?.balance ?? 0;
+
+  const isNegative = !balanceIsLoading && Number(balanceValue ?? 0) < 0;
+
   const formattedBalance = useMemo(() => {
-    // Use actual bank balance if available, otherwise fall back to calculated balance
-    const b = bankBalance?.totalBalance ?? globalTotals?.balance ?? 0;
+    if (balanceIsLoading || balanceValue === null) return "Loading…";
+    const b = Number(balanceValue ?? 0);
     const sign = b < 0 ? "-" : "";
     return `${sign}£${Math.abs(b).toFixed(2)}`;
-  }, [globalTotals, bankBalance]);
+  }, [balanceIsLoading, balanceValue]);
 
   const handleAddTransaction = (type) => {
     const value = Number(amount);
@@ -283,9 +367,7 @@ export default function WardenInsights() {
     let d = new Date(input);
     if (!isNaN(d)) return d;
 
-    const stripped = String(input)
-      .replace(/(\d+)(st|nd|rd|th)/gi, "$1")
-      .trim();
+    const stripped = String(input).replace(/(\d+)(st|nd|rd|th)/gi, "$1").trim();
     d = new Date(`${stripped} ${new Date().getFullYear()}`);
     if (!isNaN(d)) return d;
 
@@ -302,6 +384,15 @@ export default function WardenInsights() {
       return { ...t, date, amount: amt, type, description: desc };
     });
   }, [transactions]);
+
+  const recentSorted = useMemo(() => {
+    return [...parsed].sort((a, b) => {
+      const da = a.date?.getTime?.() ?? new Date(a.date).getTime();
+      const db = b.date?.getTime?.() ?? new Date(b.date).getTime();
+      if (db !== da) return db - da;
+      return String(b.id).localeCompare(String(a.id));
+    });
+  }, [parsed]);
 
   const totals = useMemo(() => {
     let income = 0;
@@ -371,10 +462,7 @@ export default function WardenInsights() {
         key: "Shopping",
         re: /\b(amazon|asos|zara|hm|argos|boots|currys|clothing|shop)\b/i,
       },
-      {
-        key: "Entertainment",
-        re: /\b(cinema|theatre|concert|event|museum|game)\b/i,
-      },
+      { key: "Entertainment", re: /\b(cinema|theatre|concert|event|museum|game)\b/i },
       { key: "Savings", re: /\b(savings|save|deposit|isa|pot)\b/i },
       { key: "Other", re: /./i },
     ];
@@ -385,7 +473,6 @@ export default function WardenInsights() {
 
       let key = null;
 
-      // Prefer explicit category (if matches bucket key)
       if (t.category) {
         const found = buckets.find(
           (b) => b.key.toLowerCase() === String(t.category).toLowerCase()
@@ -393,7 +480,6 @@ export default function WardenInsights() {
         if (found) key = found.key;
       }
 
-      // Otherwise infer from description
       if (!key) {
         const desc = (t.description || "").toLowerCase();
         const found = buckets.find((b) => b.re.test(desc));
@@ -409,13 +495,15 @@ export default function WardenInsights() {
       .slice(0, 6);
   }, [parsed]);
 
-  // Top merchants (insight #9)
   const topMerchants = useMemo(() => {
     const map = {};
     parsed.forEach((t) => {
       if (t.type !== "expense" || !t.description) return;
-      // Extract first 30 chars or first meaningful words
-      const vendor = t.description.split(/[\s-]/).slice(0, 2).join(" ").substring(0, 30);
+      const vendor = t.description
+        .split(/[\s-]/)
+        .slice(0, 2)
+        .join(" ")
+        .substring(0, 30);
       map[vendor] = (map[vendor] || 0) + t.amount;
     });
 
@@ -425,18 +513,16 @@ export default function WardenInsights() {
       .slice(0, 8);
   }, [parsed]);
 
-  // Spending forecast (insight #14)
   const spendingForecast = useMemo(() => {
     if (monthly.length === 0) return null;
 
-    // Get last month's data
     const lastMonth = monthly[monthly.length - 1];
-    const avgMonthly = monthly.reduce((sum, m) => sum + m.expense, 0) / monthly.length;
+    const avgMonthly =
+      monthly.reduce((sum, m) => sum + m.expense, 0) / monthly.length;
 
-    // Simple forecast: average of last 3 months
-    const last3Avg = monthly
-      .slice(-3)
-      .reduce((sum, m) => sum + m.expense, 0) / Math.min(3, monthly.length);
+    const last3Avg =
+      monthly.slice(-3).reduce((sum, m) => sum + m.expense, 0) /
+      Math.min(3, monthly.length);
 
     return {
       lastMonth: lastMonth.expense,
@@ -460,7 +546,6 @@ export default function WardenInsights() {
         <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
           <g transform={`translate(${size / 2},${size / 2})`}>
             <circle r={radius} fill="none" stroke="#eee" strokeWidth={thickness} />
-
             <circle
               r={radius}
               fill="none"
@@ -470,7 +555,6 @@ export default function WardenInsights() {
               strokeDashoffset={-expenseArc / 2}
               transform="rotate(-90)"
             />
-
             <circle
               r={radius}
               fill="none"
@@ -480,7 +564,6 @@ export default function WardenInsights() {
               strokeDashoffset={incomeArc / 2}
               transform="rotate(-90)"
             />
-
             <text x="0" y="4" textAnchor="middle" fontSize="14" fontWeight={600}>
               £{Math.abs(income - expense).toFixed(2)}
             </text>
@@ -566,11 +649,11 @@ export default function WardenInsights() {
           return (
             <g key={idx}>
               <rect x={x} y={y} width={bw} height={barH} fill="#0d6efd" rx={6} />
-              <text 
-                x={x + bw / 2} 
-                y={pad.t + h + 10} 
-                fontSize={10} 
-                fill="#333" 
+              <text
+                x={x + bw / 2}
+                y={pad.t + h + 10}
+                fontSize={10}
+                fill="#333"
                 textAnchor="end"
                 transform={`rotate(-45 ${x + bw / 2} ${pad.t + h + 10})`}
                 dominantBaseline="middle"
@@ -588,475 +671,428 @@ export default function WardenInsights() {
   };
 
   return (
-  <div
-    className="container-fluid py-4 mt-5"
-    style={{ maxWidth: 900, minHeight: "100vh", overflowY: "auto" }}
-  >
-    <Navbar />
+    <div className="container-fluid py-4 mt-5" style={{ maxWidth: 900, minHeight: "100vh", overflowY: "auto" }}>
+      <Navbar />
+      {shouldShowHelp && <HelpPanel />}
 
-    {shouldShowHelp && <HelpPanel />}
-
-    {/* Put everything else inside a card like SplitMaker */}
-    <div className="card shadow-sm mb-4">
-      <div className="card-body">
-        {/* Header + controls */}
-        <div className="d-flex align-items-start justify-content-between mb-3">
-          <div>
-            <h2 className="h5 mb-1">Warden Dashboard</h2>
-            <p className="text-muted small mb-0">
-              Everything from the old homepage lives here now.
-            </p>
-          </div>
-
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            {/* Refresh button - only show if bank is connected */}
-            {bankStatus?.connected && (
-              <button
-                className="btn btn-sm btn-outline-secondary"
-                onClick={() => handleSyncBank(false)}
-                disabled={bankSyncing}
-                title="Refresh bank transactions"
-                style={{ fontSize: "1.1rem", padding: "0.25rem 0.5rem" }}
-              >
-                {bankSyncing ? (
-                  <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
-                ) : (
-                  "🔄"
-                )}
-              </button>
-            )}
-            
-            <div className="btn-group" role="group">
-              <button
-                className={`btn btn-sm ${monthsBack === 3 ? "btn-primary" : "btn-outline-secondary"}`}
-                onClick={() => setMonthsBack(3)}
-              >
-                3m
-              </button>
-              <button
-                className={`btn btn-sm ${monthsBack === 6 ? "btn-primary" : "btn-outline-secondary"}`}
-                onClick={() => setMonthsBack(6)}
-              >
-                6m
-              </button>
-              <button
-                className={`btn btn-sm ${monthsBack === 12 ? "btn-primary" : "btn-outline-secondary"}`}
-                onClick={() => setMonthsBack(12)}
-              >
-                12m
-              </button>
+      <div className="card shadow-sm mb-4">
+        <div className="card-body">
+          <div className="d-flex align-items-start justify-content-between mb-3">
+            <div>
+              <h2 className="h5 mb-1">Warden Dashboard</h2>
+              <p className="text-muted small mb-0">Everything from the old homepage lives here now.</p>
             </div>
 
-            <div className="form-check form-switch ms-2">
-              <input
-                className="form-check-input"
-                type="checkbox"
-                id="cumSwitch"
-                checked={showCumulative}
-                onChange={(e) => setShowCumulative(e.target.checked)}
-              />
-              <label className="form-check-label small" htmlFor="cumSwitch">
-                Cumulative
-              </label>
-            </div>
-          </div>
-        </div>
-
-        {/* Sync status message */}
-        {(bankSyncing || lastSyncMessage) && (
-          <div className={`alert ${lastSyncMessage.includes("failed") || lastSyncMessage.includes("expired") ? "alert-warning" : "alert-info"} py-2 mb-3`}>
-            <small>
-              {bankSyncing ? (
-                <>
-                  <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
-                  Syncing bank transactions...
-                </>
-              ) : (
-                lastSyncMessage
-              )}
-            </small>
-          </div>
-        )}
-
-        {/* Balance */}
-        <div className="card shadow-sm mb-3">
-          <div className="card-body">
-            <div className="d-flex align-items-center justify-content-between gap-3">
-              <div>
-                <div className="text-muted small">
-                  {bankBalance?.totalBalance !== undefined ? "Bank Balance" : "Current Balance"}
-                  {bankBalance?.totalBalance !== undefined && (
-                    <span className="badge bg-info ms-2" style={{fontSize: '0.65rem'}}>Live</span>
-                  )}
-                </div>
-                <div className={`display-6 mb-0 ${(bankBalance?.totalBalance ?? globalTotals?.balance ?? 0) < 0 ? "text-danger" : "text-success"}`}>
-                  {formattedBalance}
-                </div>
-                {bankBalance?.availableBalance !== undefined && Math.abs(bankBalance.availableBalance - bankBalance.totalBalance) > 0.01 && (
-                  <div className="text-muted small mt-1">
-                    Available: £{bankBalance.availableBalance.toFixed(2)}
-                  </div>
-                )}
-              </div>
-              <span className={`badge rounded-pill ${(bankBalance?.totalBalance ?? globalTotals?.balance ?? 0) < 0 ? "text-bg-danger" : "text-bg-success"}`}>
-                {(bankBalance?.totalBalance ?? globalTotals?.balance ?? 0) < 0 ? "Over budget" : "Looking good"}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* Quick Add Button */}
-        <div className="card shadow-sm mb-3">
-          <div className="card-body">
-            <button
-              className="btn btn-primary w-100"
-              onClick={() => setShowQuickAddModal(true)}
-            >
-              💬 Quick Add
-            </button>
-          </div>
-        </div>
-
-        {/* Import Transactions Button */}
-        <div className="card shadow-sm mb-3">
-          <div className="card-body">
-            <div className="d-flex align-items-center justify-content-between">
-              <h2 className="h6 mb-0">Import Transactions</h2>
-            </div>
-            <p className="text-muted small mt-2 mb-3">
-              Upload your bank statements in CSV or PDF format, or connect your bank directly
-            </p>
-            <div className="d-flex flex-column gap-2">
-              <button 
-                className="btn btn-primary w-100"
-                onClick={() => setShowImportModal(true)}
-              >
-                📄 Import CSV/PDF Statement
-              </button>
-              
-              {/* TrueLayer Open Banking Connection Status */}
-              {bankStatusLoading ? (
-                <button className="btn btn-outline-secondary w-100" disabled>
-                  <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
-                  Checking bank connection...
-                </button>
-              ) : bankStatus?.connected ? (
-                <div className="alert alert-success mb-0 py-2">
-                  <small>✅ Bank connected via Open Banking</small>
-                </div>
-              ) : (
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              {bankStatus?.connected && (
                 <button
-                  className="btn btn-outline-primary w-100"
-                  onClick={handleConnectBank}
-                  disabled={bankLoading}
+                  className="btn btn-sm btn-outline-secondary"
+                  onClick={() => handleSyncBank(false)}
+                  disabled={bankSyncing}
+                  title="Refresh bank transactions"
+                  style={{ fontSize: "1.1rem", padding: "0.25rem 0.5rem" }}
                 >
-                  {bankLoading ? (
-                    <>
-                      <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
-                      Connecting...
-                    </>
+                  {bankSyncing ? (
+                    <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
                   ) : (
-                    "🏦 Connect Bank (Open Banking)"
+                    "🔄"
                   )}
                 </button>
               )}
-            </div>
-          </div>
-        </div>
 
-        {/* Charts */}
-        {parsed.length === 0 ? (
-          <div className="text-muted">No transactions to show. Import some transactions to see insights.</div>
-        ) : (
-          <div className="row g-3 mb-3">
-            <div className="col-12 col-md-4 d-flex align-items-center justify-content-center">
-              <Donut income={totals.income} expense={totals.expense} />
-            </div>
+              <div className="btn-group" role="group">
+                <button className={`btn btn-sm ${monthsBack === 3 ? "btn-primary" : "btn-outline-secondary"}`} onClick={() => setMonthsBack(3)}>
+                  3m
+                </button>
+                <button className={`btn btn-sm ${monthsBack === 6 ? "btn-primary" : "btn-outline-secondary"}`} onClick={() => setMonthsBack(6)}>
+                  6m
+                </button>
+                <button className={`btn btn-sm ${monthsBack === 12 ? "btn-primary" : "btn-outline-secondary"}`} onClick={() => setMonthsBack(12)}>
+                  12m
+                </button>
+              </div>
 
-            <div className="col-12 col-md-8">
-              <div className="card p-2" style={{ height: 220 }}>
-                <div className="d-flex align-items-center justify-content-between mb-2">
-                  <small className="text-muted">{showCumulative ? "Cumulative balance" : "Net per month"}</small>
-                  <small className="text-muted">{monthsBack} months</small>
-                </div>
-                <div style={{ width: "100%", height: 160 }}>
-                  <LineChart data={monthly} width={600} height={160} />
-                </div>
+              <div className="form-check form-switch ms-2">
+                <input className="form-check-input" type="checkbox" id="cumSwitch" checked={showCumulative} onChange={(e) => setShowCumulative(e.target.checked)} />
+                <label className="form-check-label small" htmlFor="cumSwitch">
+                  Cumulative
+                </label>
               </div>
             </div>
+          </div>
 
-            {/* Top Expense Categories and Top Merchants - Side by Side */}
+          {(bankSyncing || lastSyncMessage) && (
+            <div className={`alert ${lastSyncMessage.includes("failed") || lastSyncMessage.includes("expired") ? "alert-warning" : "alert-info"} py-2 mb-3`}>
+              <small>
+                {bankSyncing ? (
+                  <>
+                    <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                    Syncing bank transactions...
+                  </>
+                ) : (
+                  lastSyncMessage
+                )}
+              </small>
+            </div>
+          )}
+
+          {/* Balance */}
+          <div className="card shadow-sm mb-3">
+            <div className="card-body">
+              <div className="d-flex align-items-center justify-content-between gap-3">
+                <div>
+                  <div className="text-muted small">
+                    {isBankConnected ? "Bank Balance" : "Current Balance"}
+                    {isBankConnected && !balanceIsLoading && (
+                      <span className="badge bg-info ms-2" style={{ fontSize: "0.65rem" }}>
+                        Live
+                      </span>
+                    )}
+                  </div>
+
+                  <div className={`display-6 mb-0 ${balanceIsLoading ? "text-muted" : isNegative ? "text-danger" : "text-success"}`}>
+                    {formattedBalance}
+                  </div>
+
+                  {isBankConnected &&
+                    !balanceIsLoading &&
+                    Number.isFinite(bankBalance?.availableBalance) &&
+                    Number.isFinite(bankBalance?.totalBalance) &&
+                    Math.abs(bankBalance.availableBalance - bankBalance.totalBalance) > 0.01 && (
+                      <div className="text-muted small mt-1">Available: £{bankBalance.availableBalance.toFixed(2)}</div>
+                    )}
+                </div>
+
+                <span className={`badge rounded-pill ${balanceIsLoading ? "text-bg-secondary" : isNegative ? "text-bg-danger" : "text-bg-success"}`}>
+                  {balanceIsLoading ? "Loading…" : isNegative ? "Over budget" : "Looking good"}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Quick Add */}
+          <div className="card shadow-sm mb-3">
+            <div className="card-body">
+              <button className="btn btn-primary w-100" onClick={() => setShowQuickAddModal(true)}>
+                💬 Quick Add
+              </button>
+            </div>
+          </div>
+
+          {/* Import / Bank connect */}
+          <div className="card shadow-sm mb-3">
+            <div className="card-body">
+              <div className="d-flex align-items-center justify-content-between">
+                <h2 className="h6 mb-0">Import Transactions</h2>
+              </div>
+              <p className="text-muted small mt-2 mb-3">Upload your bank statements in CSV or PDF format, or connect your bank directly</p>
+
+              <div className="d-flex flex-column gap-2">
+                <button className="btn btn-primary w-100" onClick={() => setShowImportModal(true)}>
+                  📄 Import CSV/PDF Statement
+                </button>
+
+                {bankStatusLoading ? (
+                  <button className="btn btn-outline-secondary w-100" disabled>
+                    <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                    Checking bank connection...
+                  </button>
+                ) : bankStatus?.connected ? (
+                  <div className="alert alert-success mb-0 py-2">
+                    <small>✅ Bank connected via Open Banking</small>
+                  </div>
+                ) : (
+                  <button className="btn btn-outline-primary w-100" onClick={handleConnectBank} disabled={bankLoading}>
+                    {bankLoading ? (
+                      <>
+                        <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                        Connecting...
+                      </>
+                    ) : (
+                      "🏦 Connect Bank (Open Banking)"
+                    )}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Charts */}
+          {parsed.length === 0 ? (
+            <div className="text-muted">No transactions to show. Import some transactions to see insights.</div>
+          ) : (
             <div className="row g-3 mb-3">
-              <div className="col-12 col-lg-6">
-                <div className="card p-2">
-                  <div className="d-flex align-items-center justify-content-between mb-2">
-                    <div>
-                      <strong>Top Expense Categories</strong>
-                      <div className="text-muted small">Largest buckets</div>
-                    </div>
-                    <div className="text-muted small">{topExpenses.length}</div>
-                  </div>
+              <div className="col-12 col-md-4 d-flex align-items-center justify-content-center">
+                <Donut income={totals.income} expense={totals.expense} />
+              </div>
 
-                  {topExpenses.length === 0 ? (
-                    <div className="text-muted">No expense data available.</div>
-                  ) : (
-                    <div style={{ minHeight: 220 }}>
-                      <Bars items={topExpenses} width={400} height={180} />
-                    </div>
-                  )}
+              <div className="col-12 col-md-8">
+                <div className="card p-2" style={{ height: 220 }}>
+                  <div className="d-flex align-items-center justify-content-between mb-2">
+                    <small className="text-muted">{showCumulative ? "Cumulative balance" : "Net per month"}</small>
+                    <small className="text-muted">{monthsBack} months</small>
+                  </div>
+                  <div style={{ width: "100%", height: 160 }}>
+                    <LineChart data={monthly} width={600} height={160} />
+                  </div>
                 </div>
               </div>
 
-              {/* Top Merchants - Insight #9 */}
-              <div className="col-12 col-lg-6">
-                <div className="card p-2">
-                  <div className="d-flex align-items-center justify-content-between mb-2">
-                    <div>
-                      <strong>Top Merchants & Vendors</strong>
-                      <div className="text-muted small">Where you spend most</div>
-                    </div>
-                    <div className="text-muted small">{topMerchants.length}</div>
-                  </div>
-
-                  {topMerchants.length === 0 ? (
-                    <div className="text-muted">No merchant data available.</div>
-                  ) : (
-                    <div style={{ minHeight: 220 }}>
-                      <Bars items={topMerchants.map(m => ({ category: m.vendor, amount: m.amount }))} width={400} height={180} />
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Spending Forecast - Insight #14 */}
-            {spendingForecast && (
-              <div className="card p-3 mb-3">
-                <div className="mb-3">
-                  <strong>Spending Forecast</strong>
-                  <div className="text-muted small">Next month projection</div>
-                </div>
-
-                <div className="row g-3">
-                  <div className="col-12 col-sm-6">
-                    <div className="p-3 rounded" style={{ backgroundColor: "var(--card-border)", color: "var(--text)" }}>
-                      <div className="text-muted small mb-1">Forecast</div>
-                      <div className="h5 mb-0 text-primary">£{spendingForecast.forecast.toFixed(2)}</div>
-                      <small className="text-muted d-block">Based on last 3 months avg</small>
-                    </div>
-                  </div>
-
-                  <div className="col-12 col-sm-6">
-                    <div className="p-3 rounded" style={{ backgroundColor: "var(--card-border)", color: "var(--text)" }}>
-                      <div className="text-muted small mb-1">Trend</div>
-                      <div className={`h5 mb-0 ${spendingForecast.trend === "increasing" ? "text-danger" : "text-success"}`}>
-                        {spendingForecast.trend === "increasing" ? "📈 Increasing" : "📉 Decreasing"}
+              <div className="row g-3 mb-3">
+                <div className="col-12 col-lg-6">
+                  <div className="card p-2">
+                    <div className="d-flex align-items-center justify-content-between mb-2">
+                      <div>
+                        <strong>Top Expense Categories</strong>
+                        <div className="text-muted small">Largest buckets</div>
                       </div>
-                      <small className="text-muted d-block">
-                        vs historical average (£{spendingForecast.average.toFixed(2)})
-                      </small>
+                      <div className="text-muted small">{topExpenses.length}</div>
                     </div>
-                  </div>
 
-                  <div className="col-12 col-sm-6">
-                    <div className="p-3 rounded" style={{ backgroundColor: "var(--card-border)", color: "var(--text)" }}>
-                      <div className="text-muted small mb-1">Last Month</div>
-                      <div className="h5 mb-0">£{spendingForecast.lastMonth.toFixed(2)}</div>
-                      <small className="text-muted d-block">Actual spending</small>
-                    </div>
+                    {topExpenses.length === 0 ? (
+                      <div className="text-muted">No expense data available.</div>
+                    ) : (
+                      <div style={{ minHeight: 220 }}>
+                        <Bars items={topExpenses} width={400} height={180} />
+                      </div>
+                    )}
                   </div>
+                </div>
 
-                  <div className="col-12 col-sm-6">
-                    <div className="p-3 rounded" style={{ backgroundColor: "var(--card-border)", color: "var(--text)" }}>
-                      <div className="text-muted small mb-1">Average</div>
-                      <div className="h5 mb-0">£{spendingForecast.average.toFixed(2)}</div>
-                      <small className="text-muted d-block">Over {monthsBack} months</small>
+                <div className="col-12 col-lg-6">
+                  <div className="card p-2">
+                    <div className="d-flex align-items-center justify-content-between mb-2">
+                      <div>
+                        <strong>Top Merchants & Vendors</strong>
+                        <div className="text-muted small">Where you spend most</div>
+                      </div>
+                      <div className="text-muted small">{topMerchants.length}</div>
                     </div>
+
+                    {topMerchants.length === 0 ? (
+                      <div className="text-muted">No merchant data available.</div>
+                    ) : (
+                      <div style={{ minHeight: 220 }}>
+                        <Bars items={topMerchants.map((m) => ({ category: m.vendor, amount: m.amount }))} width={400} height={180} />
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
-            )}
-          </div>
-        )}
 
-        {/* Recent Transactions */}
-        <div className="card shadow-sm">
-          <div className="card-body">
-            <div className="d-flex align-items-center justify-content-between mb-3">
-              <h2 className="h6 mb-0">Recent Transactions</h2>
-              <span className="text-muted small">{transactions.length} total</span>
+              {spendingForecast && (
+                <div className="card p-3 mb-3">
+                  <div className="mb-3">
+                    <strong>Spending Forecast</strong>
+                    <div className="text-muted small">Next month projection</div>
+                  </div>
+
+                  <div className="row g-3">
+                    <div className="col-12 col-sm-6">
+                      <div className="p-3 rounded" style={{ backgroundColor: "var(--card-border)", color: "var(--text)" }}>
+                        <div className="text-muted small mb-1">Forecast</div>
+                        <div className="h5 mb-0 text-primary">£{spendingForecast.forecast.toFixed(2)}</div>
+                        <small className="text-muted d-block">Based on last 3 months avg</small>
+                      </div>
+                    </div>
+
+                    <div className="col-12 col-sm-6">
+                      <div className="p-3 rounded" style={{ backgroundColor: "var(--card-border)", color: "var(--text)" }}>
+                        <div className="text-muted small mb-1">Trend</div>
+                        <div className={`h5 mb-0 ${spendingForecast.trend === "increasing" ? "text-danger" : "text-success"}`}>
+                          {spendingForecast.trend === "increasing" ? "📈 Increasing" : "📉 Decreasing"}
+                        </div>
+                        <small className="text-muted d-block">vs historical average (£{spendingForecast.average.toFixed(2)})</small>
+                      </div>
+                    </div>
+
+                    <div className="col-12 col-sm-6">
+                      <div className="p-3 rounded" style={{ backgroundColor: "var(--card-border)", color: "var(--text)" }}>
+                        <div className="text-muted small mb-1">Last Month</div>
+                        <div className="h5 mb-0">£{spendingForecast.lastMonth.toFixed(2)}</div>
+                        <small className="text-muted d-block">Actual spending</small>
+                      </div>
+                    </div>
+
+                    <div className="col-12 col-sm-6">
+                      <div className="p-3 rounded" style={{ backgroundColor: "var(--card-border)", color: "var(--text)" }}>
+                        <div className="text-muted small mb-1">Average</div>
+                        <div className="h5 mb-0">£{spendingForecast.average.toFixed(2)}</div>
+                        <small className="text-muted d-block">Over {monthsBack} months</small>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
+          )}
 
-            {transactions.length === 0 ? (
-              <div className="text-muted">No transactions yet</div>
-            ) : (
-              <ul className="list-group">
-                {transactions.map((t) => (
-                  <li key={t.id} className="list-group-item">
-                    <div className="d-flex align-items-start justify-content-between gap-2">
-                      <div style={{ flex: 1 }}>
-                        <div className="d-flex align-items-center gap-2 mb-2">
-                          <span className={t.type === "income" ? "text-success fw-semibold" : "text-danger fw-semibold"}>
-                            {t.type === "income" ? "+ " : "− "}£{Number(t.amount).toFixed(2)}
-                          </span>
-                          {editingCategoryId === t.id ? (
-                            <select
-                              className="form-select form-select-sm"
-                              style={{ width: "150px", fontSize: "0.85rem" }}
-                              value={t.category || "Other"}
-                              onChange={(e) => {
-                                updateTransaction(t.id, { category: e.target.value });
-                                setEditingCategoryId(null);
-                              }}
-                              autoFocus
-                              onBlur={() => setEditingCategoryId(null)}
-                            >
-                              {categories.map((cat) => (
-                                <option key={cat} value={cat}>{cat}</option>
-                              ))}
-                            </select>
-                          ) : (
-                            <button
-                              className="badge bg-secondary"
-                              style={{ fontSize: "0.75rem", border: "none", cursor: "pointer", padding: "0.4rem 0.6rem" }}
-                              onClick={() => setEditingCategoryId(t.id)}
-                              title="Click to edit category"
-                            >
-                              {t.category || "Other"}
-                            </button>
+          {/* Recent Transactions */}
+          <div className="card shadow-sm">
+            <div className="card-body">
+              <div className="d-flex align-items-center justify-content-between mb-3">
+                <h2 className="h6 mb-0">Recent Transactions</h2>
+                <span className="text-muted small">{transactions.length} total</span>
+              </div>
+
+              {transactions.length === 0 ? (
+                <div className="text-muted">No transactions yet</div>
+              ) : (
+                <ul className="list-group">
+                  {recentSorted.map((t) => (
+                    <li key={t.id} className="list-group-item">
+                      <div className="d-flex align-items-start justify-content-between gap-2">
+                        <div style={{ flex: 1 }}>
+                          <div className="d-flex align-items-center gap-2 mb-2">
+                            <span className={t.type === "income" ? "text-success fw-semibold" : "text-danger fw-semibold"}>
+                              {t.type === "income" ? "+ " : "− "}£{Number(t.amount).toFixed(2)}
+                            </span>
+
+                            {editingCategoryId === t.id ? (
+                              <select
+                                className="form-select form-select-sm"
+                                style={{ width: "150px", fontSize: "0.85rem" }}
+                                value={t.category || "Other"}
+                                onChange={(e) => {
+                                  updateTransaction(t.id, { category: e.target.value });
+                                  setEditingCategoryId(null);
+                                }}
+                                autoFocus
+                                onBlur={() => setEditingCategoryId(null)}
+                              >
+                                {categories.map((cat) => (
+                                  <option key={cat} value={cat}>
+                                    {cat}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : (
+                              <button
+                                className="badge bg-secondary"
+                                style={{
+                                  fontSize: "0.75rem",
+                                  border: "none",
+                                  cursor: "pointer",
+                                  padding: "0.4rem 0.6rem",
+                                }}
+                                onClick={() => setEditingCategoryId(t.id)}
+                                title="Click to edit category"
+                              >
+                                {t.category || "Other"}
+                              </button>
+                            )}
+                          </div>
+
+                          {t.description && (
+                            <div className="text-light small" style={{ fontSize: "0.85rem" }}>
+                              {t.description}
+                            </div>
                           )}
                         </div>
 
-                        {t.description && (
-                          <div className="text-light small" style={{ fontSize: "0.85rem" }}>
-                            {t.description}
-                          </div>
-                        )}
+                        <span className="text-muted small ms-3" style={{ whiteSpace: "nowrap" }}>
+                          {t.date.toLocaleDateString()}
+                        </span>
                       </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
 
-                      <span className="text-muted small ms-3" style={{ whiteSpace: "nowrap" }}>
-                        {new Date(t.date).toLocaleDateString()}
-                      </span>
+          {/* Import Modal */}
+          {showImportModal && (
+            <div className="modal d-block" style={{ backgroundColor: "rgba(0, 0, 0, 0.5)" }} role="dialog">
+              <div className="modal-dialog modal-lg" role="document">
+                <div className="modal-content">
+                  <div className="modal-header">
+                    <h5 className="modal-title">Import Bank Statement</h5>
+                    <button type="button" className="btn-close" onClick={() => setShowImportModal(false)}></button>
+                  </div>
+                  <div className="modal-body">
+                    <CsvPdfUpload onSave={bulkAddTransactions} onClose={() => setShowImportModal(false)} />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Quick Add Modal */}
+          {showQuickAddModal && (
+            <div className="modal d-block" style={{ backgroundColor: "rgba(0, 0, 0, 0.5)" }} role="dialog">
+              <div className="modal-dialog" role="document">
+                <div className="modal-content">
+                  <div className="modal-header">
+                    <h5 className="modal-title">Quick Add Transaction</h5>
+                    <button type="button" className="btn-close" onClick={() => setShowQuickAddModal(false)}></button>
+                  </div>
+                  <div className="modal-body">
+                    <div className="mb-3">
+                      <label className="form-label">Amount (£)</label>
+                      <input
+                        className="form-control"
+                        type="number"
+                        placeholder="0.00"
+                        value={amount}
+                        onChange={(e) => setAmount(e.target.value)}
+                        step="0.01"
+                        min="0"
+                      />
                     </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+
+                    <div className="mb-3">
+                      <label className="form-label">Category</label>
+                      <select className="form-select" value={category} onChange={(e) => setCategory(e.target.value)}>
+                        {categories.map((c) => (
+                          <option key={c} value={c}>
+                            {c}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="mb-3">
+                      <label className="form-label">Description (optional)</label>
+                      <input
+                        className="form-control"
+                        value={description}
+                        onChange={(e) => setDescription(e.target.value)}
+                        placeholder="e.g. Tesco / Rent / Salary"
+                      />
+                    </div>
+                  </div>
+                  <div className="modal-footer">
+                    <button type="button" className="btn btn-secondary" onClick={() => setShowQuickAddModal(false)}>
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-success"
+                      onClick={() => {
+                        handleAddTransaction("income");
+                        setShowQuickAddModal(false);
+                      }}
+                    >
+                      + Income
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-danger"
+                      onClick={() => {
+                        handleAddTransaction("expense");
+                        setShowQuickAddModal(false);
+                      }}
+                    >
+                      − Expense
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
-
-        {/* Import Modal */}
-        {showImportModal && (
-          <div 
-            className="modal d-block" 
-            style={{ backgroundColor: "rgba(0, 0, 0, 0.5)" }}
-            role="dialog"
-          >
-            <div className="modal-dialog modal-lg" role="document">
-              <div className="modal-content">
-                <div className="modal-header">
-                  <h5 className="modal-title">Import Bank Statement</h5>
-                  <button
-                    type="button"
-                    className="btn-close"
-                    onClick={() => setShowImportModal(false)}
-                  ></button>
-                </div>
-                <div className="modal-body">
-                  <CsvPdfUpload onSave={bulkAddTransactions} onClose={() => setShowImportModal(false)} />
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Quick Add Modal */}
-        {showQuickAddModal && (
-          <div 
-            className="modal d-block" 
-            style={{ backgroundColor: "rgba(0, 0, 0, 0.5)" }}
-            role="dialog"
-          >
-            <div className="modal-dialog" role="document">
-              <div className="modal-content">
-                <div className="modal-header">
-                  <h5 className="modal-title">Quick Add Transaction</h5>
-                  <button
-                    type="button"
-                    className="btn-close"
-                    onClick={() => setShowQuickAddModal(false)}
-                  ></button>
-                </div>
-                <div className="modal-body">
-                  <div className="mb-3">
-                    <label className="form-label">Amount (£)</label>
-                    <input
-                      className="form-control"
-                      type="number"
-                      placeholder="0.00"
-                      value={amount}
-                      onChange={(e) => setAmount(e.target.value)}
-                      step="0.01"
-                      min="0"
-                    />
-                  </div>
-
-                  <div className="mb-3">
-                    <label className="form-label">Category</label>
-                    <select className="form-select" value={category} onChange={(e) => setCategory(e.target.value)}>
-                      {categories.map((c) => (
-                        <option key={c} value={c}>{c}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="mb-3">
-                    <label className="form-label">Description (optional)</label>
-                    <input
-                      className="form-control"
-                      value={description}
-                      onChange={(e) => setDescription(e.target.value)}
-                      placeholder="e.g. Tesco / Rent / Salary"
-                    />
-                  </div>
-                </div>
-                <div className="modal-footer">
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    onClick={() => setShowQuickAddModal(false)}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-success"
-                    onClick={() => {
-                      handleAddTransaction("income");
-                      setShowQuickAddModal(false);
-                    }}
-                  >
-                    + Income
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-danger"
-                    onClick={() => {
-                      handleAddTransaction("expense");
-                      setShowQuickAddModal(false);
-                    }}
-                  >
-                    − Expense
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
       </div>
     </div>
-  </div>
-);
-
+  );
 }

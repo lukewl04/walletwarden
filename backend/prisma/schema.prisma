@@ -14,7 +14,7 @@ model Transaction {
   user_id     String
   type        String
   amount      Float
-  date        String
+  date        DateTime
   category    String?
   description String?
   created_at  DateTime @default(now())
@@ -41,7 +41,7 @@ model Purchase {
   user_id        String
   split_id       String
   transaction_id String?
-  date           String
+  date           DateTime
   amount         Float
   category       String
   description    String?
@@ -69,13 +69,15 @@ model IncomeSetting {
 
 // TrueLayer Open Banking Integration
 model BankConnection {
-  id               String    @id @default(uuid())
-  user_id          String
-  provider         String    @default("truelayer")
-  access_token     String
-  refresh_token    String?
-  token_expires_at DateTime?
-  created_at       DateTime  @default(now())
+  id                    String    @id @default(uuid())
+  user_id               String
+  provider              String    @default("truelayer")
+  access_token          String
+  encrypted_refresh_token String?
+  refresh_token_iv      String?
+  refresh_token_tag     String?
+  token_expires_at      DateTime?
+  created_at            DateTime  @default(now())
 
   @@unique([user_id, provider], name: "user_id_provider")
   @@index([user_id])

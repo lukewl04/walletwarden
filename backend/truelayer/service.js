@@ -90,6 +90,12 @@ async function storeConnection(prisma, userId, tokenResponse) {
     ? new Date(Date.now() + tokenResponse.expires_in * 1000)
     : null;
 
+  // Encrypt refresh token if present
+  let encrypted = null;
+  if (tokenResponse.refresh_token) {
+    encrypted = encryptToken(tokenResponse.refresh_token);
+  }
+
   await prisma.bankConnection.upsert({
     where: {
       user_id_provider: {
@@ -99,14 +105,18 @@ async function storeConnection(prisma, userId, tokenResponse) {
     },
     update: {
       access_token: tokenResponse.access_token,
-      refresh_token: tokenResponse.refresh_token || null,
+      encrypted_refresh_token: encrypted ? encrypted.ciphertext : null,
+      refresh_token_iv: encrypted ? encrypted.iv : null,
+      refresh_token_tag: encrypted ? encrypted.tag : null,
       token_expires_at: expiresAt,
     },
     create: {
       user_id: userId,
       provider: 'truelayer',
       access_token: tokenResponse.access_token,
-      refresh_token: tokenResponse.refresh_token || null,
+      encrypted_refresh_token: encrypted ? encrypted.ciphertext : null,
+      refresh_token_iv: encrypted ? encrypted.iv : null,
+      refresh_token_tag: encrypted ? encrypted.tag : null,
       token_expires_at: expiresAt,
     },
   });
@@ -140,10 +150,20 @@ async function getValidAccessToken(prisma, userId) {
   const needsRefresh = connection.token_expires_at && 
     new Date(connection.token_expires_at).getTime() - Date.now() < buffer;
 
-  if (needsRefresh && connection.refresh_token) {
+  // Decrypt refresh token if present
+  let refreshToken = null;
+  if (connection.encrypted_refresh_token && connection.refresh_token_iv && connection.refresh_token_tag) {
+    refreshToken = decryptToken({
+      ciphertext: connection.encrypted_refresh_token,
+      iv: connection.refresh_token_iv,
+      tag: connection.refresh_token_tag,
+    });
+  }
+
+  if (needsRefresh && refreshToken) {
     try {
       const newTokens = await client.refreshToken({
-        refresh_token: connection.refresh_token,
+        refresh_token: refreshToken,
       });
       await storeConnection(prisma, userId, newTokens);
       return newTokens.access_token;
@@ -155,6 +175,38 @@ async function getValidAccessToken(prisma, userId) {
   }
 
   return connection.access_token;
+}
+// AES-256-GCM encryption helpers
+function getEncryptionKey() {
+  const keyB64 = process.env.TOKEN_ENCRYPTION_KEY;
+  if (!keyB64) throw new Error('TOKEN_ENCRYPTION_KEY not set');
+  const buf = Buffer.from(keyB64, 'base64');
+  if (buf.length !== 32) throw new Error('TOKEN_ENCRYPTION_KEY must be 32 bytes (base64-encoded)');
+  return buf;
+}
+
+function encryptToken(plaintext) {
+  const key = getEncryptionKey();
+  const iv = crypto.randomBytes(12); // 96 bits for GCM
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const ciphertext = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return {
+    ciphertext: ciphertext.toString('base64'),
+    iv: iv.toString('base64'),
+    tag: tag.toString('base64'),
+  };
+}
+
+function decryptToken({ ciphertext, iv, tag }) {
+  const key = getEncryptionKey();
+  const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(iv, 'base64'));
+  decipher.setAuthTag(Buffer.from(tag, 'base64'));
+  const decrypted = Buffer.concat([
+    decipher.update(Buffer.from(ciphertext, 'base64')),
+    decipher.final(),
+  ]);
+  return decrypted.toString('utf8');
 }
 
 /**
@@ -356,10 +408,10 @@ function normalizeTransaction(tx, userId) {
   const type = rawAmount < 0 ? 'expense' : 'income';
   const amount = Math.abs(rawAmount);
   
-  // Date as YYYY-MM-DD string
-  const date = tx.timestamp 
-    ? tx.timestamp.slice(0, 10) 
-    : new Date().toISOString().slice(0, 10);
+  // Date as Date object for Prisma DateTime
+  const date = tx.timestamp
+    ? new Date(tx.timestamp)
+    : new Date();
   
   // Description from merchant or transaction description
   const description = tx.merchant_name || tx.description || '';
