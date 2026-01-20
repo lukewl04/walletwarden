@@ -68,6 +68,12 @@ router.get("/callback", requireConfig, async (req, res) => {
   try {
     const { code, state, error, error_description } = req.query;
 
+    // Check if prisma is available
+    if (!prisma) {
+      console.error('[TrueLayer] ERROR: prisma is not initialized in callback endpoint');
+      return res.redirect(`${config.FRONTEND_URL}/wardeninsights?bankError=database_unavailable`);
+    }
+
     // Handle OAuth errors
     if (error) {
       console.error("TrueLayer OAuth error:", error, error_description);
@@ -161,6 +167,11 @@ router.post("/sync", requireConfig, async (req, res) => {
       return res.status(401).json({ error: "unauthorized" });
     }
 
+    if (!prisma) {
+      console.error('[TrueLayer] ERROR: prisma is not initialized in sync endpoint');
+      return res.status(503).json({ error: "database_unavailable", message: "Database client not available" });
+    }
+
     const mode = String(req.query.mode || "full").toLowerCase();
 
     if (mode === "quick") {
@@ -218,6 +229,11 @@ router.get("/status", async (req, res) => {
       return res.status(401).json({ error: "unauthorized" });
     }
 
+    if (!prisma) {
+      console.error('[TrueLayer] ERROR: prisma is not initialized in status endpoint');
+      return res.status(503).json({ error: "database_unavailable", message: "Database client not available" });
+    }
+
     const status = await service.getConnectionStatus(prisma, userId);
 
     return res.json({
@@ -241,6 +257,12 @@ router.get("/balance", async (req, res) => {
     const userId = req.auth?.sub;
     if (!userId) {
       return res.status(401).json({ error: "unauthorized" });
+    }
+
+    // Check if prisma is available
+    if (!prisma) {
+      console.error('[TrueLayer] ERROR: prisma is not initialized in balance endpoint');
+      return res.status(503).json({ error: "database_unavailable", message: "Database client not available" });
     }
 
     // Get all bank accounts for user
@@ -328,7 +350,9 @@ router.delete("/disconnect", async (req, res) => {
  * @param {Object} prismaClient - Prisma client instance
  */
 function init(prismaClient) {
+  console.log('[TrueLayer] init() called with prismaClient:', !!prismaClient);
   prisma = prismaClient;
+  console.log('[TrueLayer] prisma variable set to:', !!prisma);
   return router;
 }
 

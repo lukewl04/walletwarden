@@ -79,7 +79,10 @@ app.use((err, req, res, next) => {
 // TrueLayer Open Banking routes
 const trueLayerRoutes = require('./routes/banks.truelayer');
 console.log('[TrueLayer] Setting up routes, prisma available:', !!prisma);
-app.use('/api/banks/truelayer', trueLayerRoutes(prisma));
+console.log('[TrueLayer] trueLayerRoutes type:', typeof trueLayerRoutes);
+const trueLayerRouter = trueLayerRoutes(prisma);
+console.log('[TrueLayer] Router created:', !!trueLayerRouter);
+app.use('/api/banks/truelayer', trueLayerRouter);
 
 // health
 app.get('/health', (req, res) => res.json({ ok: true, database: 'supabase' }));

@@ -532,6 +532,63 @@ export default function WardenInsights() {
     };
   }, [monthly]);
 
+  // Calculate potential savings by category
+  const potentialSavings = useMemo(() => {
+    const buckets = [
+      {
+        key: "Cigarettes/Tobacco",
+        re: /\b(cigarette|tobacco|smoke|vape|nicotine|cigar)\b/i,
+        description: "Stop smoking",
+      },
+      {
+        key: "Coffee",
+        re: /\b(coffee|cafe|espresso|latte|cappuccino|starbucks)\b/i,
+        description: "Skip daily coffee",
+      },
+      {
+        key: "Subscriptions",
+        re: /\b(netflix|spotify|prime|subscription|membership|apple|google play|disney)\b/i,
+        description: "Cancel unused subscriptions",
+      },
+      {
+        key: "Takeaway/Delivery",
+        re: /\b(uber eats|deliveroo|just eat|grubhub|takeaway|delivery)\b/i,
+        description: "Cook at home",
+      },
+      {
+        key: "Impulse Purchases",
+        re: /\b(amazon|asos|online shopping|clothes|shopping)\b/i,
+        description: "Reduce online shopping",
+      },
+    ];
+
+    const map = {};
+    parsed.forEach((t) => {
+      if (t.type !== "expense") return;
+
+      const desc = (t.description || "").toLowerCase();
+      const found = buckets.find((b) => b.re.test(desc));
+
+      if (found) {
+        if (!map[found.key]) {
+          map[found.key] = { amount: 0, description: found.description, count: 0 };
+        }
+        map[found.key].amount += t.amount;
+        map[found.key].count += 1;
+      }
+    });
+
+    return Object.entries(map)
+      .map(([category, data]) => ({
+        category,
+        ...data,
+        monthlyAvg: data.amount / Math.max(1, monthsBack),
+        yearlyPotential: (data.amount / Math.max(1, monthsBack)) * 12,
+      }))
+      .sort((a, b) => b.yearlyPotential - a.yearlyPotential)
+      .slice(0, 5);
+  }, [parsed, monthsBack]);
+
   // ---- charts ----
   const Donut = ({ income, expense, size = 160, thickness = 22 }) => {
     const total = income + expense || 1;
@@ -921,6 +978,51 @@ export default function WardenInsights() {
                         <small className="text-muted d-block">Over {monthsBack} months</small>
                       </div>
                     </div>
+                  </div>
+                </div>
+              )}
+
+              {potentialSavings.length > 0 && (
+                <div className="card p-3 mb-3">
+                  <div className="mb-3">
+                    <strong>💰 Where You Could Save</strong>
+                    <div className="text-muted small">Potential annual savings if you cut discretionary spending</div>
+                  </div>
+
+                  <div style={{ maxHeight: 400, overflowY: "auto" }}>
+                    {potentialSavings.map((item, idx) => (
+                      <div key={idx} className="p-3 mb-2 rounded" style={{ backgroundColor: "rgba(220, 53, 69, 0.08)", borderLeft: "4px solid #dc3545" }}>
+                        <div className="d-flex align-items-start justify-content-between mb-2">
+                          <div>
+                            <strong>{item.category}</strong>
+                            <div className="text-muted small">{item.description}</div>
+                          </div>
+                        </div>
+
+                        <div className="row g-2 small">
+                          <div className="col-6">
+                            <div className="text-muted">Monthly spend</div>
+                            <div className="h6 mb-0 text-warning">£{item.monthlyAvg.toFixed(2)}</div>
+                          </div>
+                          <div className="col-6">
+                            <div className="text-muted">Annual potential</div>
+                            <div className="h6 mb-0 text-danger">£{item.yearlyPotential.toFixed(2)}</div>
+                          </div>
+                          <div className="col-12">
+                            <div className="text-muted">Transactions</div>
+                            <div className="text-secondary small">{item.count} transaction{item.count !== 1 ? "s" : ""} in last {monthsBack} months</div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="mt-3 p-3 rounded" style={{ backgroundColor: "rgba(40, 167, 69, 0.08)", borderLeft: "4px solid #28a745" }}>
+                    <div className="text-muted small mb-1">Total potential savings (yearly)</div>
+                    <div className="h5 mb-0 text-success">
+                      £{potentialSavings.reduce((sum, item) => sum + item.yearlyPotential, 0).toFixed(2)}
+                    </div>
+                    <small className="text-muted d-block">If you eliminated these discretionary categories</small>
                   </div>
                 </div>
               )}
