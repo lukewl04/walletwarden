@@ -110,8 +110,8 @@ export default function WardenInsights() {
   };
 
   // Sync bank transactions
-  const handleSyncBank = async (silent = false) => {
-    if (!bankStatus?.connected || bankSyncing) return;
+  const handleSyncBank = async (silent = false, force = false) => {
+    if ((!bankStatus?.connected && !force) || bankSyncing) return;
 
     setBankSyncing(true);
     if (!silent) setLastSyncMessage("");
@@ -213,37 +213,44 @@ export default function WardenInsights() {
 
     // OAuth callback param handling
     const params = new URLSearchParams(window.location.search);
-    if (params.get("bankConnected")) {
-      autoSyncHasRun.current = false;
-      setBankStatus({ connected: true });
+        if (params.get("bankConnected")) {
+      (async () => {
+        // Prevent the other effect from also auto-syncing
+        autoSyncHasRun.current = true;
 
-      setLastSyncMessage("Bank connected! Syncing transactions…");
-      refreshTransactions();
-      fetchBankBalance();
+        setBankStatus({ connected: true });
+        setLastSyncMessage("Bank connected! Getting balance…");
 
-      let attempts = 0;
-      const maxAttempts = 8;
-      const interval = setInterval(async () => {
-        attempts += 1;
-        await refreshTransactions();
-        await fetchBankBalance();
+        //  Kick off balance + transactions immediately (don’t wait for sync)
+        // These read from DB (which quickSyncLatest already populated)
+        const p1 = fetchBankBalance();
+        const p2 = refreshTransactions();
 
-        if (attempts >= maxAttempts) {
-          clearInterval(interval);
-          setLastSyncMessage(
-            "Bank connected. If transactions don't appear, hit 🔄."
-          );
-        }
-      }, 2000);
+        // Now start sync in the background (so UI doesn't hang on "Loading…")
+        setLastSyncMessage("Bank connected ✅ Syncing in background…");
 
-      window.history.replaceState({}, "", window.location.pathname);
+        // Don’t await this before showing balance
+        handleSyncBank(true, true).catch((err) => {
+          console.error("Post-connect sync failed:", err);
+          setLastSyncMessage("Bank connected ✅ (background sync failed — hit 🔄 to retry)");
+        });
+
+        // Ensure initial UI is populated ASAP
+        await Promise.allSettled([p1, p2]);
+
+        // Clean URL
+        window.history.replaceState({}, "", window.location.pathname);
+      })();
 
       return () => {
-        clearInterval(interval);
         clearTimeout(timeoutId);
         controller.abort();
       };
     }
+
+
+
+
 
     // Otherwise: try /balance first, then /status
     (async () => {
