@@ -72,13 +72,10 @@ router.get("/callback", requireConfig, async (req, res) => {
     if (error) {
       console.error("TrueLayer OAuth error:", error, error_description);
       return res.redirect(
-        `${config.FRONTEND_URL}/wardeninsights?bankError=${encodeURIComponent(
-          error
-        )}`
+        `${config.FRONTEND_URL}/wardeninsights?bankError=${encodeURIComponent(error)}`
       );
     }
 
-    // Validate state and get userId
     if (!state) {
       return res.redirect(
         `${config.FRONTEND_URL}/wardeninsights?bankError=missing_state`
@@ -104,7 +101,7 @@ router.get("/callback", requireConfig, async (req, res) => {
     // Store connection tokens (encrypted refresh token etc.)
     await service.storeConnection(prisma, userId, tokenResponse);
 
-    // QUICK sync first (await) so UI has balance + latest 30 immediately
+    // Quick sync so cached DB has balance + latest 30 before redirect
     try {
       console.log("[TrueLayer] Quick sync (latest 30) starting...");
       await service.quickSyncLatest(prisma, userId, { limit: 30, daysBack: 60 });
@@ -115,19 +112,13 @@ router.get("/callback", requireConfig, async (req, res) => {
     }
 
     // Redirect immediately so the browser doesn't sit on /callback
-    res.redirect(
-      `${config.FRONTEND_URL}/wardeninsights?bankConnected=1&syncing=1`
-    );
+    res.redirect(`${config.FRONTEND_URL}/wardeninsights?bankConnected=1&syncing=1`);
 
     // Full sync in background (don’t await)
     (async () => {
       console.log("[TrueLayer] Background full sync starting...");
       try {
-        const syncResult = await service.syncAccountsAndTransactions(
-          prisma,
-          userId,
-          {}
-        );
+        const syncResult = await service.syncAccountsAndTransactions(prisma, userId, {});
         console.log(
           `[TrueLayer] Background full sync complete: ${syncResult.inserted} transactions`
         );
@@ -136,7 +127,7 @@ router.get("/callback", requireConfig, async (req, res) => {
       }
     })();
 
-    return; // prevent any further response attempts
+    return;
   } catch (err) {
     console.error("Error in TrueLayer callback:", err);
     return res.redirect(
@@ -144,6 +135,7 @@ router.get("/callback", requireConfig, async (req, res) => {
     );
   }
 });
+
 
 /**
  * POST /api/banks/truelayer/sync
@@ -300,6 +292,54 @@ router.get("/balance", async (req, res) => {
       .json({ error: "internal_error", message: err.message });
   }
 });
+
+// GET /api/banks/truelayer/balance-cached
+// returns last stored balance from DB even if TL connection is expired/disconnected
+router.get('/balance-cached', async (req, res) => {
+  try {
+    const userId = req.auth?.sub;
+    if (!userId) return res.status(401).json({ error: 'unauthorized' });
+
+    const accounts = await prisma.bankAccount.findMany({
+      where: { user_id: userId, provider: 'truelayer' },
+      orderBy: [
+        { created_at: 'desc' },
+      ],
+      select: {
+        account_name: true,
+        balance: true,
+        available_balance: true,
+        currency: true,
+        updated_at: true,
+        created_at: true,
+      },
+    });
+
+    if (!accounts.length) {
+      return res.json({ totalBalance: null, availableBalance: null, currency: 'GBP', lastSyncedAt: null });
+    }
+
+    // Pick “main” account
+    const main =
+      accounts.find(a => !/pot|savings|saving|vault|jar/i.test(a.account_name || "")) ||
+      accounts[0];
+
+    const lastSyncedAt = main.created_at;
+
+
+    return res.json({
+      totalBalance: main.balance ?? null,
+      availableBalance: main.available_balance ?? null,
+      currency: main.currency || 'GBP',
+      lastSyncedAt,
+      source: 'cached_db',
+    });
+  } catch (err) {
+    console.error('Error fetching cached balance:', err);
+    return res.status(500).json({ error: 'internal_error', message: err.message });
+  }
+});
+
 
 /**
  * DELETE /api/banks/truelayer/disconnect

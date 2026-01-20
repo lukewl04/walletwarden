@@ -47,6 +47,10 @@ export default function WardenInsights() {
   const [displayBalance, setDisplayBalance] = useState(null);
   const [bankBalance, setBankBalance] = useState(null);
   const [balanceLocked, setBalanceLocked] = useState(false);
+  // Cached balance (last stored in DB, even if disconnected)
+  const [cachedBalance, setCachedBalance] = useState(null); // { totalBalance, availableBalance, currency, lastSyncedAt }
+  const [cachedBalanceLoading, setCachedBalanceLoading] = useState(true);
+
 
   const autoSyncHasRun = React.useRef(false);
 
@@ -54,9 +58,35 @@ export default function WardenInsights() {
   const getAuthHeaders = () => ({ Authorization: `Bearer ${getUserToken()}` });
 
   // Fetch actual bank balance
-  const fetchBankBalance = async () => {
+    const fetchBankBalance = async () => {
+      try {
+        const res = await fetch(`${API_URL}/banks/truelayer/balance`, {
+          headers: getAuthHeaders(),
+          cache: "no-store",
+        });
+        if (!res.ok) return;
+
+        const data = await res.json();
+        const tb = data?.totalBalance;
+        if (typeof tb !== "number" || !Number.isFinite(tb)) return;
+
+        // Optional jitter ignore (do this BEFORE setting state)
+        const prev = displayBalance?.totalBalance;
+        if (typeof prev === "number" && Math.abs(prev - tb) < 0.01) return;
+
+        // Live wins
+        setDisplayBalance(data);
+        setBankBalance(data);
+        setBalanceLocked(true);
+      } catch (err) {
+        console.error("Failed to fetch bank balance:", err);
+      }
+    };
+
+    const fetchCachedBalance = async () => {
+    setCachedBalanceLoading(true);
     try {
-      const res = await fetch(`${API_URL}/banks/truelayer/balance`, {
+      const res = await fetch(`${API_URL}/banks/truelayer/balance-cached`, {
         headers: getAuthHeaders(),
         cache: "no-store",
       });
@@ -64,25 +94,32 @@ export default function WardenInsights() {
 
       const data = await res.json();
       const tb = data?.totalBalance;
-      if (typeof tb !== "number" || !Number.isFinite(tb)) return;
 
-      if (!balanceLocked) {
-        setBalanceLocked(true);
-        setDisplayBalance(data);
-        setBankBalance(data);
-        return;
+      if (typeof tb === "number" && Number.isFinite(tb)) {
+        setCachedBalance(data);
+
+        // if we don't already have a displayed balance, use cached immediately
+        if (!balanceLocked) {
+          setDisplayBalance({
+            totalBalance: data.totalBalance,
+            availableBalance: data.availableBalance,
+            currency: data.currency,
+          });
+          setBankBalance({
+            totalBalance: data.totalBalance,
+            availableBalance: data.availableBalance,
+            currency: data.currency,
+          });
+          setBalanceLocked(true);
+        }
       }
-
-      // Optional jitter ignore
-      const prev = displayBalance?.totalBalance;
-      if (typeof prev === "number" && Math.abs(prev - tb) < 0.01) return;
-
-      setDisplayBalance(data);
-      setBankBalance(data);
-    } catch (err) {
-      console.error("Failed to fetch bank balance:", err);
+    } catch (e) {
+      console.error("Failed to fetch cached balance:", e);
+    } finally {
+      setCachedBalanceLoading(false);
     }
   };
+
 
   // Authoritative: if /balance returns a real number, user is connected.
   const resolveConnectionByBalance = async () => {
@@ -176,10 +213,9 @@ export default function WardenInsights() {
     setBankLoading(false);
     setBankStatus(null);
 
-    // Reset stale balance on mount (prevents flash)
-    setDisplayBalance(null);
-    setBankBalance(null);
     setBalanceLocked(false);
+    fetchCachedBalance(); // show last known bank balance ASAP
+
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 10000);
@@ -223,6 +259,7 @@ export default function WardenInsights() {
 
         //  Kick off balance + transactions immediately (don’t wait for sync)
         // These read from DB (which quickSyncLatest already populated)
+        const p0 = fetchCachedBalance();
         const p1 = fetchBankBalance();
         const p2 = refreshTransactions();
 
@@ -236,7 +273,8 @@ export default function WardenInsights() {
         });
 
         // Ensure initial UI is populated ASAP
-        await Promise.allSettled([p1, p2]);
+        await Promise.allSettled([p0, p1, p2]);
+
 
         // Clean URL
         window.history.replaceState({}, "", window.location.pathname);
@@ -313,19 +351,30 @@ export default function WardenInsights() {
 
   const isBankConnected = !!bankStatus?.connected;
 
-  // ✅ Critical: don't show globalTotals while status is unknown (prevents £1.5k flash)
+  const hasLiveBankNumber =
+    Number.isFinite(displayBalance?.totalBalance) ||
+    Number.isFinite(bankBalance?.totalBalance);
+
+  const hasCachedBankNumber = Number.isFinite(cachedBalance?.totalBalance);
+
+  // Show loading only if we have nothing at all yet:
+  const hasAnyBankNumber = hasLiveBankNumber || hasCachedBankNumber;
+
+// Loading if:
+// - we don't have any bank number yet
+// - and bank status is still unknown (so we don't know if we should expect bank data)
+// - and cached call is still in-flight
   const balanceIsLoading =
-    bankStatusLoading ||
-    (isBankConnected &&
-      !Number.isFinite(displayBalance?.totalBalance) &&
-      !Number.isFinite(bankBalance?.totalBalance));
+    !hasAnyBankNumber && (bankStatusLoading || cachedBalanceLoading);
+
 
   const balanceValue =
-    bankStatusLoading
-      ? null
-      : isBankConnected
-      ? displayBalance?.totalBalance ?? bankBalance?.totalBalance
+    hasLiveBankNumber
+      ? (displayBalance?.totalBalance ?? bankBalance?.totalBalance)
+      : hasCachedBankNumber
+      ? cachedBalance.totalBalance
       : globalTotals?.balance ?? 0;
+
 
   const isNegative = !balanceIsLoading && Number(balanceValue ?? 0) < 0;
 
@@ -742,12 +791,24 @@ export default function WardenInsights() {
               <div className="d-flex align-items-center justify-content-between gap-3">
                 <div>
                   <div className="text-muted small">
-                    {isBankConnected ? "Bank Balance" : "Current Balance"}
-                    {isBankConnected && !balanceIsLoading && (
+                    {isBankConnected
+                      ? "Bank Balance"
+                      : hasCachedBankNumber
+                      ? "Last synced bank balance"
+                      : "Current Balance"}
+
+                    {isBankConnected && hasLiveBankNumber && !balanceIsLoading && (
                       <span className="badge bg-info ms-2" style={{ fontSize: "0.65rem" }}>
                         Live
                       </span>
                     )}
+
+                    {!isBankConnected && hasCachedBankNumber && (
+                      <span className="badge bg-secondary ms-2" style={{ fontSize: "0.65rem" }}>
+                        Cached
+                      </span>
+                    )}
+
                   </div>
 
                   <div className={`display-6 mb-0 ${balanceIsLoading ? "text-muted" : isNegative ? "text-danger" : "text-success"}`}>
