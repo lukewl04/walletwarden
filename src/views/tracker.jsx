@@ -63,7 +63,9 @@ const sanitizeIncome = (entry) => {
 };
 
 export default function Tracker() {
-  const { addTransaction, bulkAddTransactions, transactions: globalTransactions = [] } = useTransactions?.() ?? {};
+  const { addTransaction, bulkAddTransactions, transactions: globalTransactions = [] } =
+    useTransactions?.() ?? {};
+
   const [savedSplits, setSavedSplits] = useState([]);
   const [selectedSplit, setSelectedSplit] = useState(null);
   const [viewMode, setViewMode] = useState("weekly"); // "weekly", "monthly", or "yearly"
@@ -92,6 +94,7 @@ export default function Tracker() {
     frequency: "monthly",
     use_expected_when_no_actual: true,
   });
+
   const splitIncomesLoaded = useRef(false);
   const categoryRulesLoaded = useRef(false);
   const incomeSettingsLoaded = useRef(false);
@@ -102,16 +105,12 @@ export default function Tracker() {
   // Restore selected split from localStorage on mount
   useEffect(() => {
     const saved = localStorage.getItem("walletwardenSelectedSplit");
-    if (saved && !selectedSplit) {
-      setSelectedSplit(saved);
-    }
+    if (saved && !selectedSplit) setSelectedSplit(saved);
   }, []);
 
   // Persist selected split to localStorage
   useEffect(() => {
-    if (selectedSplit) {
-      localStorage.setItem("walletwardenSelectedSplit", selectedSplit);
-    }
+    if (selectedSplit) localStorage.setItem("walletwardenSelectedSplit", selectedSplit);
   }, [selectedSplit]);
 
   const selectedSplitData = useMemo(
@@ -131,7 +130,7 @@ export default function Tracker() {
     }
   }, []);
 
-  // Persist category rules (only after initial load to avoid overwriting)
+  // Persist category rules
   useEffect(() => {
     if (!categoryRulesLoaded.current) return;
     try {
@@ -141,10 +140,8 @@ export default function Tracker() {
     }
   }, [categoryRules]);
 
-  // Load persisted split incomes from localStorage (backup only, backend is primary)
+  // Load persisted split incomes from localStorage (backup only)
   useEffect(() => {
-    // Only load from localStorage if backend hasn't loaded yet
-    // Backend data will override this
     if (incomesLoadedFromBackend.current) {
       splitIncomesLoaded.current = true;
       return;
@@ -168,14 +165,13 @@ export default function Tracker() {
   // Persist split incomes to localStorage and sync to backend
   useEffect(() => {
     if (!splitIncomesLoaded.current) return;
+
     try {
       localStorage.setItem("walletwardenSplitIncomes", JSON.stringify(splitIncomes));
     } catch (e) {
       console.warn("Failed to save split incomes", e);
     }
 
-    // Also sync split incomes to backend as purchases (they're stored in purchases table)
-    // Only sync after we've loaded from backend to prevent overwriting
     if (!isLoading && incomesLoadedFromBackend.current && splitIncomes.length > 0) {
       const syncIncomesToBackend = async () => {
         try {
@@ -198,7 +194,7 @@ export default function Tracker() {
               }),
             });
           }
-          console.log('[Tracker] Synced', splitIncomes.length, 'incomes to backend');
+          console.log("[Tracker] Synced", splitIncomes.length, "incomes to backend");
         } catch (err) {
           console.error("Error syncing incomes to backend:", err);
         }
@@ -207,10 +203,10 @@ export default function Tracker() {
     }
   }, [splitIncomes, isLoading]);
 
+  // Load from backend
   useEffect(() => {
     const loadDataFromBackend = async () => {
       try {
-        // Load splits from backend
         const splitsResponse = await fetch(`${API_URL}/splits`, {
           headers: { ...getAuthHeaders() },
         });
@@ -218,36 +214,29 @@ export default function Tracker() {
         let loadedSplits = [];
         if (splitsResponse.ok) {
           loadedSplits = await splitsResponse.json();
-          console.log('[Tracker] Loaded splits from backend:', loadedSplits.length);
+          console.log("[Tracker] Loaded splits from backend:", loadedSplits.length);
           setSavedSplits(loadedSplits);
-
-          // Also update localStorage
           localStorage.setItem("walletwardenSplits", JSON.stringify(loadedSplits));
 
-          // Restore selected split from localStorage or use first split
           const savedSplitId = localStorage.getItem("walletwardenSelectedSplit");
-          if (savedSplitId && loadedSplits.some(s => s.id === savedSplitId)) {
+          if (savedSplitId && loadedSplits.some((s) => s.id === savedSplitId)) {
             setSelectedSplit(savedSplitId);
           } else if (loadedSplits.length > 0 && !selectedSplit) {
             setSelectedSplit(loadedSplits[0].id);
           }
         }
-        
-        // Also check localStorage for any splits saved there
+
         const localSplits = localStorage.getItem("walletwardenSplits");
         if (localSplits) {
           const parsedLocal = JSON.parse(localSplits);
-          // Merge: add any local splits not already in loadedSplits
           const mergedSplits = [...loadedSplits];
           for (const localSplit of parsedLocal) {
-            if (!mergedSplits.some(s => s.id === localSplit.id)) {
-              mergedSplits.push(localSplit);
-            }
+            if (!mergedSplits.some((s) => s.id === localSplit.id)) mergedSplits.push(localSplit);
           }
           if (mergedSplits.length > loadedSplits.length) {
             setSavedSplits(mergedSplits);
             const savedSplitId = localStorage.getItem("walletwardenSelectedSplit");
-            if (savedSplitId && mergedSplits.some(s => s.id === savedSplitId)) {
+            if (savedSplitId && mergedSplits.some((s) => s.id === savedSplitId)) {
               setSelectedSplit(savedSplitId);
             } else if (mergedSplits.length > 0 && !selectedSplit) {
               setSelectedSplit(mergedSplits[0].id);
@@ -255,47 +244,40 @@ export default function Tracker() {
           }
         }
 
-        // Load ALL purchases (don't filter by split - we'll filter in display)
         const purchasesResponse = await fetch(`${API_URL}/purchases`, {
-          headers: {
-            ...getAuthHeaders(),
-          },
+          headers: { ...getAuthHeaders() },
         });
 
         if (purchasesResponse.ok) {
           const allPurchases = await purchasesResponse.json();
-          console.log('[Tracker] Loaded purchases from backend:', allPurchases.length, allPurchases);
-          
-          // Separate income purchases from expense purchases
-          // Income purchases have category "Income" or were saved as income type
-          const incomePurchases = allPurchases.filter(p => 
-            p.category === "Income" || p.category?.toLowerCase() === "income"
+          console.log("[Tracker] Loaded purchases from backend:", allPurchases.length, allPurchases);
+
+          const incomePurchases = allPurchases.filter(
+            (p) => p.category === "Income" || p.category?.toLowerCase() === "income"
           );
-          const expensePurchases = allPurchases.filter(p => 
-            p.category !== "Income" && p.category?.toLowerCase() !== "income"
+          const expensePurchases = allPurchases.filter(
+            (p) => p.category !== "Income" && p.category?.toLowerCase() !== "income"
           );
-          
-          console.log('[Tracker] Expense purchases:', expensePurchases.length);
-          console.log('[Tracker] Income purchases:', incomePurchases.length);
-          
-          // Mark as loaded BEFORE setting state to prevent sync from overwriting
+
           purchasesLoadedFromBackend.current = true;
           setPurchases(expensePurchases);
-          
-          // Convert income purchases to splitIncomes format and merge with localStorage
+
           if (incomePurchases.length > 0) {
-            const loadedIncomes = incomePurchases.map(p => sanitizeIncome({
-              id: p.id,
-              split_id: p.split_id,
-              transaction_id: p.transaction_id,
-              date: p.date,
-              amount: p.amount,
-              category: p.category || "Income",
-              description: p.description,
-              type: "income",
-            })).filter(Boolean);
-            
-            // Mark incomes as loaded and set state
+            const loadedIncomes = incomePurchases
+              .map((p) =>
+                sanitizeIncome({
+                  id: p.id,
+                  split_id: p.split_id,
+                  transaction_id: p.transaction_id,
+                  date: p.date,
+                  amount: p.amount,
+                  category: p.category || "Income",
+                  description: p.description,
+                  type: "income",
+                })
+              )
+              .filter(Boolean);
+
             incomesLoadedFromBackend.current = true;
             setSplitIncomes(loadedIncomes);
           } else {
@@ -306,16 +288,13 @@ export default function Tracker() {
           incomesLoadedFromBackend.current = true;
         }
 
-        // Load income settings
         const incomeSettingsResponse = await fetch(`${API_URL}/income-settings`, {
-          headers: {
-            ...getAuthHeaders(),
-          },
+          headers: { ...getAuthHeaders() },
         });
 
         if (incomeSettingsResponse.ok) {
           const allIncomeSettings = await incomeSettingsResponse.json();
-          console.log('[Tracker] Loaded income settings from backend:', allIncomeSettings.length);
+          console.log("[Tracker] Loaded income settings from backend:", allIncomeSettings.length);
           setIncomeSettings(allIncomeSettings);
           incomeSettingsLoaded.current = true;
         }
@@ -324,18 +303,15 @@ export default function Tracker() {
       } catch (err) {
         console.error("Error loading data from backend:", err);
 
-        // Fallback to localStorage on error
         const localSplits = localStorage.getItem("walletwardenSplits");
         if (localSplits) {
           const splits = JSON.parse(localSplits);
           setSavedSplits(splits);
           const savedSplitId = localStorage.getItem("walletwardenSelectedSplit");
-          if (savedSplitId && splits.some(s => s.id === savedSplitId)) {
-            setSelectedSplit(savedSplitId);
-          } else if (splits.length > 0) {
-            setSelectedSplit(splits[0].id);
-          }
+          if (savedSplitId && splits.some((s) => s.id === savedSplitId)) setSelectedSplit(savedSplitId);
+          else if (splits.length > 0) setSelectedSplit(splits[0].id);
         }
+
         dataLoadedFromBackend.current = true;
       } finally {
         setIsLoading(false);
@@ -345,22 +321,19 @@ export default function Tracker() {
     loadDataFromBackend();
   }, []);
 
-  // Filter purchases by selected split
+  // Normalize transactions (Warden Insights)
   const normalizedTransactions = useMemo(() => {
     if (!Array.isArray(globalTransactions)) return [];
     return globalTransactions.map((t) => {
       const rawType = (t?.type || "").toString().trim().toLowerCase();
       const amount = Number(t?.amount) || 0;
-
-      // Match Warden Insights logic: default to expense unless explicitly marked as income
-      // This ensures consistency between the two views
       const type = rawType === "income" ? "income" : "expense";
-
       const description = (t?.description || "").toString().trim();
       return { ...t, type, amount, description };
     });
   }, [globalTransactions]);
 
+  // Filter purchases + incomes by split
   const filteredPurchases = useMemo(() => {
     if (!selectedSplit) return [];
     return purchases.filter((p) => p.split_id === selectedSplit);
@@ -374,23 +347,23 @@ export default function Tracker() {
       .filter((i) => i.split_id === selectedSplit && (Number(i.amount) || 0) > 0);
   }, [splitIncomes, selectedSplit]);
 
-  // Only show incomes that have been explicitly synced into this split (via Import Now)
-  const incomeTransactions = useMemo(() => {
-    return filteredIncomes;
-  }, [filteredIncomes]);
+  const incomeTransactions = useMemo(() => filteredIncomes, [filteredIncomes]);
 
-  // Week navigation helpers
+  // Week helpers
   const getWeekStart = useCallback((date) => {
     const d = toLocalDate(date);
     const day = d.getDay();
-    const diff = day === 0 ? 6 : day - 1; // Monday as start of week
+    const diff = day === 0 ? 6 : day - 1; // Monday start
     return new Date(d.getFullYear(), d.getMonth(), d.getDate() - diff);
   }, []);
 
-  const getWeekEnd = useCallback((date) => {
-    const start = getWeekStart(date);
-    return new Date(start.getFullYear(), start.getMonth(), start.getDate() + 6);
-  }, [getWeekStart]);
+  const getWeekEnd = useCallback(
+    (date) => {
+      const start = getWeekStart(date);
+      return new Date(start.getFullYear(), start.getMonth(), start.getDate() + 6);
+    },
+    [getWeekStart]
+  );
 
   const weekStart = useMemo(() => getWeekStart(currentDate), [currentDate, getWeekStart]);
   const weekEnd = useMemo(() => getWeekEnd(currentDate), [currentDate, getWeekEnd]);
@@ -409,118 +382,97 @@ export default function Tracker() {
   const previousWeek = () => {
     setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate() - 7));
   };
-
   const nextWeek = () => {
     setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate() + 7));
   };
+  const goToCurrentWeek = () => setCurrentDate(new Date());
 
-  const goToCurrentWeek = () => {
-    setCurrentDate(new Date());
-  };
-
-  // Month navigation helpers
+  // Month helpers
   const getMonthStart = useCallback((date) => {
     const d = toLocalDate(date);
     return new Date(d.getFullYear(), d.getMonth(), 1);
   }, []);
-
   const getMonthEnd = useCallback((date) => {
     const d = toLocalDate(date);
     return new Date(d.getFullYear(), d.getMonth() + 1, 0);
   }, []);
-
   const monthStart = useMemo(() => getMonthStart(currentDate), [currentDate, getMonthStart]);
   const monthEnd = useMemo(() => getMonthEnd(currentDate), [currentDate, getMonthEnd]);
 
-  const previousMonth = () => {
-    setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
-  };
+  const previousMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
+  const nextMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1));
+  const goToCurrentMonth = () => setCurrentDate(new Date());
 
-  const nextMonth = () => {
-    setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1));
-  };
-
-  const goToCurrentMonth = () => {
-    setCurrentDate(new Date());
-  };
-
-  // Year navigation helpers
+  // Year helpers
   const getYearStart = useCallback((date) => {
     const d = toLocalDate(date);
     return new Date(d.getFullYear(), 0, 1);
   }, []);
-
   const getYearEnd = useCallback((date) => {
     const d = toLocalDate(date);
     return new Date(d.getFullYear(), 11, 31);
   }, []);
-
   const yearStart = useMemo(() => getYearStart(currentDate), [currentDate, getYearStart]);
   const yearEnd = useMemo(() => getYearEnd(currentDate), [currentDate, getYearEnd]);
 
-  const previousYear = () => {
-    setCurrentDate(new Date(currentDate.getFullYear() - 1, 0, 1));
-  };
+  const previousYear = () => setCurrentDate(new Date(currentDate.getFullYear() - 1, 0, 1));
+  const nextYear = () => setCurrentDate(new Date(currentDate.getFullYear() + 1, 0, 1));
+  const goToCurrentYear = () => setCurrentDate(new Date());
 
-  const nextYear = () => {
-    setCurrentDate(new Date(currentDate.getFullYear() + 1, 0, 1));
-  };
-
-  const goToCurrentYear = () => {
-    setCurrentDate(new Date());
-  };
-
-  // Get weeks in current month for monthly grid view
+  // Weeks in month (for monthly view row labels)
   const monthWeeks = useMemo(() => {
     const weeks = [];
     const firstDay = new Date(monthStart.getFullYear(), monthStart.getMonth(), 1);
     const lastDay = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0);
-    
+
     let currentWeekStart = getWeekStart(firstDay);
     let weekNum = 1;
-    
+
     while (currentWeekStart <= lastDay) {
-      const weekEnd = new Date(currentWeekStart.getFullYear(), currentWeekStart.getMonth(), currentWeekStart.getDate() + 6);
+      const wEnd = new Date(
+        currentWeekStart.getFullYear(),
+        currentWeekStart.getMonth(),
+        currentWeekStart.getDate() + 6
+      );
       weeks.push({
         num: weekNum,
         start: new Date(currentWeekStart),
-        end: weekEnd,
-        label: `Week ${weekNum}`
+        end: wEnd,
+        label: `Week ${weekNum}`,
       });
-      currentWeekStart = new Date(currentWeekStart.getFullYear(), currentWeekStart.getMonth(), currentWeekStart.getDate() + 7);
+      currentWeekStart = new Date(
+        currentWeekStart.getFullYear(),
+        currentWeekStart.getMonth(),
+        currentWeekStart.getDate() + 7
+      );
       weekNum++;
     }
     return weeks;
   }, [monthStart, getWeekStart]);
 
-  // Month names for yearly view
   const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
+  // Period bounds based on split frequency (budgeting)
   const periodBounds = useMemo(() => {
     if (!selectedSplitData) return { start: null, end: null, frequency: null };
-
     const freq = selectedSplitData.frequency;
     const base = toLocalDate(currentDate);
 
     if (freq === "weekly") {
-      // Use getWeekStart for consistency (Monday start)
       const start = getWeekStart(base);
       const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 6);
       return { start, end, frequency: freq };
     }
-
     if (freq === "monthly") {
       const start = new Date(base.getFullYear(), base.getMonth(), 1);
       const end = new Date(base.getFullYear(), base.getMonth() + 1, 0);
       return { start, end, frequency: freq };
     }
-
     if (freq === "yearly") {
       const start = new Date(base.getFullYear(), 0, 1);
       const end = new Date(base.getFullYear(), 11, 31);
       return { start, end, frequency: freq };
     }
-
     return { start: null, end: null, frequency: freq };
   }, [selectedSplitData, currentDate, getWeekStart]);
 
@@ -533,12 +485,7 @@ export default function Tracker() {
     [periodBounds]
   );
 
-  const getPeriodPurchases = useCallback(() => {
-    if (!selectedSplitData) return filteredPurchases;
-    return filteredPurchases.filter((p) => isInCurrentPeriod(p.date));
-  }, [filteredPurchases, isInCurrentPeriod, selectedSplitData]);
-
-  // Income filtered by week (for display in Income card)
+  // Income filtered by viewMode (for Income card)
   const weekIncomeTransactions = useMemo(() => {
     if (!selectedSplit) return [];
     return incomeTransactions.filter((tx) => {
@@ -547,7 +494,6 @@ export default function Tracker() {
     });
   }, [incomeTransactions, selectedSplit, weekStart, weekEnd]);
 
-  // Income filtered by month
   const monthIncomeTransactions = useMemo(() => {
     if (!selectedSplit) return [];
     return incomeTransactions.filter((tx) => {
@@ -556,7 +502,6 @@ export default function Tracker() {
     });
   }, [incomeTransactions, selectedSplit, monthStart, monthEnd]);
 
-  // Income filtered by year
   const yearIncomeTransactions = useMemo(() => {
     if (!selectedSplit) return [];
     return incomeTransactions.filter((tx) => {
@@ -565,24 +510,21 @@ export default function Tracker() {
     });
   }, [incomeTransactions, selectedSplit, yearStart, yearEnd]);
 
-  // Current view income (based on viewMode)
   const viewIncomeTransactions = useMemo(() => {
     if (viewMode === "yearly") return yearIncomeTransactions;
     if (viewMode === "monthly") return monthIncomeTransactions;
     return weekIncomeTransactions;
   }, [viewMode, yearIncomeTransactions, monthIncomeTransactions, weekIncomeTransactions]);
 
-  // Income filtered by split's period (weekly/monthly/yearly) for budget calculations
+  // Income filtered by split period (weekly/monthly/yearly) for budget calculations
   const periodIncomeTransactions = useMemo(() => {
     if (!selectedSplit) return [];
-    // Use periodBounds to filter by split frequency, not just current week
     if (periodBounds.start && periodBounds.end) {
       return incomeTransactions.filter((tx) => {
         const txDate = toLocalDate(tx.date);
         return txDate >= periodBounds.start && txDate <= periodBounds.end;
       });
     }
-    // Fallback: return all income for the split
     return incomeTransactions;
   }, [incomeTransactions, selectedSplit, periodBounds]);
 
@@ -590,19 +532,13 @@ export default function Tracker() {
     return periodIncomeTransactions.reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0);
   }, [periodIncomeTransactions]);
 
-  // Get income settings for the selected split
   const selectedIncomeSettings = useMemo(() => {
     if (!selectedSplit) return null;
     return incomeSettings.find((s) => s.split_id === selectedSplit) || null;
   }, [incomeSettings, selectedSplit]);
 
-  // Budget income total: use actual income if available, otherwise fallback to expected income
   const budgetIncomeTotal = useMemo(() => {
-    // If we have actual income in the period, use it
-    if (periodIncomeTotal > 0) {
-      return periodIncomeTotal;
-    }
-    // Otherwise, check if we should use expected income
+    if (periodIncomeTotal > 0) return periodIncomeTotal;
     if (
       selectedIncomeSettings &&
       selectedIncomeSettings.use_expected_when_no_actual &&
@@ -613,7 +549,6 @@ export default function Tracker() {
     return 0;
   }, [periodIncomeTotal, selectedIncomeSettings]);
 
-  // Check if we're using expected income (for UI display)
   const isUsingExpectedIncome = useMemo(() => {
     return (
       periodIncomeTotal === 0 &&
@@ -623,56 +558,32 @@ export default function Tracker() {
     );
   }, [periodIncomeTotal, selectedIncomeSettings]);
 
-  // Count unlinked transactions from Warden Insights
+  // Unlinked count
   useEffect(() => {
-    // Wait until all data is loaded before calculating unlinked count
     if (!selectedSplit || !normalizedTransactions || isLoading || !purchasesLoadedFromBackend.current) {
       setUnlinkedTransactionsCount(0);
       return;
     }
 
-    console.log('[Tracker] Calculating unlinked count...');
-    console.log('[Tracker] Normalized transactions:', normalizedTransactions.length);
-    console.log('[Tracker] All purchases:', purchases.length);
-
-    // Get all purchase IDs that are already linked to ANY split (use all purchases, not filtered)
-    const linkedTransactionIds = new Set(
-      purchases.map(p => p.transaction_id).filter(Boolean)
-    );
-
-    // Also include split incomes that are linked
-    splitIncomes.forEach(i => {
+    const linkedTransactionIds = new Set(purchases.map((p) => p.transaction_id).filter(Boolean));
+    splitIncomes.forEach((i) => {
       if (i.transaction_id) linkedTransactionIds.add(i.transaction_id);
     });
 
-    console.log('[Tracker] Linked transaction IDs:', linkedTransactionIds.size);
-
-    // Count expense transactions that aren't linked to any purchase (use normalized type)
-    const unlinked = normalizedTransactions.filter(t => 
-      t.type === "expense" && !linkedTransactionIds.has(t.id)
-    );
-
-    console.log('[Tracker] Unlinked expense transactions:', unlinked.length);
+    const unlinked = normalizedTransactions.filter((t) => t.type === "expense" && !linkedTransactionIds.has(t.id));
     setUnlinkedTransactionsCount(unlinked.length);
   }, [normalizedTransactions, purchases, splitIncomes, selectedSplit, isLoading]);
 
-
-
-  // Sync splits to backend (only after initial load)
+  // Sync splits
   useEffect(() => {
-    if (isLoading) return; // Don't sync during initial load
-    
+    if (isLoading) return;
     const syncSplitsToBackend = async () => {
       if (savedSplits.length === 0) return;
-      
       try {
         for (const split of savedSplits) {
           await fetch(`${API_URL}/splits`, {
             method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              ...getAuthHeaders(),
-            },
+            headers: { "Content-Type": "application/json", ...getAuthHeaders() },
             body: JSON.stringify({
               id: split.id,
               name: split.name,
@@ -685,28 +596,20 @@ export default function Tracker() {
         console.error("Error syncing splits:", err);
       }
     };
-
     syncSplitsToBackend();
   }, [savedSplits, isLoading]);
 
-  // Sync purchases to backend (only after initial load from backend is complete)
+  // Sync purchases
   useEffect(() => {
-    // Don't sync until we've loaded from backend first
     if (isLoading || !purchasesLoadedFromBackend.current) return;
-    
     const syncPurchasesToBackend = async () => {
       if (purchases.length === 0) return;
-
       try {
-        // Sync ALL purchases, not just filtered by selectedSplit
         for (const purchase of purchases) {
           if (!purchase.split_id) continue;
           await fetch(`${API_URL}/purchases`, {
             method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              ...getAuthHeaders(),
-            },
+            headers: { "Content-Type": "application/json", ...getAuthHeaders() },
             body: JSON.stringify({
               id: purchase.id,
               split_id: purchase.split_id,
@@ -718,27 +621,21 @@ export default function Tracker() {
             }),
           });
         }
-        console.log('[Tracker] Synced', purchases.length, 'purchases to backend');
+        console.log("[Tracker] Synced", purchases.length, "purchases to backend");
       } catch (err) {
         console.error("Error syncing purchases:", err);
       }
     };
-
     syncPurchasesToBackend();
   }, [purchases, isLoading]);
 
-  // Note: Purchases are loaded in the main loadDataFromBackend effect
-  // They are stored unfiltered and filtered in display via filteredPurchases memo
-
-
-
+  // Add purchase
   const handleAddPurchase = () => {
     if (!newPurchase.amount || !newPurchase.category) {
       alert("Please fill in amount and category");
       return;
     }
 
-    // Create a linked transaction id so this purchase won't appear as unlinked
     const transactionId = generateId();
     const purchaseDate = toDateOnlyString(newPurchase.date);
     const purchase = {
@@ -752,7 +649,6 @@ export default function Tracker() {
 
     setPurchases([...purchases, purchase]);
 
-    // Add matching transaction with the same id
     if (typeof addTransaction === "function") {
       addTransaction({
         id: transactionId,
@@ -779,9 +675,7 @@ export default function Tracker() {
     try {
       const response = await fetch(`${API_URL}/purchases/${purchaseId}`, {
         method: "DELETE",
-        headers: {
-          ...getAuthHeaders(),
-        },
+        headers: { ...getAuthHeaders() },
       });
 
       if (response.ok) {
@@ -795,22 +689,39 @@ export default function Tracker() {
     }
   };
 
+  // Normalize a description key for matching rules
+  const normalizeDescriptionKey = (desc = "") => desc.toLowerCase().trim().replace(/\s+/g, " ");
+
+  const upsertCategoryRule = (desc, category) => {
+    if (!desc || !category) return;
+    const key = normalizeDescriptionKey(desc);
+    setCategoryRules((prev) => ({ ...prev, [key]: category }));
+  };
+
+  const handleUpdatePurchaseCategory = (purchaseId, newCategory) => {
+    if (!purchaseId || !newCategory) return;
+
+    setPurchases((prev) => prev.map((p) => (p.id === purchaseId ? { ...p, category: newCategory } : p)));
+
+    const purchase = purchases.find((p) => p.id === purchaseId);
+    if (purchase?.description) upsertCategoryRule(purchase.description, newCategory);
+
+    setEditingPurchaseId(null);
+    setSyncMessage("Category updated ✓");
+    setTimeout(() => setSyncMessage(""), 1500);
+  };
+
+  // Bulk add via upload
   const handleBulkAdd = (transactions) => {
-    // Assign stable ids to imported transactions and persist them
     let withIds = transactions || [];
-    if (Array.isArray(withIds)) {
-      withIds = withIds.map((t) => ({ ...t, id: t.id || generateId() }));
-    }
-    if (typeof bulkAddTransactions === "function") {
-      bulkAddTransactions(withIds);
-    }
-    
-    // Function to match imported category to split category
+    if (Array.isArray(withIds)) withIds = withIds.map((t) => ({ ...t, id: t.id || generateId() }));
+
+    if (typeof bulkAddTransactions === "function") bulkAddTransactions(withIds);
+
     const matchCategory = (importedCat, description = "") => {
       const ruleHit = categoryRules[normalizeDescriptionKey(description)];
       if (ruleHit) return ruleHit;
 
-      // Generic keywords organized by type - avoid overlaps between incompatible categories
       const keywordsByType = {
         food: ["tesco", "sainsbury", "asda", "morrisons", "lidl", "aldi", "waitrose", "co-op", "coop", "grocery", "supermarket", "bakery", "deli", "market", "restaurant", "cafe", "pizza", "burger", "mcdonald", "kfc", "subway", "starbucks", "costa", "pub", "bar", "meals", "food", "greggs", "pret", "leon"],
         petrol: ["bp", "shell", "esso", "tesco fuel", "sainsbury fuel", "petrol", "diesel", "fuel", "chevron"],
@@ -825,47 +736,32 @@ export default function Tracker() {
       };
 
       const searchText = (importedCat + " " + description).toLowerCase();
-      
-      // Try exact match first on imported category
+
       if (importedCat) {
         const importedLower = importedCat.toLowerCase();
-        const exactMatch = selectedSplitData?.categories.find(
-          c => c.name.toLowerCase() === importedLower
-        );
-        if (exactMatch) {
-          return exactMatch.name;
-        }
+        const exactMatch = selectedSplitData?.categories.find((c) => c.name.toLowerCase() === importedLower);
+        if (exactMatch) return exactMatch.name;
       }
-      
-      // For each category in the split, try to match keywords
+
       for (const category of selectedSplitData?.categories || []) {
         const categoryLower = category.name.toLowerCase();
-        
-        // Get keywords for this category name
+
         const directKeywords = keywordsByType[categoryLower];
-        if (directKeywords && directKeywords.some(kw => searchText.includes(kw))) {
-          return category.name;
-        }
-        
-        // Then try partial match on keyword type names
+        if (directKeywords && directKeywords.some((kw) => searchText.includes(kw))) return category.name;
+
         for (const [typeKey, keywords] of Object.entries(keywordsByType)) {
           if (categoryLower.includes(typeKey) || typeKey.includes(categoryLower)) {
-            if (keywords.some(kw => searchText.includes(kw))) {
-              return category.name;
-            }
+            if (keywords.some((kw) => searchText.includes(kw))) return category.name;
           }
         }
       }
-      
-      // Default to first category or Other
-      const defaultCat = selectedSplitData?.categories[0]?.name || "Other";
-      return defaultCat;
+
+      return selectedSplitData?.categories[0]?.name || "Other";
     };
 
-    // Convert transactions to purchases with split_id (use absolute value since expenses are negative)
     const newPurchases = withIds
-      .filter(t => t.type === "expense")
-      .map(t => {
+      .filter((t) => t.type === "expense")
+      .map((t) => {
         const matched = matchCategory(t.category, t.description);
         return {
           id: crypto.randomUUID(),
@@ -879,20 +775,19 @@ export default function Tracker() {
       });
 
     if (newPurchases.length > 0) {
-      setPurchases(prev => [...prev, ...newPurchases]);
-      
-      // Automatically navigate to the period of the most recent uploaded transaction
+      setPurchases((prev) => [...prev, ...newPurchases]);
+
       const mostRecentDate = newPurchases.reduce((latest, p) => {
         const pDate = toLocalDate(p.date);
         return pDate > latest ? pDate : latest;
       }, toLocalDate(newPurchases[0].date));
-      
+
       setCurrentDate(mostRecentDate);
-      
+
       setSyncMessage(`Added ${newPurchases.length} purchases from upload ✓ (viewing ${mostRecentDate.toLocaleDateString()})`);
       setTimeout(() => setSyncMessage(""), 3000);
     }
-    
+
     setShowImportModal(false);
   };
 
@@ -906,24 +801,17 @@ export default function Tracker() {
       return;
     }
 
-    // Get all purchase IDs that are already linked (expenses)
-    const linkedTransactionIds = new Set(
-      purchases.map(p => p.transaction_id).filter(Boolean)
-    );
-
-    // Get all income IDs already linked to this split
+    const linkedTransactionIds = new Set(purchases.map((p) => p.transaction_id).filter(Boolean));
     const linkedIncomeIds = new Set(
-      splitIncomes.filter((i) => i.split_id === selectedSplit).map(i => i.transaction_id).filter(Boolean)
+      splitIncomes.filter((i) => i.split_id === selectedSplit).map((i) => i.transaction_id).filter(Boolean)
     );
 
-    // Filter unlinked expense transactions
-    const unlinkedTransactions = normalizedTransactions.filter(t => 
-      t.type === "expense" && !linkedTransactionIds.has(t.id)
+    const unlinkedTransactions = normalizedTransactions.filter(
+      (t) => t.type === "expense" && !linkedTransactionIds.has(t.id)
     );
 
-    // Filter unlinked income transactions (positive only)
-    const unlinkedIncomeTx = normalizedTransactions.filter(t => 
-      t.type === "income" && (Number(t.amount) || 0) > 0 && !linkedIncomeIds.has(t.id)
+    const unlinkedIncomeTx = normalizedTransactions.filter(
+      (t) => t.type === "income" && (Number(t.amount) || 0) > 0 && !linkedIncomeIds.has(t.id)
     );
 
     if (unlinkedTransactions.length === 0 && unlinkedIncomeTx.length === 0) {
@@ -932,7 +820,6 @@ export default function Tracker() {
       return;
     }
 
-    // Deduplicate by transaction id in case the source list contains duplicates
     const uniqueUnlinked = [];
     const seenIds = new Set();
     for (const tx of unlinkedTransactions) {
@@ -951,7 +838,6 @@ export default function Tracker() {
       uniqueUnlinkedIncome.push(tx);
     }
 
-    // Use the same matching logic as handleBulkAdd
     const matchCategory = (importedCat, description = "") => {
       const ruleHit = categoryRules[normalizeDescriptionKey(description)];
       if (ruleHit) return ruleHit;
@@ -970,41 +856,35 @@ export default function Tracker() {
       };
 
       const searchText = (importedCat + " " + description).toLowerCase();
-      
+
       if (importedCat) {
         const importedLower = importedCat.toLowerCase();
-        const exactMatch = selectedSplitData?.categories.find(
-          c => c.name.toLowerCase() === importedLower
-        );
+        const exactMatch = selectedSplitData?.categories.find((c) => c.name.toLowerCase() === importedLower);
         if (exactMatch) return exactMatch.name;
       }
-      
+
       for (const category of selectedSplitData?.categories || []) {
         const categoryLower = category.name.toLowerCase();
+
         const directKeywords = keywordsByType[categoryLower];
-        if (directKeywords && directKeywords.some(kw => searchText.includes(kw))) {
-          return category.name;
-        }
-        
+        if (directKeywords && directKeywords.some((kw) => searchText.includes(kw))) return category.name;
+
         for (const [typeKey, keywords] of Object.entries(keywordsByType)) {
           if (categoryLower.includes(typeKey) || typeKey.includes(categoryLower)) {
-            if (keywords.some(kw => searchText.includes(kw))) {
-              return category.name;
-            }
+            if (keywords.some((kw) => searchText.includes(kw))) return category.name;
           }
         }
       }
-      
+
       return selectedSplitData?.categories[0]?.name || "Other";
     };
 
-    // Convert unlinked transactions to purchases (use absolute value since expenses are negative)
-    const newPurchases = uniqueUnlinked.map(t => {
+    const newPurchases = uniqueUnlinked.map((t) => {
       const matched = matchCategory(t.category, t.description);
       return {
         id: crypto.randomUUID(),
         split_id: selectedSplit,
-        transaction_id: t.id, // Link to the global transaction
+        transaction_id: t.id,
         date: toDateOnlyString(t.date),
         amount: Math.abs(Number(t.amount) || 0),
         category: matched,
@@ -1012,8 +892,7 @@ export default function Tracker() {
       };
     });
 
-    // Convert unlinked income transactions to split-bound incomes
-    const newIncomes = uniqueUnlinkedIncome.map(t => ({
+    const newIncomes = uniqueUnlinkedIncome.map((t) => ({
       id: crypto.randomUUID(),
       split_id: selectedSplit,
       transaction_id: t.id,
@@ -1024,35 +903,27 @@ export default function Tracker() {
       type: "income",
     }));
 
-    // Save new purchases to backend immediately
     if (newPurchases.length > 0) {
       for (const purchase of newPurchases) {
         try {
           await fetch(`${API_URL}/purchases`, {
             method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              ...getAuthHeaders(),
-            },
+            headers: { "Content-Type": "application/json", ...getAuthHeaders() },
             body: JSON.stringify(purchase),
           });
         } catch (err) {
           console.error("Error saving purchase to backend:", err);
         }
       }
-      setPurchases(prev => [...prev, ...newPurchases]);
+      setPurchases((prev) => [...prev, ...newPurchases]);
     }
 
-    // Save new incomes to backend immediately
     if (newIncomes.length > 0) {
       for (const income of newIncomes) {
         try {
           await fetch(`${API_URL}/purchases`, {
             method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              ...getAuthHeaders(),
-            },
+            headers: { "Content-Type": "application/json", ...getAuthHeaders() },
             body: JSON.stringify({
               id: income.id,
               split_id: income.split_id,
@@ -1067,7 +938,7 @@ export default function Tracker() {
           console.error("Error saving income to backend:", err);
         }
       }
-      setSplitIncomes(prev => [...prev, ...newIncomes.map(sanitizeIncome).filter(Boolean)]);
+      setSplitIncomes((prev) => [...prev, ...newIncomes.map(sanitizeIncome).filter(Boolean)]);
     }
 
     const importedCount = newPurchases.length + newIncomes.length;
@@ -1084,12 +955,7 @@ export default function Tracker() {
     setIsImportingFromInsights(false);
   };
 
-  const getPurchasesForDate = (date) => {
-    if (!date) return [];
-    const dateStr = toDateOnlyString(date);
-    return filteredPurchases.filter((p) => toDateOnlyString(p.date) === dateStr);
-  };
-
+  // View totals (for Summary + footer)
   const getWeekPurchases = useCallback(() => {
     return filteredPurchases.filter((p) => {
       const pDate = toLocalDate(p.date);
@@ -1097,9 +963,7 @@ export default function Tracker() {
     });
   }, [filteredPurchases, weekStart, weekEnd]);
 
-  const getWeekTotal = useMemo(() => {
-    return getWeekPurchases().reduce((sum, p) => sum + p.amount, 0);
-  }, [getWeekPurchases]);
+  const getWeekTotal = useMemo(() => getWeekPurchases().reduce((sum, p) => sum + p.amount, 0), [getWeekPurchases]);
 
   const getMonthPurchases = useCallback(() => {
     return filteredPurchases.filter((p) => {
@@ -1108,9 +972,10 @@ export default function Tracker() {
     });
   }, [filteredPurchases, monthStart, monthEnd]);
 
-  const getMonthTotal = useMemo(() => {
-    return getMonthPurchases().reduce((sum, p) => sum + p.amount, 0);
-  }, [getMonthPurchases]);
+  const getMonthTotal = useMemo(
+    () => getMonthPurchases().reduce((sum, p) => sum + p.amount, 0),
+    [getMonthPurchases]
+  );
 
   const getYearPurchases = useCallback(() => {
     return filteredPurchases.filter((p) => {
@@ -1119,29 +984,8 @@ export default function Tracker() {
     });
   }, [filteredPurchases, yearStart, yearEnd]);
 
-  const getYearTotal = useMemo(() => {
-    return getYearPurchases().reduce((sum, p) => sum + p.amount, 0);
-  }, [getYearPurchases]);
+  const getYearTotal = useMemo(() => getYearPurchases().reduce((sum, p) => sum + p.amount, 0), [getYearPurchases]);
 
-  // Get purchases for a specific week in monthly view
-  const getPurchasesForWeek = useCallback((weekStart, weekEnd) => {
-    return filteredPurchases.filter((p) => {
-      const pDate = toLocalDate(p.date);
-      return pDate >= weekStart && pDate <= weekEnd;
-    });
-  }, [filteredPurchases]);
-
-  // Get purchases for a specific month in yearly view
-  const getPurchasesForMonth = useCallback((monthIndex) => {
-    const mStart = new Date(yearStart.getFullYear(), monthIndex, 1);
-    const mEnd = new Date(yearStart.getFullYear(), monthIndex + 1, 0);
-    return filteredPurchases.filter((p) => {
-      const pDate = toLocalDate(p.date);
-      return pDate >= mStart && pDate <= mEnd;
-    });
-  }, [filteredPurchases, yearStart]);
-
-  // View-based purchases and totals
   const getViewPurchases = useCallback(() => {
     if (viewMode === "yearly") return getYearPurchases();
     if (viewMode === "monthly") return getMonthPurchases();
@@ -1156,42 +1000,10 @@ export default function Tracker() {
 
   const formatDisplayDate = (value) => {
     const d = toLocalDate(value);
-    return d.toLocaleDateString("en-GB", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-    });
+    return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
   };
 
-  // Normalize a description key for matching rules
-  const normalizeDescriptionKey = (desc = "") => {
-    return desc.toLowerCase().trim().replace(/\s+/g, " ");
-  };
-
-  const upsertCategoryRule = (desc, category) => {
-    if (!desc || !category) return;
-    const key = normalizeDescriptionKey(desc);
-    setCategoryRules((prev) => ({ ...prev, [key]: category }));
-  };
-
-  const handleUpdatePurchaseCategory = (purchaseId, newCategory) => {
-    if (!purchaseId || !newCategory) return;
-    setPurchases((prev) =>
-      prev.map((p) => (p.id === purchaseId ? { ...p, category: newCategory } : p))
-    );
-
-    // Find purchase to learn rule from its description
-    const purchase = purchases.find((p) => p.id === purchaseId);
-    if (purchase?.description) {
-      upsertCategoryRule(purchase.description, newCategory);
-    }
-
-    setEditingPurchaseId(null);
-    setSyncMessage("Category updated ✓");
-    setTimeout(() => setSyncMessage(""), 1500);
-  };
-
-  // Open expected income modal with current settings pre-filled
+  // Expected income modal open
   const openExpectedIncomeModal = () => {
     if (selectedIncomeSettings) {
       setExpectedIncomeForm({
@@ -1211,7 +1023,6 @@ export default function Tracker() {
     setShowExpectedIncomeModal(true);
   };
 
-  // Save expected income settings to backend
   const handleSaveExpectedIncome = async () => {
     if (!selectedSplit) return;
 
@@ -1226,16 +1037,12 @@ export default function Tracker() {
 
       const response = await fetch(`${API_URL}/income-settings`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...getAuthHeaders(),
-        },
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
         body: JSON.stringify(payload),
       });
 
       if (response.ok) {
         const saved = await response.json();
-        // Update local state
         setIncomeSettings((prev) => {
           const existing = prev.findIndex((s) => s.split_id === selectedSplit);
           if (existing >= 0) {
@@ -1258,6 +1065,50 @@ export default function Tracker() {
     }
   };
 
+  // =========================
+  // NEW: Pivot-table helpers
+  // =========================
+  const splitCategoryNames = useMemo(() => {
+    return (selectedSplitData?.categories || []).map((c) => c.name);
+  }, [selectedSplitData]);
+
+  const getPurchasesInRange = useCallback(
+    (start, end) => {
+      return filteredPurchases.filter((p) => {
+        const d = toLocalDate(p.date);
+        return d >= start && d <= end;
+      });
+    },
+    [filteredPurchases]
+  );
+
+  const buildCategoryTotals = useCallback(
+    (purchasesInRange) => {
+      const totals = {};
+      const counts = {};
+
+      for (const name of splitCategoryNames) {
+        totals[name] = 0;
+        counts[name] = 0;
+      }
+
+      for (const p of purchasesInRange) {
+        const cat = p.category || "Other";
+        if (totals[cat] == null) {
+          totals[cat] = 0;
+          counts[cat] = 0;
+        }
+        totals[cat] += Number(p.amount) || 0;
+        counts[cat] += 1;
+      }
+
+      return { totals, counts };
+    },
+    [splitCategoryNames]
+  );
+
+  const formatMoney = (n) => `£${Number(n || 0).toFixed(2)}`;
+
   return (
     <div className="container-fluid py-4 mt-5" style={{ maxWidth: 1200, minHeight: "100vh" }}>
       <Navbar />
@@ -1270,9 +1121,7 @@ export default function Tracker() {
         )}
 
         {savedSplits.length === 0 ? (
-          <div className="alert alert-info">
-            No saved splits found. Create a split on the Split Maker page first!
-          </div>
+          <div className="alert alert-info">No saved splits found. Create a split on the Split Maker page first!</div>
         ) : (
           <div className="d-flex gap-3 align-items-end mb-3 flex-wrap">
             <div>
@@ -1283,7 +1132,9 @@ export default function Tracker() {
                 onChange={(e) => setSelectedSplit(e.target.value)}
                 style={{ minWidth: "180px" }}
               >
-                <option value="" disabled>Choose a split…</option>
+                <option value="" disabled>
+                  Choose a split…
+                </option>
                 {savedSplits.map((split) => (
                   <option key={split.id} value={split.id}>
                     {split.name} ({split.frequency})
@@ -1291,7 +1142,9 @@ export default function Tracker() {
                 ))}
               </select>
             </div>
-            <h1 className="h4 mb-0 ms-auto">Warden <span className="text-primary">Tracker</span></h1>
+            <h1 className="h4 mb-0 ms-auto">
+              Warden <span className="text-primary">Tracker</span>
+            </h1>
           </div>
         )}
 
@@ -1299,11 +1152,16 @@ export default function Tracker() {
           <div className="alert alert-warning mb-3" role="alert">
             <div className="d-flex align-items-center justify-content-between gap-3">
               <div>
-                <strong>📥 {unlinkedTransactionsCount} transaction{unlinkedTransactionsCount !== 1 ? 's' : ''}</strong> from Warden Insights {unlinkedTransactionsCount !== 1 ? 'are' : 'is'} not linked to this split yet.
+                <strong>
+                  📥 {unlinkedTransactionsCount} transaction{unlinkedTransactionsCount !== 1 ? "s" : ""}
+                </strong>{" "}
+                from Warden Insights {unlinkedTransactionsCount !== 1 ? "are" : "is"} not linked to this split yet.
                 <br />
-                <small className="text-body-secondary">Click "Import Now" to automatically categorize and add them to this split.</small>
+                <small className="text-body-secondary">
+                  Click "Import Now" to automatically categorize and add them to this split.
+                </small>
               </div>
-              <button 
+              <button
                 className="btn btn-primary"
                 onClick={handleImportFromWardenInsights}
                 disabled={isImportingFromInsights}
@@ -1318,15 +1176,17 @@ export default function Tracker() {
 
       {selectedSplit && (
         <>
-          {/* Period Navigation - Top Section */}
+          {/* Period Navigation */}
           <div className="d-flex align-items-center justify-content-between mb-4 pb-3 border-bottom">
             <h5 className="mb-0">
-              {viewMode === "yearly" 
+              {viewMode === "yearly"
                 ? yearStart.getFullYear().toString()
-                : viewMode === "monthly" 
-                  ? monthStart.toLocaleDateString("en-GB", { month: "long", year: "numeric" })
-                  : `Week of ${weekStart.toLocaleDateString("en-GB", { day: "numeric", month: "short" })} - ${weekEnd.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}`
-              }
+                : viewMode === "monthly"
+                ? monthStart.toLocaleDateString("en-GB", { month: "long", year: "numeric" })
+                : `Week of ${weekStart.toLocaleDateString("en-GB", { day: "numeric", month: "short" })} - ${weekEnd.toLocaleDateString(
+                    "en-GB",
+                    { day: "numeric", month: "short", year: "numeric" }
+                  )}`}
             </h5>
             <div className="d-flex gap-2 align-items-center">
               <button
@@ -1354,151 +1214,177 @@ export default function Tracker() {
           </div>
 
           {/* Summary Box */}
-          {selectedSplitData && (() => {
-            // Calculate view income for budget purposes
-            const viewIncomeTotal = viewIncomeTransactions.reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0);
-            // Use this period's actual income, or fallback to expected income (prorated if needed)
-            let budgetIncome = viewIncomeTotal;
-            if (viewIncomeTotal === 0 && selectedIncomeSettings?.use_expected_when_no_actual && selectedIncomeSettings?.expected_amount > 0) {
-              const expectedFreq = selectedIncomeSettings.frequency;
-              if (viewMode === "weekly") {
-                // Prorate expected income to weekly
-                budgetIncome = expectedFreq === "monthly" 
-                  ? selectedIncomeSettings.expected_amount / 4.33 
-                  : expectedFreq === "yearly" 
-                    ? selectedIncomeSettings.expected_amount / 52 
-                    : selectedIncomeSettings.expected_amount;
-              } else if (viewMode === "monthly") {
-                // Monthly view - prorate expected income to monthly
-                budgetIncome = expectedFreq === "weekly" 
-                  ? selectedIncomeSettings.expected_amount * 4.33 
-                  : expectedFreq === "yearly" 
-                    ? selectedIncomeSettings.expected_amount / 12 
-                    : selectedIncomeSettings.expected_amount;
-              } else {
-                // Yearly view - prorate expected income to yearly
-                budgetIncome = expectedFreq === "weekly" 
-                  ? selectedIncomeSettings.expected_amount * 52 
-                  : expectedFreq === "monthly" 
-                    ? selectedIncomeSettings.expected_amount * 12 
-                    : selectedIncomeSettings.expected_amount;
-              }
-            }
-            const usingExpected = viewIncomeTotal === 0 && budgetIncome > 0;
+          {selectedSplitData &&
+            (() => {
+              const viewIncomeTotal = viewIncomeTransactions.reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0);
 
-            return (
-            <div className="card mb-4 shadow-sm" style={{ backgroundColor: "var(--card-bg)", borderColor: "var(--card-border)", overflowX: "auto" }}>
-              <div className="card-body py-3 px-3">
-                <div className="d-flex align-items-stretch gap-3" style={{ minWidth: "max-content" }}>
-                  <div className="d-flex flex-column justify-content-center" style={{ minWidth: "110px", flexShrink: 0 }}>
-                    <span className="fw-semibold text-primary" style={{ fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "0.5px", opacity: 0.8 }}>
-                      {viewMode === "yearly" ? "Yearly" : viewMode === "monthly" ? "Monthly" : "Weekly"} Summary
-                    </span>
-                    <span className="fw-bold" style={{ fontSize: "1.25rem" }}>£{getViewTotal.toFixed(2)}</span>
-                    <span className="text-primary" style={{ fontSize: "0.75rem", opacity: 0.7 }}>
-                      of £{budgetIncome.toFixed(2)} income
-                      {usingExpected && <span className="badge bg-warning text-dark ms-1" style={{ fontSize: "0.65rem" }}>Est.</span>}
-                    </span>
-                  </div>
-                  <div className="vr d-none d-sm-block" style={{ height: "50px", alignSelf: "center", flexShrink: 0 }}></div>
-                  {selectedSplitData.categories.map((cat) => {
-                    const categoryPurchases = getViewPurchases().filter((p) => p.category === cat.name);
-                    const categoryTotal = categoryPurchases.reduce((sum, p) => sum + p.amount, 0);
-                    const allocatedAmount = budgetIncome > 0 ? (budgetIncome * cat.percent) / 100 : 0;
-                    const percentUsed = allocatedAmount > 0 ? (categoryTotal / allocatedAmount) * 100 : 0;
-                    const remaining = allocatedAmount - categoryTotal;
-                    
-                    return (
-                      <div key={cat.id} className="d-flex flex-column justify-content-center" style={{ minWidth: "90px", flexShrink: 0 }}>
-                        <span className="text-primary fw-medium" style={{ fontSize: "0.75rem", marginBottom: "2px", whiteSpace: "nowrap", opacity: 0.8 }}>{cat.name} <span style={{ opacity: 0.7 }}>({cat.percent}%)</span></span>
-                        <div className="d-flex align-items-baseline gap-1">
-                          <span className="fw-bold" style={{ fontSize: "0.9rem" }}>£{categoryTotal.toFixed(2)}</span>
-                          <span className="text-primary" style={{ fontSize: "0.7rem", opacity: 0.7 }}>/ £{allocatedAmount.toFixed(2)}</span>
-                        </div>
-                        <div className="progress" style={{ height: "4px", width: "100%", marginTop: "4px", marginBottom: "4px" }}>
-                          <div
-                            className={`progress-bar ${percentUsed > 100 ? "bg-danger" : percentUsed > 80 ? "bg-warning" : ""}`}
-                            style={{ width: `${Math.min(percentUsed, 100)}%`, backgroundColor: percentUsed <= 80 ? "var(--tracker-budget-ok)" : undefined }}
-                          />
-                        </div>
-                        <span className="fw-medium" style={{ fontSize: "0.7rem", whiteSpace: "nowrap", color: remaining < 0 ? "var(--bs-danger)" : "var(--tracker-budget-ok)" }}>
-                          {remaining >= 0 ? `£${remaining.toFixed(2)} left` : `-£${Math.abs(remaining).toFixed(2)} over`}
+              let budgetIncome = viewIncomeTotal;
+              if (
+                viewIncomeTotal === 0 &&
+                selectedIncomeSettings?.use_expected_when_no_actual &&
+                selectedIncomeSettings?.expected_amount > 0
+              ) {
+                const expectedFreq = selectedIncomeSettings.frequency;
+                if (viewMode === "weekly") {
+                  budgetIncome =
+                    expectedFreq === "monthly"
+                      ? selectedIncomeSettings.expected_amount / 4.33
+                      : expectedFreq === "yearly"
+                      ? selectedIncomeSettings.expected_amount / 52
+                      : selectedIncomeSettings.expected_amount;
+                } else if (viewMode === "monthly") {
+                  budgetIncome =
+                    expectedFreq === "weekly"
+                      ? selectedIncomeSettings.expected_amount * 4.33
+                      : expectedFreq === "yearly"
+                      ? selectedIncomeSettings.expected_amount / 12
+                      : selectedIncomeSettings.expected_amount;
+                } else {
+                  budgetIncome =
+                    expectedFreq === "weekly"
+                      ? selectedIncomeSettings.expected_amount * 52
+                      : expectedFreq === "monthly"
+                      ? selectedIncomeSettings.expected_amount * 12
+                      : selectedIncomeSettings.expected_amount;
+                }
+              }
+              const usingExpected = viewIncomeTotal === 0 && budgetIncome > 0;
+
+              return (
+                <div
+                  className="card mb-4 shadow-sm"
+                  style={{ backgroundColor: "var(--card-bg)", borderColor: "var(--card-border)", overflowX: "auto" }}
+                >
+                  <div className="card-body py-3 px-3">
+                    <div className="d-flex align-items-stretch gap-3" style={{ minWidth: "max-content" }}>
+                      <div className="d-flex flex-column justify-content-center" style={{ minWidth: "110px", flexShrink: 0 }}>
+                        <span
+                          className="fw-semibold text-primary"
+                          style={{
+                            fontSize: "0.75rem",
+                            textTransform: "uppercase",
+                            letterSpacing: "0.5px",
+                            opacity: 0.8,
+                          }}
+                        >
+                          {viewMode === "yearly" ? "Yearly" : viewMode === "monthly" ? "Monthly" : "Weekly"} Summary
+                        </span>
+                        <span className="fw-bold" style={{ fontSize: "1.25rem" }}>
+                          £{getViewTotal.toFixed(2)}
+                        </span>
+                        <span className="text-primary" style={{ fontSize: "0.75rem", opacity: 0.7 }}>
+                          of £{budgetIncome.toFixed(2)} income
+                          {usingExpected && (
+                            <span className="badge bg-warning text-dark ms-1" style={{ fontSize: "0.65rem" }}>
+                              Est.
+                            </span>
+                          )}
                         </span>
                       </div>
-                    );
-                  })}
+
+                      <div className="vr d-none d-sm-block" style={{ height: "50px", alignSelf: "center", flexShrink: 0 }} />
+
+                      {selectedSplitData.categories.map((cat) => {
+                        const categoryPurchases = getViewPurchases().filter((p) => p.category === cat.name);
+                        const categoryTotal = categoryPurchases.reduce((sum, p) => sum + p.amount, 0);
+                        const allocatedAmount = budgetIncome > 0 ? (budgetIncome * cat.percent) / 100 : 0;
+                        const percentUsed = allocatedAmount > 0 ? (categoryTotal / allocatedAmount) * 100 : 0;
+                        const remaining = allocatedAmount - categoryTotal;
+
+                        return (
+                          <div key={cat.id} className="d-flex flex-column justify-content-center" style={{ minWidth: "90px", flexShrink: 0 }}>
+                            <span className="text-primary fw-medium" style={{ fontSize: "0.75rem", marginBottom: "2px", whiteSpace: "nowrap", opacity: 0.8 }}>
+                              {cat.name} <span style={{ opacity: 0.7 }}>({cat.percent}%)</span>
+                            </span>
+                            <div className="d-flex align-items-baseline gap-1">
+                              <span className="fw-bold" style={{ fontSize: "0.9rem" }}>
+                                £{categoryTotal.toFixed(2)}
+                              </span>
+                              <span className="text-primary" style={{ fontSize: "0.7rem", opacity: 0.7 }}>
+                                / £{allocatedAmount.toFixed(2)}
+                              </span>
+                            </div>
+                            <div className="progress" style={{ height: "4px", width: "100%", marginTop: "4px", marginBottom: "4px" }}>
+                              <div
+                                className={`progress-bar ${percentUsed > 100 ? "bg-danger" : percentUsed > 80 ? "bg-warning" : ""}`}
+                                style={{
+                                  width: `${Math.min(percentUsed, 100)}%`,
+                                  backgroundColor: percentUsed <= 80 ? "var(--tracker-budget-ok)" : undefined,
+                                }}
+                              />
+                            </div>
+                            <span className="fw-medium" style={{ fontSize: "0.7rem", whiteSpace: "nowrap", color: remaining < 0 ? "var(--bs-danger)" : "var(--tracker-budget-ok)" }}>
+                              {remaining >= 0 ? `£${remaining.toFixed(2)} left` : `-£${Math.abs(remaining).toFixed(2)} over`}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
-            );
-          })()}
+              );
+            })()}
 
           <div className="row g-3">
-            {/* Sidebar Toolbox */}
+            {/* Sidebar */}
             <div className="col-12 col-lg-3">
               <div className="card shadow-sm mb-3">
                 <div className="card-body">
                   <h6 className="mb-3">Add or Import</h6>
 
-                  <Link
-                    to="/wardeninsights"
-                    className="btn btn-primary w-100 mb-2"
-                    title="Add transactions or income in Warden Insights"
-                  >
+                  <Link to="/wardeninsights" className="btn btn-primary w-100 mb-2" title="Add transactions or income in Warden Insights">
                     Add
                   </Link>
 
-                  <div className="text-body small">
-                    Manage all new expenses and income from Warden Insights; they’ll sync back here.
-                  </div>
+                  <div className="text-body small">Manage all new expenses and income from Warden Insights; they’ll sync back here.</div>
                 </div>
               </div>
-
-
             </div>
 
-            {/* Main Content */}
+            {/* Main */}
             <div className="col-12 col-lg-9">
-              {/* Income Container */}
+              {/* Income */}
               <div className="card mb-4">
                 <div className="card-body">
                   <div className="d-flex align-items-center justify-content-between mb-2">
                     <div className="d-flex align-items-center gap-2">
                       <h5 className="mb-0">Income</h5>
-                      <button
-                        className="btn btn-sm btn-outline-secondary"
-                        onClick={openExpectedIncomeModal}
-                        title="Set expected income for budgeting"
-                      >
+                      <button className="btn btn-sm btn-outline-secondary" onClick={openExpectedIncomeModal} title="Set expected income for budgeting">
                         ⚙️ Expected
                       </button>
                     </div>
-                    <span className="badge fs-6" style={{ backgroundColor: "var(--tracker-accent-bg)", color: "#000000" }}>£{viewIncomeTransactions.reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0).toFixed(2)}</span>
+                    <span className="badge fs-6" style={{ backgroundColor: "var(--tracker-accent-bg)", color: "#000000" }}>
+                      £{viewIncomeTransactions.reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0).toFixed(2)}
+                    </span>
                   </div>
-                  
-                  {/* Expected income info banner */}
+
                   {isUsingExpectedIncome && selectedIncomeSettings && (
                     <div className="alert alert-info py-2 mb-3">
                       <small>
                         📊 <strong>Using expected income:</strong> £{selectedIncomeSettings.expected_amount?.toFixed(2)}
                         {selectedIncomeSettings.next_payday && (
                           <span className="ms-2">
-                            (next payday: {new Date(selectedIncomeSettings.next_payday + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" })})
+                            (next payday:{" "}
+                            {new Date(selectedIncomeSettings.next_payday + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" })})
                           </span>
                         )}
                       </small>
                     </div>
                   )}
-                  
+
                   {viewIncomeTransactions.length === 0 ? (
-                    <div className="text-body-secondary small">No income recorded for this {viewMode === "yearly" ? "year" : viewMode === "monthly" ? "month" : "week"}.</div>
+                    <div className="text-body-secondary small">
+                      No income recorded for this {viewMode === "yearly" ? "year" : viewMode === "monthly" ? "month" : "week"}.
+                    </div>
                   ) : (
                     <div className="table-responsive" style={{ maxHeight: "140px", overflowY: "auto" }}>
                       <table className="table table-sm table-hover mb-0">
                         <thead className="table-light" style={{ position: "sticky", top: 0, zIndex: 1 }}>
                           <tr>
                             <th style={{ width: "120px" }}>Date</th>
-                            <th style={{ width: "120px" }} className="text-end">Amount</th>
+                            <th style={{ width: "120px" }} className="text-end">
+                              Amount
+                            </th>
                             <th style={{ width: "160px" }}>Category</th>
                             <th>Description</th>
                           </tr>
@@ -1524,7 +1410,7 @@ export default function Tracker() {
                 </div>
               </div>
 
-              {/* Purchases View */}
+              {/* Purchases (NEW: categories as columns) */}
               <div className="card mb-4">
                 <div className="card-body">
                   <div className="d-flex align-items-center justify-content-between mb-3">
@@ -1551,364 +1437,134 @@ export default function Tracker() {
                     </div>
                   </div>
 
-                  {viewMode === "weekly" ? (
-                    /* Weekly Spreadsheet Grid - Days as columns */
-                    <>
-                      <div className="table-responsive" style={{ maxHeight: "320px", overflowY: "auto" }}>
-                        <table className="table table-bordered mb-0" style={{ tableLayout: "fixed" }}>
-                          <thead>
-                            <tr>
-                              {weekDays.map((day, idx) => {
-                                const isToday = toDateOnlyString(day) === toDateOnlyString(new Date());
-                                const dayTotal = getPurchasesForDate(day).reduce((sum, p) => sum + p.amount, 0);
-                                return (
-                                  <th 
-                                    key={idx} 
-                                    className="text-center"
-                                    style={{ 
-                                      width: `${100/7}%`,
-                                      backgroundColor: isToday ? "rgba(13, 110, 253, 0.1)" : "inherit",
-                                      borderBottom: isToday ? "2px solid #0d6efd" : undefined
-                                    }}
-                                  >
-                                    <div className="fw-bold">{dayNames[idx]}</div>
-                                    <div className="small text-body-secondary">
-                                      {day.toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
-                                    </div>
-                                    {dayTotal > 0 && (
-                                      <div className="badge bg-secondary mt-1">- £{dayTotal.toFixed(2)}</div>
-                                    )}
-                                  </th>
-                                );
-                              })}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            <tr>
-                              {weekDays.map((day, idx) => {
-                                const dayPurchases = getPurchasesForDate(day);
-                                const isToday = toDateOnlyString(day) === toDateOnlyString(new Date());
-                                return (
-                                  <td 
-                                    key={idx} 
-                                    className="align-top p-2"
-                                    style={{ 
-                                      minHeight: "200px",
-                                      backgroundColor: isToday ? "rgba(13, 110, 253, 0.05)" : "inherit",
-                                      verticalAlign: "top"
-                                    }}
-                                  >
-                                    {dayPurchases.length === 0 ? (
-                                      <div className="text-body-secondary small text-center py-3">—</div>
-                                    ) : (
-                                      <div className="d-flex flex-column gap-2">
-                                        {dayPurchases.map((purchase) => (
-                                          <div 
-                                            key={purchase.id} 
-                                            className="card card-body p-2"
-                                            style={{ fontSize: "0.8rem" }}
-                                          >
-                                            <div className="d-flex justify-content-between align-items-start mb-1">
-                                              <span className="fw-bold" style={{ color: "var(--tracker-accent)" }}>£{purchase.amount.toFixed(2)}</span>
-                                              <button
-                                                className="btn btn-sm p-0 text-danger"
-                                                onClick={() => handleDeletePurchase(purchase.id)}
-                                                title="Delete"
-                                                style={{ lineHeight: 1 }}
-                                              >
-                                                ×
-                                              </button>
-                                            </div>
-                                            {editingPurchaseId === purchase.id ? (
-                                              <select
-                                                className="form-select form-select-sm mb-1"
-                                                value={purchase.category}
-                                                onChange={(e) => handleUpdatePurchaseCategory(purchase.id, e.target.value)}
-                                                onBlur={() => setEditingPurchaseId(null)}
-                                                autoFocus
-                                                style={{ fontSize: "0.75rem" }}
-                                              >
-                                                {selectedSplitData?.categories.map((cat) => (
-                                                  <option key={cat.id} value={cat.name}>
-                                                    {cat.name}
-                                                  </option>
-                                                ))}
-                                              </select>
-                                            ) : (
-                                              <button
-                                                className="badge bg-primary mb-1 border-0"
-                                                style={{ cursor: "pointer", fontSize: "0.7rem" }}
-                                                onClick={() => setEditingPurchaseId(purchase.id)}
-                                                title="Click to edit category"
-                                              >
-                                                {purchase.category}
-                                              </button>
-                                            )}
-                                            {purchase.description && (
-                                              <div className="text-light text-truncate" title={purchase.description}>
-                                                {purchase.description}
-                                              </div>
-                                            )}
-                                          </div>
-                                        ))}
-                                      </div>
-                                    )}
-                                  </td>
-                                );
-                              })}
-                            </tr>
-                          </tbody>
-                        </table>
-                      </div>
-                      <div className="mt-2 text-end fw-bold">
-                        Week Total: £{getWeekTotal.toFixed(2)}
-                      </div>
-                    </>
+                  {(() => {
+                    let rows = [];
 
-                  ) : viewMode === "monthly" ? (
-                    /* Monthly Spreadsheet Grid - Weeks as columns */
-                    <>
-                      <div className="table-responsive" style={{ maxHeight: "400px", overflowY: "auto" }}>
-                        <table className="table table-bordered mb-0" style={{ tableLayout: "fixed" }}>
-                        <thead>
-                          <tr>
-                            {monthWeeks.map((week) => {
-                              const weekPurchases = getPurchasesForWeek(week.start, week.end);
-                              const weekTotal = weekPurchases.reduce((sum, p) => sum + p.amount, 0);
-                              const now = new Date();
-                              const isCurrentWeek = now >= week.start && now <= week.end;
-                              return (
-                                <th 
-                                  key={week.num} 
-                                  className="text-center"
-                                  style={{ 
-                                    width: `${100/monthWeeks.length}%`,
-                                    backgroundColor: isCurrentWeek ? "rgba(13, 110, 253, 0.1)" : "inherit",
-                                    borderBottom: isCurrentWeek ? "2px solid #0d6efd" : undefined
-                                  }}
-                                >
-                                  <div className="fw-bold">{week.label}</div>
-                                  <div className="small text-body-secondary">
-                                    {week.start.toLocaleDateString("en-GB", { day: "numeric", month: "short" })} - {week.end.toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
-                                  </div>
-                                  {weekTotal > 0 && (
-                                    <div className="badge bg-secondary mt-1">- £{weekTotal.toFixed(2)}</div>
-                                  )}
+                    if (viewMode === "weekly") {
+                      rows = weekDays.map((day, idx) => {
+                        const start = new Date(day.getFullYear(), day.getMonth(), day.getDate());
+                        const end = new Date(day.getFullYear(), day.getMonth(), day.getDate(), 23, 59, 59, 999);
+                        return {
+                          key: `day-${idx}-${toDateOnlyString(day)}`,
+                          label: `${dayNames[idx]} ${day.toLocaleDateString("en-GB", { day: "2-digit", month: "short" })}`,
+                          start,
+                          end,
+                          isCurrent: toDateOnlyString(day) === toDateOnlyString(new Date()),
+                        };
+                      });
+                    } else if (viewMode === "monthly") {
+                      rows = monthWeeks.map((w) => {
+                        const now = new Date();
+                        return {
+                          key: `week-${w.num}-${toDateOnlyString(w.start)}`,
+                          label: `${w.label} (${w.start.toLocaleDateString("en-GB", { day: "numeric", month: "short" })}–${w.end.toLocaleDateString(
+                            "en-GB",
+                            { day: "numeric", month: "short" }
+                          )})`,
+                          start: w.start,
+                          end: new Date(w.end.getFullYear(), w.end.getMonth(), w.end.getDate(), 23, 59, 59, 999),
+                          isCurrent: now >= w.start && now <= w.end,
+                        };
+                      });
+                    } else {
+                      rows = monthNames.map((mName, idx) => {
+                        const start = new Date(yearStart.getFullYear(), idx, 1);
+                        const end = new Date(yearStart.getFullYear(), idx + 1, 0, 23, 59, 59, 999);
+                        const now = new Date();
+                        return {
+                          key: `month-${idx}-${yearStart.getFullYear()}`,
+                          label: `${mName} ${yearStart.getFullYear()}`,
+                          start,
+                          end,
+                          isCurrent: now.getFullYear() === yearStart.getFullYear() && now.getMonth() === idx,
+                        };
+                      });
+                    }
+
+                    const grandTotals = {};
+                    for (const c of splitCategoryNames) grandTotals[c] = 0;
+                    let grandRowTotal = 0;
+
+                    return (
+                      <>
+                        <div className="table-responsive" style={{ maxHeight: "420px", overflowY: "auto" }}>
+                          <table className="table table-bordered table-sm mb-0" style={{ tableLayout: "fixed" }}>
+                            <thead className="table-light" style={{ position: "sticky", top: 0, zIndex: 1 }}>
+                              <tr>
+                                <th style={{ width: "220px" }}>Period</th>
+                                {splitCategoryNames.map((cat) => (
+                                  <th key={cat} className="text-center" style={{ minWidth: 120 }}>
+                                    {cat}
+                                  </th>
+                                ))}
+                                <th className="text-end" style={{ width: "120px" }}>
+                                  Total
                                 </th>
-                              );
-                            })}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          <tr>
-                            {monthWeeks.map((week) => {
-                              const weekPurchases = getPurchasesForWeek(week.start, week.end);
-                              const now = new Date();
-                              const isCurrentWeek = now >= week.start && now <= week.end;
-                              return (
-                                <td 
-                                  key={week.num} 
-                                  className="align-top p-2"
-                                  style={{ 
-                                    minHeight: "200px",
-                                    backgroundColor: isCurrentWeek ? "rgba(13, 110, 253, 0.05)" : "inherit",
-                                    verticalAlign: "top"
-                                  }}
-                                >
-                                  {weekPurchases.length === 0 ? (
-                                    <div className="text-body-secondary small text-center py-3">—</div>
-                                  ) : (
-                                    <div className="d-flex flex-column gap-2">
-                                      {weekPurchases
-                                        .slice()
-                                        .sort((a, b) => toLocalDate(b.date) - toLocalDate(a.date))
-                                        .map((purchase) => (
-                                        <div 
-                                          key={purchase.id} 
-                                          className="card card-body p-2"
-                                          style={{ fontSize: "0.8rem" }}
-                                        >
-                                          <div className="d-flex justify-content-between align-items-start mb-1">
-                                            <span className="fw-bold" style={{ color: "var(--tracker-accent)" }}>£{purchase.amount.toFixed(2)}</span>
-                                            <button
-                                              className="btn btn-sm p-0 text-danger"
-                                              onClick={() => handleDeletePurchase(purchase.id)}
-                                              title="Delete"
-                                              style={{ lineHeight: 1 }}
-                                            >
-                                              ×
-                                            </button>
-                                          </div>
-                                          <div className="text-body-secondary mb-1" style={{ fontSize: "0.65rem" }}>
-                                            {formatDisplayDate(purchase.date)}
-                                          </div>
-                                          {editingPurchaseId === purchase.id ? (
-                                            <select
-                                              className="form-select form-select-sm mb-1"
-                                              value={purchase.category}
-                                              onChange={(e) => handleUpdatePurchaseCategory(purchase.id, e.target.value)}
-                                              onBlur={() => setEditingPurchaseId(null)}
-                                              autoFocus
-                                              style={{ fontSize: "0.75rem" }}
-                                            >
-                                              {selectedSplitData?.categories.map((cat) => (
-                                                <option key={cat.id} value={cat.name}>
-                                                  {cat.name}
-                                                </option>
-                                              ))}
-                                            </select>
+                              </tr>
+                            </thead>
+
+                            <tbody>
+                              {rows.map((row) => {
+                                const rangePurchases = getPurchasesInRange(row.start, row.end);
+                                const { totals, counts } = buildCategoryTotals(rangePurchases);
+                                const rowTotal = Object.values(totals).reduce((s, v) => s + (Number(v) || 0), 0);
+
+                                for (const [cat, val] of Object.entries(totals)) {
+                                  grandTotals[cat] = (grandTotals[cat] || 0) + (Number(val) || 0);
+                                }
+                                grandRowTotal += rowTotal;
+
+                                return (
+                                  <tr key={row.key} style={row.isCurrent ? { backgroundColor: "rgba(13, 110, 253, 0.06)" } : undefined}>
+                                    <td className="fw-semibold">{row.label}</td>
+
+                                    {splitCategoryNames.map((cat) => {
+                                      const value = totals[cat] || 0;
+                                      const count = counts[cat] || 0;
+
+                                      return (
+                                        <td key={cat} className="text-center">
+                                          {value > 0 ? (
+                                            <>
+                                              <div className="fw-bold">{formatMoney(value)}</div>
+                                              <div className="text-body-secondary" style={{ fontSize: "0.75rem" }}>
+                                                {count} item{count === 1 ? "" : "s"}
+                                              </div>
+                                            </>
                                           ) : (
-                                            <button
-                                              className="badge bg-primary mb-1 border-0"
-                                              style={{ cursor: "pointer", fontSize: "0.7rem" }}
-                                              onClick={() => setEditingPurchaseId(purchase.id)}
-                                              title="Click to edit category"
-                                            >
-                                              {purchase.category}
-                                            </button>
+                                            <span className="text-body-secondary">—</span>
                                           )}
-                                          {purchase.description && (
-                                            <div className="text-light text-truncate" title={purchase.description}>
-                                              {purchase.description}
-                                            </div>
-                                          )}
-                                        </div>
-                                      ))}
-                                    </div>
-                                  )}
-                                </td>
-                              );
-                            })}
-                          </tr>
-                        </tbody>
-                      </table>
-                      </div>
-                      <div className="mt-2 text-end fw-bold">
-                        Month Total: £{getMonthTotal.toFixed(2)}
-                      </div>
-                    </>
-                  ) : (
-                    /* Yearly Spreadsheet Grid - Months as columns */
-                    <>
-                      <div className="table-responsive" style={{ maxHeight: "400px", overflowY: "auto" }}>
-                        <table className="table table-bordered mb-0" style={{ tableLayout: "fixed" }}>
-                        <thead>
-                          <tr>
-                            {monthNames.map((monthName, idx) => {
-                              const monthPurchases = getPurchasesForMonth(idx);
-                              const monthTotal = monthPurchases.reduce((sum, p) => sum + p.amount, 0);
-                              const now = new Date();
-                              const isCurrentMonth = now.getFullYear() === yearStart.getFullYear() && now.getMonth() === idx;
-                              return (
-                                <th 
-                                  key={idx} 
-                                  className="text-center"
-                                  style={{ 
-                                    width: `${100/12}%`,
-                                    backgroundColor: isCurrentMonth ? "rgba(13, 110, 253, 0.1)" : "inherit",
-                                    borderBottom: isCurrentMonth ? "2px solid #0d6efd" : undefined,
-                                    fontSize: "0.85rem"
-                                  }}
-                                >
-                                  <div className="fw-bold">{monthName}</div>
-                                  {monthTotal > 0 && (
-                                    <div className="badge bg-secondary mt-1" style={{ fontSize: "0.65rem" }}>- £{monthTotal.toFixed(2)}</div>
-                                  )}
-                                </th>
-                              );
-                            })}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          <tr>
-                            {monthNames.map((monthName, idx) => {
-                              const monthPurchases = getPurchasesForMonth(idx);
-                              const now = new Date();
-                              const isCurrentMonth = now.getFullYear() === yearStart.getFullYear() && now.getMonth() === idx;
-                              return (
-                                <td 
-                                  key={idx} 
-                                  className="align-top p-1"
-                                  style={{ 
-                                    minHeight: "200px",
-                                    backgroundColor: isCurrentMonth ? "rgba(13, 110, 253, 0.05)" : "inherit",
-                                    verticalAlign: "top"
-                                  }}
-                                >
-                                  {monthPurchases.length === 0 ? (
-                                    <div className="text-body-secondary small text-center py-3">—</div>
-                                  ) : (
-                                    <div className="d-flex flex-column gap-1">
-                                      {monthPurchases
-                                        .slice()
-                                        .sort((a, b) => toLocalDate(b.date) - toLocalDate(a.date))
-                                        .slice(0, 5) // Show max 5 items per month cell
-                                        .map((purchase) => (
-                                        <div 
-                                          key={purchase.id} 
-                                          className="card card-body p-1"
-                                          style={{ fontSize: "0.7rem" }}
-                                        >
-                                          <div className="d-flex justify-content-between align-items-start">
-                                            <span className="fw-bold" style={{ color: "var(--tracker-accent)" }}>£{purchase.amount.toFixed(2)}</span>
-                                            <button
-                                              className="btn btn-sm p-0 text-danger"
-                                              onClick={() => handleDeletePurchase(purchase.id)}
-                                              title="Delete"
-                                              style={{ lineHeight: 1, fontSize: "0.7rem" }}
-                                            >
-                                              ×
-                                            </button>
-                                          </div>
-                                          <div className="text-body-secondary" style={{ fontSize: "0.6rem" }}>
-                                            {toLocalDate(purchase.date).getDate()}/{idx + 1}
-                                          </div>
-                                          {editingPurchaseId === purchase.id ? (
-                                            <select
-                                              className="form-select form-select-sm"
-                                              value={purchase.category}
-                                              onChange={(e) => handleUpdatePurchaseCategory(purchase.id, e.target.value)}
-                                              onBlur={() => setEditingPurchaseId(null)}
-                                              autoFocus
-                                              style={{ fontSize: "0.65rem" }}
-                                            >
-                                              {selectedSplitData?.categories.map((cat) => (
-                                                <option key={cat.id} value={cat.name}>
-                                                  {cat.name}
-                                                </option>
-                                              ))}
-                                            </select>
-                                          ) : (
-                                            <button
-                                              className="badge bg-primary border-0"
-                                              style={{ cursor: "pointer", fontSize: "0.6rem" }}
-                                              onClick={() => setEditingPurchaseId(purchase.id)}
-                                              title="Click to edit category"
-                                            >
-                                              {purchase.category}
-                                            </button>
-                                          )}
-                                        </div>
-                                      ))}
-                                      {monthPurchases.length > 5 && (
-                                        <div className="text-body-secondary text-center" style={{ fontSize: "0.65rem" }}>
-                                          +{monthPurchases.length - 5} more
-                                        </div>
-                                      )}
-                                    </div>
-                                  )}
-                                </td>
-                              );
-                            })}
-                          </tr>
-                        </tbody>
-                      </table>
-                      </div>
-                      <div className="mt-2 text-end fw-bold">
-                        Year Total: £{getYearTotal.toFixed(2)}
-                      </div>
-                    </>
-                  )}
+                                        </td>
+                                      );
+                                    })}
+
+                                    <td className="text-end fw-bold">{formatMoney(rowTotal)}</td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+
+                            <tfoot className="table-light" style={{ position: "sticky", bottom: 0, zIndex: 1 }}>
+                              <tr>
+                                <th>Totals</th>
+                                {splitCategoryNames.map((cat) => (
+                                  <th key={cat} className="text-center">
+                                    {grandTotals[cat] > 0 ? formatMoney(grandTotals[cat]) : "—"}
+                                  </th>
+                                ))}
+                                <th className="text-end">{formatMoney(grandRowTotal)}</th>
+                              </tr>
+                            </tfoot>
+                          </table>
+                        </div>
+
+                        <div className="mt-2 text-end fw-bold">
+                          {viewMode === "yearly" ? "Year Total" : viewMode === "monthly" ? "Month Total" : "Week Total"}: £
+                          {getViewTotal.toFixed(2)}
+                        </div>
+                      </>
+                    );
+                  })()}
                 </div>
               </div>
             </div>
@@ -1921,11 +1577,7 @@ export default function Tracker() {
                 <div className="modal-content">
                   <div className="modal-header">
                     <h5 className="modal-title">Add Purchase</h5>
-                    <button
-                      type="button"
-                      className="btn-close"
-                      onClick={() => setShowAddModal(false)}
-                    />
+                    <button type="button" className="btn-close" onClick={() => setShowAddModal(false)} />
                   </div>
                   <div className="modal-body">
                     <div className="mb-3">
@@ -1934,9 +1586,7 @@ export default function Tracker() {
                         type="date"
                         className="form-control form-control-sm"
                         value={newPurchase.date}
-                        onChange={(e) =>
-                          setNewPurchase({ ...newPurchase, date: e.target.value })
-                        }
+                        onChange={(e) => setNewPurchase({ ...newPurchase, date: e.target.value })}
                       />
                     </div>
                     <div className="mb-3">
@@ -1947,9 +1597,7 @@ export default function Tracker() {
                         min="0"
                         className="form-control form-control-sm"
                         value={newPurchase.amount}
-                        onChange={(e) =>
-                          setNewPurchase({ ...newPurchase, amount: e.target.value })
-                        }
+                        onChange={(e) => setNewPurchase({ ...newPurchase, amount: e.target.value })}
                       />
                     </div>
                     <div className="mb-3">
@@ -1957,9 +1605,7 @@ export default function Tracker() {
                       <select
                         className="form-select form-select-sm"
                         value={newPurchase.category}
-                        onChange={(e) =>
-                          setNewPurchase({ ...newPurchase, category: e.target.value })
-                        }
+                        onChange={(e) => setNewPurchase({ ...newPurchase, category: e.target.value })}
                       >
                         <option value="">Select category…</option>
                         {selectedSplitData?.categories.map((cat) => (
@@ -1975,26 +1621,16 @@ export default function Tracker() {
                         type="text"
                         className="form-control form-control-sm"
                         value={newPurchase.description}
-                        onChange={(e) =>
-                          setNewPurchase({ ...newPurchase, description: e.target.value })
-                        }
+                        onChange={(e) => setNewPurchase({ ...newPurchase, description: e.target.value })}
                         placeholder="e.g. Tesco shopping"
                       />
                     </div>
                   </div>
                   <div className="modal-footer">
-                    <button
-                      type="button"
-                      className="btn btn-secondary"
-                      onClick={() => setShowAddModal(false)}
-                    >
+                    <button type="button" className="btn btn-secondary" onClick={() => setShowAddModal(false)}>
                       Cancel
                     </button>
-                    <button
-                      type="button"
-                      className="btn btn-primary"
-                      onClick={handleAddPurchase}
-                    >
+                    <button type="button" className="btn btn-primary" onClick={handleAddPurchase}>
                       Add Purchase
                     </button>
                   </div>
@@ -2010,11 +1646,7 @@ export default function Tracker() {
                 <div className="modal-content">
                   <div className="modal-header">
                     <h5 className="modal-title">Import Bank Statement</h5>
-                    <button
-                      type="button"
-                      className="btn-close"
-                      onClick={() => setShowImportModal(false)}
-                    />
+                    <button type="button" className="btn-close" onClick={() => setShowImportModal(false)} />
                   </div>
                   <div className="modal-body">
                     <p className="text-body-secondary mb-3">
@@ -2029,33 +1661,26 @@ export default function Tracker() {
 
           {/* Expected Income Modal */}
           {showExpectedIncomeModal && (
-            <div className="modal d-block" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
+            <div className="modal d-block" style={{ backgroundColor: "rgba(0,0,0,0.5)" }}>
               <div className="modal-dialog">
                 <div className="modal-content">
                   <div className="modal-header">
                     <h5 className="modal-title">Expected Income Settings</h5>
-                    <button
-                      type="button"
-                      className="btn-close"
-                      onClick={() => setShowExpectedIncomeModal(false)}
-                    />
+                    <button type="button" className="btn-close" onClick={() => setShowExpectedIncomeModal(false)} />
                   </div>
                   <div className="modal-body">
                     <p className="text-body-secondary mb-3">
-                      Set expected income for <strong>{selectedSplit?.name || 'this split'}</strong>. 
-                      This will be used for budget calculations when no actual income has been imported yet.
+                      Set expected income for <strong>{selectedSplitData?.name || "this split"}</strong>. This will be used for budget calculations when no
+                      actual income has been imported yet.
                     </p>
-                    
+
                     <div className="mb-3">
                       <label className="form-label">Expected Amount (£)</label>
                       <input
                         type="number"
                         className="form-control"
                         value={expectedIncomeForm.expected_amount}
-                        onChange={(e) => setExpectedIncomeForm(prev => ({
-                          ...prev,
-                          expected_amount: e.target.value
-                        }))}
+                        onChange={(e) => setExpectedIncomeForm((prev) => ({ ...prev, expected_amount: e.target.value }))}
                         placeholder="0.00"
                         step="0.01"
                         min="0"
@@ -2068,10 +1693,7 @@ export default function Tracker() {
                         type="date"
                         className="form-control"
                         value={expectedIncomeForm.next_payday}
-                        onChange={(e) => setExpectedIncomeForm(prev => ({
-                          ...prev,
-                          next_payday: e.target.value
-                        }))}
+                        onChange={(e) => setExpectedIncomeForm((prev) => ({ ...prev, next_payday: e.target.value }))}
                       />
                     </div>
 
@@ -2080,10 +1702,7 @@ export default function Tracker() {
                       <select
                         className="form-select"
                         value={expectedIncomeForm.frequency}
-                        onChange={(e) => setExpectedIncomeForm(prev => ({
-                          ...prev,
-                          frequency: e.target.value
-                        }))}
+                        onChange={(e) => setExpectedIncomeForm((prev) => ({ ...prev, frequency: e.target.value }))}
                       >
                         <option value="weekly">Weekly</option>
                         <option value="fortnightly">Fortnightly</option>
@@ -2097,10 +1716,9 @@ export default function Tracker() {
                         className="form-check-input"
                         id="useExpectedCheckbox"
                         checked={expectedIncomeForm.use_expected_when_no_actual}
-                        onChange={(e) => setExpectedIncomeForm(prev => ({
-                          ...prev,
-                          use_expected_when_no_actual: e.target.checked
-                        }))}
+                        onChange={(e) =>
+                          setExpectedIncomeForm((prev) => ({ ...prev, use_expected_when_no_actual: e.target.checked }))
+                        }
                       />
                       <label className="form-check-label" htmlFor="useExpectedCheckbox">
                         Use expected income when no actual income imported
@@ -2109,17 +1727,12 @@ export default function Tracker() {
 
                     {selectedIncomeSettings && (
                       <div className="alert alert-info py-2 small">
-                        <i className="bi bi-info-circle me-1"></i>
                         Current settings: £{Number(selectedIncomeSettings.expected_amount || 0).toFixed(2)} {selectedIncomeSettings.frequency}
                       </div>
                     )}
                   </div>
                   <div className="modal-footer">
-                    <button
-                      type="button"
-                      className="btn btn-secondary"
-                      onClick={() => setShowExpectedIncomeModal(false)}
-                    >
+                    <button type="button" className="btn btn-secondary" onClick={() => setShowExpectedIncomeModal(false)}>
                       Cancel
                     </button>
                     <button
