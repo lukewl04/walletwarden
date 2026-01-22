@@ -34,8 +34,8 @@ export default function WardenInsights() {
   // Insights controls
   const [monthsBack, setMonthsBack] = useState(6);
   const [showCumulative, setShowCumulative] = useState(true);
-  const [showInsightsDetails, setShowInsightsDetails] = useState(true); // Toggle for insights sections
-  const [transactionFilter, setTransactionFilter] = useState(30); // Days to show (7, 30, 180, 365, null for all)
+  const [showInsightsDetails, setShowInsightsDetails] = useState(true);
+  const [transactionFilter, setTransactionFilter] = useState(30);
 
   // Bank state
   const [bankStatus, setBankStatus] = useState(null); // null = unknown/loading
@@ -48,44 +48,44 @@ export default function WardenInsights() {
   // Balance state
   const [displayBalance, setDisplayBalance] = useState(null);
   const [bankBalance, setBankBalance] = useState(null);
-  const [balanceLocked, setBalanceLocked] = useState(false);
+
   // Cached balance (last stored in DB, even if disconnected)
   const [cachedBalance, setCachedBalance] = useState(null); // { totalBalance, availableBalance, currency, lastSyncedAt }
   const [cachedBalanceLoading, setCachedBalanceLoading] = useState(true);
-
 
   const autoSyncHasRun = React.useRef(false);
 
   const API_URL = "http://localhost:4000/api";
   const getAuthHeaders = () => ({ Authorization: `Bearer ${getUserToken()}` });
 
-  // Fetch actual bank balance
-    const fetchBankBalance = async () => {
-      try {
-        const res = await fetch(`${API_URL}/banks/truelayer/balance`, {
-          headers: getAuthHeaders(),
-          cache: "no-store",
-        });
-        if (!res.ok) return;
+  // Live balance loading flag
+  const [liveBalanceLoading, setLiveBalanceLoading] = useState(false);
 
-        const data = await res.json();
-        const tb = data?.totalBalance;
-        if (typeof tb !== "number" || !Number.isFinite(tb)) return;
+  // Fetch LIVE bank balance
+  const fetchBankBalance = async () => {
+    setLiveBalanceLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/banks/truelayer/balance`, {
+        headers: getAuthHeaders(),
+        cache: "no-store",
+      });
+      if (!res.ok) return;
 
-        // Optional jitter ignore (do this BEFORE setting state)
-        const prev = displayBalance?.totalBalance;
-        if (typeof prev === "number" && Math.abs(prev - tb) < 0.01) return;
+      const data = await res.json();
+      const tb = data?.totalBalance;
+      if (typeof tb !== "number" || !Number.isFinite(tb)) return;
 
-        // Live wins
-        setDisplayBalance(data);
-        setBankBalance(data);
-        setBalanceLocked(true);
-      } catch (err) {
-        console.error("Failed to fetch bank balance:", err);
-      }
-    };
+      setDisplayBalance(data);
+      setBankBalance(data);
+    } catch (err) {
+      console.error("Failed to fetch bank balance:", err);
+    } finally {
+      setLiveBalanceLoading(false);
+    }
+  };
 
-    const fetchCachedBalance = async () => {
+  // Fetch CACHED bank balance (only paint it when disconnected)
+  const fetchCachedBalance = async () => {
     setCachedBalanceLoading(true);
     try {
       const res = await fetch(`${API_URL}/banks/truelayer/balance-cached`, {
@@ -100,51 +100,21 @@ export default function WardenInsights() {
       if (typeof tb === "number" && Number.isFinite(tb)) {
         setCachedBalance(data);
 
-        // if we don't already have a displayed balance, use cached immediately
-        if (!balanceLocked) {
-          setDisplayBalance({
+        // ONLY paint cached if we're disconnected (prevents wrong-account flash)
+        if (bankStatus?.connected === false) {
+          const shaped = {
             totalBalance: data.totalBalance,
             availableBalance: data.availableBalance,
             currency: data.currency,
-          });
-          setBankBalance({
-            totalBalance: data.totalBalance,
-            availableBalance: data.availableBalance,
-            currency: data.currency,
-          });
-          setBalanceLocked(true);
+          };
+          setDisplayBalance(shaped);
+          setBankBalance(shaped);
         }
       }
     } catch (e) {
       console.error("Failed to fetch cached balance:", e);
     } finally {
       setCachedBalanceLoading(false);
-    }
-  };
-
-
-  // Authoritative: if /balance returns a real number, user is connected.
-  const resolveConnectionByBalance = async () => {
-    try {
-      const res = await fetch(`${API_URL}/banks/truelayer/balance`, {
-        headers: getAuthHeaders(),
-        cache: "no-store",
-      });
-      if (!res.ok) return false;
-
-      const data = await res.json();
-      const tb = data?.totalBalance;
-
-      if (typeof tb === "number" && Number.isFinite(tb)) {
-        setBankStatus({ connected: true });
-        setDisplayBalance(data);
-        setBankBalance(data);
-        setBalanceLocked(true);
-        return true;
-      }
-      return false;
-    } catch {
-      return false;
     }
   };
 
@@ -215,9 +185,9 @@ export default function WardenInsights() {
     setBankLoading(false);
     setBankStatus(null);
 
-    setBalanceLocked(false);
-    fetchCachedBalance(); // show last known bank balance ASAP
-
+    // start blank (prevents cached flash)
+    setDisplayBalance(null);
+    setBankBalance(null);
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 10000);
@@ -231,55 +201,54 @@ export default function WardenInsights() {
 
         clearTimeout(timeoutId);
 
-        if (res.ok) {
-          const data = await res.json();
-          setBankStatus({ connected: !!data.connected });
-
-          if (data.connected) {
-            fetchBankBalance();
-          }
-        } else {
+        if (!res.ok) {
           setBankStatus({ connected: false });
+          await fetchCachedBalance();
+          return;
+        }
+
+        const data = await res.json();
+        const connected = !!data.connected;
+        setBankStatus({ connected });
+
+        if (connected) {
+          await fetchBankBalance(); // LIVE only
+        } else {
+          await fetchCachedBalance(); // cached only
         }
       } catch (err) {
         clearTimeout(timeoutId);
-        if (err.name !== "AbortError")
-          console.error("Failed to check bank status:", err);
+        if (err.name !== "AbortError") console.error("status error:", err);
+
         setBankStatus({ connected: false });
+        await fetchCachedBalance();
       }
     };
 
     // OAuth callback param handling
     const params = new URLSearchParams(window.location.search);
-        if (params.get("bankConnected")) {
+    if (params.get("bankConnected")) {
       (async () => {
-        // Prevent the other effect from also auto-syncing
         autoSyncHasRun.current = true;
 
         setBankStatus({ connected: true });
         setLastSyncMessage("Bank connected! Getting balance…");
 
-        //  Kick off balance + transactions immediately (don’t wait for sync)
-        // These read from DB (which quickSyncLatest already populated)
-        const p0 = fetchCachedBalance();
-        const p1 = fetchBankBalance();
-        const p2 = refreshTransactions();
+        // live first (prevents cached flash)
+        await Promise.allSettled([fetchBankBalance(), refreshTransactions()]);
 
-        // Now start sync in the background (so UI doesn't hang on "Loading…")
         setLastSyncMessage("Bank connected ✅ Syncing in background…");
 
-        // Don’t await this before showing balance
+        // background sync
         handleSyncBank(true, true).catch((err) => {
           console.error("Post-connect sync failed:", err);
-          setLastSyncMessage("Bank connected ✅ (background sync failed — hit 🔄 to retry)");
+          setLastSyncMessage(
+            "Bank connected ✅ (background sync failed — hit 🔄 to retry)"
+          );
         });
 
-        // Ensure initial UI is populated ASAP
-        await Promise.allSettled([p0, p1, p2]);
-
-        // Clean URL and redirect after 2 seconds
+        // clean URL then refresh page
         window.history.replaceState({}, "", window.location.pathname);
-        
         setTimeout(() => {
           window.location.href = window.location.pathname;
         }, 2000);
@@ -291,15 +260,8 @@ export default function WardenInsights() {
       };
     }
 
-
-
-
-
-    // Otherwise: try /balance first, then /status
-    (async () => {
-      const connected = await resolveConnectionByBalance();
-      if (!connected) await checkBankStatus();
-    })();
+    // normal load
+    checkBankStatus();
 
     return () => {
       clearTimeout(timeoutId);
@@ -314,7 +276,7 @@ export default function WardenInsights() {
       autoSyncHasRun.current = true;
       handleSyncBank(true);
     }
-  }, [bankStatus?.connected, bankStatusLoading]);
+  }, [bankStatus?.connected, bankStatusLoading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleConnectBank = async () => {
     setBankLoading(true);
@@ -354,40 +316,37 @@ export default function WardenInsights() {
     }
   };
 
- const isBankConnected = bankStatus?.connected === true;
-const isBankDisconnected = bankStatus?.connected === false;
+  const isBankConnected = bankStatus?.connected === true;
+  const isBankDisconnected = bankStatus?.connected === false;
 
-const hasLiveBankNumber =
-  Number.isFinite(displayBalance?.totalBalance) ||
-  Number.isFinite(bankBalance?.totalBalance);
+  const hasLiveBankNumber = Number.isFinite(displayBalance?.totalBalance);
+  const hasCachedBankNumber = Number.isFinite(cachedBalance?.totalBalance);
+  const hasAnyBankNumber = hasLiveBankNumber || hasCachedBankNumber;
 
-const hasCachedBankNumber = Number.isFinite(cachedBalance?.totalBalance);
-const hasAnyBankNumber = hasLiveBankNumber || hasCachedBankNumber;
+  const canShowLocalTotals = isBankDisconnected && !hasAnyBankNumber;
 
-const canShowLocalTotals = isBankDisconnected && !hasAnyBankNumber;
+  const balanceIsLoading =
+    bankStatusLoading ||
+    (isBankConnected && (liveBalanceLoading || !hasLiveBankNumber)) ||
+    (isBankDisconnected && cachedBalanceLoading && !hasCachedBankNumber);
 
-const balanceIsLoading =
-  bankStatusLoading ||
-  (isBankConnected && !hasAnyBankNumber) ||
-  (!hasAnyBankNumber && cachedBalanceLoading);
+  const balanceValue =
+    hasLiveBankNumber
+      ? displayBalance?.totalBalance
+      : hasCachedBankNumber
+      ? cachedBalance.totalBalance
+      : canShowLocalTotals
+      ? globalTotals?.balance ?? 0
+      : null;
 
-const balanceValue =
-  hasLiveBankNumber
-    ? (displayBalance?.totalBalance ?? bankBalance?.totalBalance)
-    : hasCachedBankNumber
-    ? cachedBalance.totalBalance
-    : canShowLocalTotals
-    ? (globalTotals?.balance ?? 0)
-    : null;
+  const isNegative = !balanceIsLoading && Number(balanceValue ?? 0) < 0;
 
-const isNegative = !balanceIsLoading && Number(balanceValue ?? 0) < 0;
-
-const formattedBalance = useMemo(() => {
-  if (balanceIsLoading || balanceValue === null) return "Loading…";
-  const b = Number(balanceValue ?? 0);
-  const sign = b < 0 ? "-" : "";
-  return `${sign}£${Math.abs(b).toFixed(2)}`;
-}, [balanceIsLoading, balanceValue]);
+  const formattedBalance = useMemo(() => {
+    if (balanceIsLoading || balanceValue === null) return "Loading…";
+    const b = Number(balanceValue ?? 0);
+    const sign = b < 0 ? "-" : "";
+    return `${sign}£${Math.abs(b).toFixed(2)}`;
+  }, [balanceIsLoading, balanceValue]);
 
   const handleAddTransaction = (type) => {
     const value = Number(amount);
@@ -434,22 +393,18 @@ const formattedBalance = useMemo(() => {
       const type =
         (t.type || "expense").toLowerCase() === "income" ? "income" : "expense";
       const desc = (t.description || "").trim();
-      // Treat missing source as 'manual' for backward compatibility with unmigrated transactions
-      const source = t.source || 'manual';
+      const source = t.source || "manual";
       return { ...t, date, amount: amt, type, description: desc, source };
     });
   }, [transactions]);
 
   // When bank is connected, only use bank transactions for charts (to avoid double-counting old CSV imports)
-  // Manual transactions are still in the database but filtered out from analytics
   const chartTransactions = useMemo(() => {
     if (isBankConnected && parsed.length > 0) {
-      // Only include transactions with source='bank'
-      const bankTxs = parsed.filter(t => t.source === 'bank');
-      // If we have bank transactions, use only those; otherwise fall back to all (for backward compatibility)
+      const bankTxs = parsed.filter((t) => t.source === "bank");
       return bankTxs.length > 0 ? bankTxs : parsed;
     }
-    return parsed; // If no bank connection, show all transactions
+    return parsed;
   }, [parsed, isBankConnected]);
 
   const recentSorted = useMemo(() => {
@@ -463,13 +418,13 @@ const formattedBalance = useMemo(() => {
 
   // Filter recent transactions by time range
   const filteredRecentTransactions = useMemo(() => {
-    if (transactionFilter === null) return recentSorted; // Show all
+    if (transactionFilter === null) return recentSorted;
 
     const now = new Date();
     const cutoffDate = new Date(now);
     cutoffDate.setDate(cutoffDate.getDate() - transactionFilter);
 
-    return recentSorted.filter(t => {
+    return recentSorted.filter((t) => {
       const txDate = t.date instanceof Date ? t.date : new Date(t.date);
       return txDate >= cutoffDate;
     });
@@ -652,7 +607,11 @@ const formattedBalance = useMemo(() => {
 
       if (found) {
         if (!map[found.key]) {
-          map[found.key] = { amount: 0, description: found.description, count: 0 };
+          map[found.key] = {
+            amount: 0,
+            description: found.description,
+            count: 0,
+          };
         }
         map[found.key].amount += t.amount;
         map[found.key].count += 1;
@@ -702,7 +661,14 @@ const formattedBalance = useMemo(() => {
               strokeDashoffset={incomeArc / 2}
               transform="rotate(-90)"
             />
-            <text fill="#f8f8f8" x="0" y="4" textAnchor="middle" fontSize="14" fontWeight={600}>
+            <text
+              fill="#f8f8f8"
+              x="0"
+              y="4"
+              textAnchor="middle"
+              fontSize="14"
+              fontWeight={600}
+            >
               £{Math.abs(income - expense).toFixed(2)}
             </text>
             <text x="0" y="22" textAnchor="middle" fontSize="11" fill="#666">
@@ -734,33 +700,66 @@ const formattedBalance = useMemo(() => {
     });
 
     const d = pts
-      .map((p, i) => `${i === 0 ? "M" : "L"}${p[0].toFixed(1)},${p[1].toFixed(1)}`)
+      .map((p, i) =>
+        `${i === 0 ? "M" : "L"}${p[0].toFixed(1)},${p[1].toFixed(1)}`
+      )
       .join(" ");
 
     return (
-      <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} style={{ display: "block" }}>
+      <svg
+        width="100%"
+        height={height}
+        viewBox={`0 0 ${width} ${height}`}
+        style={{ display: "block" }}
+      >
         {[0, 0.25, 0.5, 0.75, 1].map((f) => {
           const y = pad.t + f * h;
-          return <line key={f} x1={pad.l} x2={width - pad.r} y1={y} y2={y} stroke="#eee" />;
+          return (
+            <line
+              key={f}
+              x1={pad.l}
+              x2={width - pad.r}
+              y1={y}
+              y2={y}
+              stroke="#eee"
+            />
+          );
         })}
 
         {data.map((it, i) => {
           const x = (i / Math.max(1, data.length - 1)) * w + pad.l;
           return (
-            <text key={i} x={x} y={height - 6} fontSize={11} textAnchor="middle" fill="#666">
+            <text
+              key={i}
+              x={x}
+              y={height - 6}
+              fontSize={11}
+              textAnchor="middle"
+              fill="#666"
+            >
               {it.label}
             </text>
           );
         })}
 
         <path
-          d={`${d} L ${width - pad.r},${height - pad.b} L ${pad.l},${height - pad.b} Z`}
+          d={`${d} L ${width - pad.r},${height - pad.b} L ${pad.l},${
+            height - pad.b
+          } Z`}
           fill="rgba(28,125,58,0.08)"
         />
         <path d={d} fill="none" stroke="#1c7d3a" strokeWidth={2} />
 
         {pts.map((p, i) => (
-          <circle key={i} cx={p[0]} cy={p[1]} r={2.5} fill="#fff" stroke="#1c7d3a" strokeWidth={1.2} />
+          <circle
+            key={i}
+            cx={p[0]}
+            cy={p[1]}
+            r={2.5}
+            fill="#fff"
+            stroke="#1c7d3a"
+            strokeWidth={1.2}
+          />
         ))}
       </svg>
     );
@@ -778,7 +777,12 @@ const formattedBalance = useMemo(() => {
     const max = Math.max(...items.map((i) => i.amount), 1);
 
     return (
-      <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} style={{ display: "block" }}>
+      <svg
+        width="100%"
+        height={height}
+        viewBox={`0 0 ${width} ${height}`}
+        style={{ display: "block" }}
+      >
         {items.map((it, idx) => {
           const x = pad.l + idx * (bw + gap);
           const barH = (it.amount / max) * h;
@@ -809,7 +813,10 @@ const formattedBalance = useMemo(() => {
   };
 
   return (
-    <div className="container-fluid py-4 mt-5" style={{ maxWidth: 900, minHeight: "100vh", overflowY: "auto" }}>
+    <div
+      className="container-fluid py-4 mt-5"
+      style={{ maxWidth: 900, minHeight: "100vh", overflowY: "auto" }}
+    >
       <Navbar />
       {shouldShowHelp && <HelpPanel />}
 
@@ -818,7 +825,9 @@ const formattedBalance = useMemo(() => {
           <div className="d-flex align-items-start justify-content-between mb-3">
             <div>
               <h2 className="h5 mb-1">Warden Dashboard</h2>
-              <p className="text-muted small mb-0">Everything from the old homepage lives here now.</p>
+              <p className="text-muted small mb-0">
+                Everything from the old homepage lives here now.
+              </p>
             </div>
 
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -831,7 +840,11 @@ const formattedBalance = useMemo(() => {
                   style={{ fontSize: "1.1rem", padding: "0.25rem 0.5rem" }}
                 >
                   {bankSyncing ? (
-                    <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                    <span
+                      className="spinner-border spinner-border-sm"
+                      role="status"
+                      aria-hidden="true"
+                    ></span>
                   ) : (
                     "🔄"
                   )}
@@ -839,19 +852,40 @@ const formattedBalance = useMemo(() => {
               )}
 
               <div className="btn-group" role="group">
-                <button className={`btn btn-sm ${monthsBack === 3 ? "btn-primary" : "btn-outline-secondary"}`} onClick={() => setMonthsBack(3)}>
+                <button
+                  className={`btn btn-sm ${
+                    monthsBack === 3 ? "btn-primary" : "btn-outline-secondary"
+                  }`}
+                  onClick={() => setMonthsBack(3)}
+                >
                   3m
                 </button>
-                <button className={`btn btn-sm ${monthsBack === 6 ? "btn-primary" : "btn-outline-secondary"}`} onClick={() => setMonthsBack(6)}>
+                <button
+                  className={`btn btn-sm ${
+                    monthsBack === 6 ? "btn-primary" : "btn-outline-secondary"
+                  }`}
+                  onClick={() => setMonthsBack(6)}
+                >
                   6m
                 </button>
-                <button className={`btn btn-sm ${monthsBack === 12 ? "btn-primary" : "btn-outline-secondary"}`} onClick={() => setMonthsBack(12)}>
+                <button
+                  className={`btn btn-sm ${
+                    monthsBack === 12 ? "btn-primary" : "btn-outline-secondary"
+                  }`}
+                  onClick={() => setMonthsBack(12)}
+                >
                   12m
                 </button>
               </div>
 
               <div className="form-check form-switch ms-2">
-                <input className="form-check-input" type="checkbox" id="cumSwitch" checked={showCumulative} onChange={(e) => setShowCumulative(e.target.checked)} />
+                <input
+                  className="form-check-input"
+                  type="checkbox"
+                  id="cumSwitch"
+                  checked={showCumulative}
+                  onChange={(e) => setShowCumulative(e.target.checked)}
+                />
                 <label className="form-check-label small" htmlFor="cumSwitch">
                   Cumulative
                 </label>
@@ -860,11 +894,22 @@ const formattedBalance = useMemo(() => {
           </div>
 
           {(bankSyncing || lastSyncMessage) && (
-            <div className={`alert ${lastSyncMessage.includes("failed") || lastSyncMessage.includes("expired") ? "alert-warning" : "alert-info"} py-2 mb-3`}>
+            <div
+              className={`alert ${
+                lastSyncMessage.includes("failed") ||
+                lastSyncMessage.includes("expired")
+                  ? "alert-warning"
+                  : "alert-info"
+              } py-2 mb-3`}
+            >
               <small>
                 {bankSyncing ? (
                   <>
-                    <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                    <span
+                      className="spinner-border spinner-border-sm me-2"
+                      role="status"
+                      aria-hidden="true"
+                    ></span>
                     Syncing bank transactions...
                   </>
                 ) : (
@@ -887,20 +932,33 @@ const formattedBalance = useMemo(() => {
                       : "Current Balance"}
 
                     {isBankConnected && hasLiveBankNumber && !balanceIsLoading && (
-                      <span className="badge bg-info ms-2" style={{ fontSize: "0.65rem" }}>
+                      <span
+                        className="badge bg-info ms-2"
+                        style={{ fontSize: "0.65rem" }}
+                      >
                         Live
                       </span>
                     )}
 
                     {!isBankConnected && hasCachedBankNumber && (
-                      <span className="badge bg-secondary ms-2" style={{ fontSize: "0.65rem" }}>
+                      <span
+                        className="badge bg-secondary ms-2"
+                        style={{ fontSize: "0.65rem" }}
+                      >
                         Cached
                       </span>
                     )}
-
                   </div>
 
-                  <div className={`display-6 mb-0 ${balanceIsLoading ? "text-muted" : isNegative ? "text-danger" : "text-success"}`}>
+                  <div
+                    className={`display-6 mb-0 ${
+                      balanceIsLoading
+                        ? "text-muted"
+                        : isNegative
+                        ? "text-danger"
+                        : "text-success"
+                    }`}
+                  >
                     {formattedBalance}
                   </div>
 
@@ -908,12 +966,24 @@ const formattedBalance = useMemo(() => {
                     !balanceIsLoading &&
                     Number.isFinite(bankBalance?.availableBalance) &&
                     Number.isFinite(bankBalance?.totalBalance) &&
-                    Math.abs(bankBalance.availableBalance - bankBalance.totalBalance) > 0.01 && (
-                      <div className="text-muted small mt-1">Available: £{bankBalance.availableBalance.toFixed(2)}</div>
+                    Math.abs(
+                      bankBalance.availableBalance - bankBalance.totalBalance
+                    ) > 0.01 && (
+                      <div className="text-muted small mt-1">
+                        Available: £{bankBalance.availableBalance.toFixed(2)}
+                      </div>
                     )}
                 </div>
 
-                <span className={`badge rounded-pill ${balanceIsLoading ? "text-bg-secondary" : isNegative ? "text-bg-danger" : "text-bg-success"}`}>
+                <span
+                  className={`badge rounded-pill ${
+                    balanceIsLoading
+                      ? "text-bg-secondary"
+                      : isNegative
+                      ? "text-bg-danger"
+                      : "text-bg-success"
+                  }`}
+                >
                   {balanceIsLoading ? "Loading…" : isNegative ? "Over budget" : "Looking good"}
                 </span>
               </div>
@@ -923,7 +993,10 @@ const formattedBalance = useMemo(() => {
           {/* Quick Add */}
           <div className="card shadow-sm mb-3">
             <div className="card-body">
-              <button className="btn btn-primary w-100" onClick={() => setShowQuickAddModal(true)}>
+              <button
+                className="btn btn-primary w-100"
+                onClick={() => setShowQuickAddModal(true)}
+              >
                 💬 Quick Add
               </button>
             </div>
@@ -936,23 +1009,41 @@ const formattedBalance = useMemo(() => {
                 <div className="d-flex align-items-center justify-content-between">
                   <h2 className="h6 mb-0">Import Transactions</h2>
                 </div>
-                <p className="text-muted small mt-2 mb-3">Upload your bank statements in CSV or PDF format, or connect your bank directly</p>
+                <p className="text-muted small mt-2 mb-3">
+                  Upload your bank statements in CSV or PDF format, or connect
+                  your bank directly
+                </p>
 
                 <div className="d-flex flex-column gap-2">
-                  <button className="btn btn-primary w-100" onClick={() => setShowImportModal(true)}>
+                  <button
+                    className="btn btn-primary w-100"
+                    onClick={() => setShowImportModal(true)}
+                  >
                     📄 Import CSV/PDF Statement
                   </button>
 
                   {bankStatusLoading ? (
                     <button className="btn btn-outline-secondary w-100" disabled>
-                      <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                      <span
+                        className="spinner-border spinner-border-sm me-2"
+                        role="status"
+                        aria-hidden="true"
+                      ></span>
                       Checking bank connection...
                     </button>
                   ) : (
-                    <button className="btn btn-outline-primary w-100" onClick={handleConnectBank} disabled={bankLoading}>
+                    <button
+                      className="btn btn-outline-primary w-100"
+                      onClick={handleConnectBank}
+                      disabled={bankLoading}
+                    >
                       {bankLoading ? (
                         <>
-                          <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                          <span
+                            className="spinner-border spinner-border-sm me-2"
+                            role="status"
+                            aria-hidden="true"
+                          ></span>
                           Connecting...
                         </>
                       ) : (
@@ -967,7 +1058,9 @@ const formattedBalance = useMemo(() => {
 
           {/* Charts */}
           {parsed.length === 0 ? (
-            <div className="text-muted">No transactions to show. Import some transactions to see insights.</div>
+            <div className="text-muted">
+              No transactions to show. Import some transactions to see insights.
+            </div>
           ) : (
             <div className="row g-3 mb-3">
               <div className="col-12 col-md-4 d-flex align-items-center justify-content-center">
@@ -977,7 +1070,9 @@ const formattedBalance = useMemo(() => {
               <div className="col-12 col-md-8">
                 <div className="card p-2" style={{ height: 220 }}>
                   <div className="d-flex align-items-center justify-content-between mb-2">
-                    <small className="text-muted">{showCumulative ? "Cumulative balance" : "Net per month"}</small>
+                    <small className="text-muted">
+                      {showCumulative ? "Cumulative balance" : "Net per month"}
+                    </small>
                     <small className="text-muted">{monthsBack} months</small>
                   </div>
                   <div style={{ width: "100%", height: 160 }}>
@@ -991,7 +1086,11 @@ const formattedBalance = useMemo(() => {
                 <button
                   className="btn btn-sm btn-outline-secondary"
                   onClick={() => setShowInsightsDetails(!showInsightsDetails)}
-                  title={showInsightsDetails ? "Hide insights details" : "Show insights details"}
+                  title={
+                    showInsightsDetails
+                      ? "Hide insights details"
+                      : "Show insights details"
+                  }
                 >
                   {showInsightsDetails ? "▼ Hide Insights" : "▶ Show Insights"}
                 </button>
@@ -1000,137 +1099,217 @@ const formattedBalance = useMemo(() => {
               {/* Collapsible insights sections */}
               {showInsightsDetails && (
                 <>
-              <div className="row g-3 mb-3">
-                <div className="col-12 col-lg-6">
-                  <div className="card p-2">
-                    <div className="d-flex align-items-center justify-content-between mb-2">
-                      <div>
-                        <strong>Top Expense Categories</strong>
-                        <div className="text-muted small">Largest buckets</div>
-                      </div>
-                      <div className="text-muted small">{topExpenses.length}</div>
-                    </div>
-
-                    {topExpenses.length === 0 ? (
-                      <div className="text-muted">No expense data available.</div>
-                    ) : (
-                      <div style={{ minHeight: 220 }}>
-                        <Bars items={topExpenses} width={400} height={180} />
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="col-12 col-lg-6">
-                  <div className="card p-2">
-                    <div className="d-flex align-items-center justify-content-between mb-2">
-                      <div>
-                        <strong>Top Merchants & Vendors</strong>
-                        <div className="text-muted small">Where you spend most</div>
-                      </div>
-                      <div className="text-muted small">{topMerchants.length}</div>
-                    </div>
-
-                    {topMerchants.length === 0 ? (
-                      <div className="text-muted">No merchant data available.</div>
-                    ) : (
-                      <div style={{ minHeight: 220 }}>
-                        <Bars items={topMerchants.map((m) => ({ category: m.vendor, amount: m.amount }))} width={400} height={180} />
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {spendingForecast && (
-                <div className="card p-3 mb-3">
-                  <div className="mb-3">
-                    <strong>Spending Forecast</strong>
-                    <div className="text-muted small">Next month projection</div>
-                  </div>
-
-                  <div className="row g-3">
-                    <div className="col-12 col-sm-6">
-                      <div className="p-3 rounded" style={{ backgroundColor: "var(--card-border)", color: "var(--text)" }}>
-                        <div className="text-muted small mb-1">Forecast</div>
-                        <div className="h5 mb-0 text-primary">£{spendingForecast.forecast.toFixed(2)}</div>
-                        <small className="text-muted d-block">Based on last 3 months avg</small>
-                      </div>
-                    </div>
-
-                    <div className="col-12 col-sm-6">
-                      <div className="p-3 rounded" style={{ backgroundColor: "var(--card-border)", color: "var(--text)" }}>
-                        <div className="text-muted small mb-1">Trend</div>
-                        <div className={`h5 mb-0 ${spendingForecast.trend === "increasing" ? "text-danger" : "text-success"}`}>
-                          {spendingForecast.trend === "increasing" ? "📈 Increasing" : "📉 Decreasing"}
-                        </div>
-                        <small className="text-muted d-block">vs historical average (£{spendingForecast.average.toFixed(2)})</small>
-                      </div>
-                    </div>
-
-                    <div className="col-12 col-sm-6">
-                      <div className="p-3 rounded" style={{ backgroundColor: "var(--card-border)", color: "var(--text)" }}>
-                        <div className="text-muted small mb-1">Last Month</div>
-                        <div className="h5 mb-0">£{spendingForecast.lastMonth.toFixed(2)}</div>
-                        <small className="text-muted d-block">Actual spending</small>
-                      </div>
-                    </div>
-
-                    <div className="col-12 col-sm-6">
-                      <div className="p-3 rounded" style={{ backgroundColor: "var(--card-border)", color: "var(--text)" }}>
-                        <div className="text-muted small mb-1">Average</div>
-                        <div className="h5 mb-0">£{spendingForecast.average.toFixed(2)}</div>
-                        <small className="text-muted d-block">Over {monthsBack} months</small>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {potentialSavings.length > 0 && (
-                <div className="card p-3 mb-3">
-                  <div className="mb-3">
-                    <strong>💰 Where You Could Save</strong>
-                    <div className="text-muted small">Potential annual savings if you cut discretionary spending</div>
-                  </div>
-
-                  <div style={{ maxHeight: 400, overflowY: "auto" }}>
-                    {potentialSavings.map((item, idx) => (
-                      <div key={idx} className="p-3 mb-2 rounded" style={{ backgroundColor: "rgba(220, 53, 69, 0.08)", borderLeft: "4px solid #dc3545" }}>
-                        <div className="d-flex align-items-start justify-content-between mb-2">
+                  <div className="row g-3 mb-3">
+                    <div className="col-12 col-lg-6">
+                      <div className="card p-2">
+                        <div className="d-flex align-items-center justify-content-between mb-2">
                           <div>
-                            <strong>{item.category}</strong>
-                            <div className="text-muted small">{item.description}</div>
+                            <strong>Top Expense Categories</strong>
+                            <div className="text-muted small">Largest buckets</div>
+                          </div>
+                          <div className="text-muted small">{topExpenses.length}</div>
+                        </div>
+
+                        {topExpenses.length === 0 ? (
+                          <div className="text-muted">No expense data available.</div>
+                        ) : (
+                          <div style={{ minHeight: 220 }}>
+                            <Bars items={topExpenses} width={400} height={180} />
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="col-12 col-lg-6">
+                      <div className="card p-2">
+                        <div className="d-flex align-items-center justify-content-between mb-2">
+                          <div>
+                            <strong>Top Merchants & Vendors</strong>
+                            <div className="text-muted small">Where you spend most</div>
+                          </div>
+                          <div className="text-muted small">{topMerchants.length}</div>
+                        </div>
+
+                        {topMerchants.length === 0 ? (
+                          <div className="text-muted">No merchant data available.</div>
+                        ) : (
+                          <div style={{ minHeight: 220 }}>
+                            <Bars
+                              items={topMerchants.map((m) => ({
+                                category: m.vendor,
+                                amount: m.amount,
+                              }))}
+                              width={400}
+                              height={180}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {spendingForecast && (
+                    <div className="card p-3 mb-3">
+                      <div className="mb-3">
+                        <strong>Spending Forecast</strong>
+                        <div className="text-muted small">Next month projection</div>
+                      </div>
+
+                      <div className="row g-3">
+                        <div className="col-12 col-sm-6">
+                          <div
+                            className="p-3 rounded"
+                            style={{
+                              backgroundColor: "var(--card-border)",
+                              color: "var(--text)",
+                            }}
+                          >
+                            <div className="text-muted small mb-1">Forecast</div>
+                            <div className="h5 mb-0 text-primary">
+                              £{spendingForecast.forecast.toFixed(2)}
+                            </div>
+                            <small className="text-muted d-block">
+                              Based on last 3 months avg
+                            </small>
                           </div>
                         </div>
 
-                        <div className="row g-2 small">
-                          <div className="col-6">
-                            <div className="text-muted">Monthly spend</div>
-                            <div className="h6 mb-0 text-warning">£{item.monthlyAvg.toFixed(2)}</div>
+                        <div className="col-12 col-sm-6">
+                          <div
+                            className="p-3 rounded"
+                            style={{
+                              backgroundColor: "var(--card-border)",
+                              color: "var(--text)",
+                            }}
+                          >
+                            <div className="text-muted small mb-1">Trend</div>
+                            <div
+                              className={`h5 mb-0 ${
+                                spendingForecast.trend === "increasing"
+                                  ? "text-danger"
+                                  : "text-success"
+                              }`}
+                            >
+                              {spendingForecast.trend === "increasing"
+                                ? "📈 Increasing"
+                                : "📉 Decreasing"}
+                            </div>
+                            <small className="text-muted d-block">
+                              vs historical average (£{spendingForecast.average.toFixed(2)})
+                            </small>
                           </div>
-                          <div className="col-6">
-                            <div className="text-muted">Annual potential</div>
-                            <div className="h6 mb-0 text-danger">£{item.yearlyPotential.toFixed(2)}</div>
+                        </div>
+
+                        <div className="col-12 col-sm-6">
+                          <div
+                            className="p-3 rounded"
+                            style={{
+                              backgroundColor: "var(--card-border)",
+                              color: "var(--text)",
+                            }}
+                          >
+                            <div className="text-muted small mb-1">Last Month</div>
+                            <div className="h5 mb-0">
+                              £{spendingForecast.lastMonth.toFixed(2)}
+                            </div>
+                            <small className="text-muted d-block">Actual spending</small>
                           </div>
-                          <div className="col-12">
-                            <div className="text-muted">Transactions</div>
-                            <div className="text-secondary small">{item.count} transaction{item.count !== 1 ? "s" : ""} in last {monthsBack} months</div>
+                        </div>
+
+                        <div className="col-12 col-sm-6">
+                          <div
+                            className="p-3 rounded"
+                            style={{
+                              backgroundColor: "var(--card-border)",
+                              color: "var(--text)",
+                            }}
+                          >
+                            <div className="text-muted small mb-1">Average</div>
+                            <div className="h5 mb-0">
+                              £{spendingForecast.average.toFixed(2)}
+                            </div>
+                            <small className="text-muted d-block">
+                              Over {monthsBack} months
+                            </small>
                           </div>
                         </div>
                       </div>
-                    ))}
-                  </div>
-
-                  <div className="mt-3 p-3 rounded" style={{ backgroundColor: "rgba(40, 167, 69, 0.08)", borderLeft: "4px solid #28a745" }}>
-                    <div className="text-muted small mb-1">Total potential savings (yearly)</div>
-                    <div className="h5 mb-0 text-success">
-                      £{potentialSavings.reduce((sum, item) => sum + item.yearlyPotential, 0).toFixed(2)}
                     </div>
-                    <small className="text-muted d-block">If you eliminated these discretionary categories</small>
-                  </div>
-                </div>
-              )}
+                  )}
+
+                  {potentialSavings.length > 0 && (
+                    <div className="card p-3 mb-3">
+                      <div className="mb-3">
+                        <strong>💰 Where You Could Save</strong>
+                        <div className="text-muted small">
+                          Potential annual savings if you cut discretionary spending
+                        </div>
+                      </div>
+
+                      <div style={{ maxHeight: 400, overflowY: "auto" }}>
+                        {potentialSavings.map((item, idx) => (
+                          <div
+                            key={idx}
+                            className="p-3 mb-2 rounded"
+                            style={{
+                              backgroundColor: "rgba(220, 53, 69, 0.08)",
+                              borderLeft: "4px solid #dc3545",
+                            }}
+                          >
+                            <div className="d-flex align-items-start justify-content-between mb-2">
+                              <div>
+                                <strong>{item.category}</strong>
+                                <div className="text-muted small">{item.description}</div>
+                              </div>
+                            </div>
+
+                            <div className="row g-2 small">
+                              <div className="col-6">
+                                <div className="text-muted">Monthly spend</div>
+                                <div className="h6 mb-0 text-warning">
+                                  £{item.monthlyAvg.toFixed(2)}
+                                </div>
+                              </div>
+                              <div className="col-6">
+                                <div className="text-muted">Annual potential</div>
+                                <div className="h6 mb-0 text-danger">
+                                  £{item.yearlyPotential.toFixed(2)}
+                                </div>
+                              </div>
+                              <div className="col-12">
+                                <div className="text-muted">Transactions</div>
+                                <div className="text-secondary small">
+                                  {item.count} transaction{item.count !== 1 ? "s" : ""} in last{" "}
+                                  {monthsBack} months
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div
+                        className="mt-3 p-3 rounded"
+                        style={{
+                          backgroundColor: "rgba(40, 167, 69, 0.08)",
+                          borderLeft: "4px solid #28a745",
+                        }}
+                      >
+                        <div className="text-muted small mb-1">
+                          Total potential savings (yearly)
+                        </div>
+                        <div className="h5 mb-0 text-success">
+                          £
+                          {potentialSavings
+                            .reduce((sum, item) => sum + item.yearlyPotential, 0)
+                            .toFixed(2)}
+                        </div>
+                        <small className="text-muted d-block">
+                          If you eliminated these discretionary categories
+                        </small>
+                      </div>
+                    </div>
+                  )}
                 </>
               )}
             </div>
@@ -1141,37 +1320,49 @@ const formattedBalance = useMemo(() => {
             <div className="card-body">
               <div className="d-flex align-items-center justify-content-between mb-3">
                 <h2 className="h6 mb-0">Recent Transactions</h2>
-                <span className="text-muted small">{filteredRecentTransactions.length} / {transactions.length} total</span>
+                <span className="text-muted small">
+                  {filteredRecentTransactions.length} / {transactions.length} total
+                </span>
               </div>
 
               {/* Time range filter buttons */}
               <div className="d-flex gap-2 mb-3 flex-wrap">
                 <button
-                  className={`btn btn-sm ${transactionFilter === 7 ? "btn-primary" : "btn-outline-secondary"}`}
+                  className={`btn btn-sm ${
+                    transactionFilter === 7 ? "btn-primary" : "btn-outline-secondary"
+                  }`}
                   onClick={() => setTransactionFilter(7)}
                 >
                   7d
                 </button>
                 <button
-                  className={`btn btn-sm ${transactionFilter === 30 ? "btn-primary" : "btn-outline-secondary"}`}
+                  className={`btn btn-sm ${
+                    transactionFilter === 30 ? "btn-primary" : "btn-outline-secondary"
+                  }`}
                   onClick={() => setTransactionFilter(30)}
                 >
                   1m
                 </button>
                 <button
-                  className={`btn btn-sm ${transactionFilter === 180 ? "btn-primary" : "btn-outline-secondary"}`}
+                  className={`btn btn-sm ${
+                    transactionFilter === 180 ? "btn-primary" : "btn-outline-secondary"
+                  }`}
                   onClick={() => setTransactionFilter(180)}
                 >
                   6m
                 </button>
                 <button
-                  className={`btn btn-sm ${transactionFilter === 365 ? "btn-primary" : "btn-outline-secondary"}`}
+                  className={`btn btn-sm ${
+                    transactionFilter === 365 ? "btn-primary" : "btn-outline-secondary"
+                  }`}
                   onClick={() => setTransactionFilter(365)}
                 >
                   1y
                 </button>
                 <button
-                  className={`btn btn-sm ${transactionFilter === null ? "btn-primary" : "btn-outline-secondary"}`}
+                  className={`btn btn-sm ${
+                    transactionFilter === null ? "btn-primary" : "btn-outline-secondary"
+                  }`}
                   onClick={() => setTransactionFilter(null)}
                 >
                   All
@@ -1189,8 +1380,15 @@ const formattedBalance = useMemo(() => {
                       <div className="d-flex align-items-start justify-content-between gap-2">
                         <div style={{ flex: 1 }}>
                           <div className="d-flex align-items-center gap-2 mb-2">
-                            <span className={t.type === "income" ? "text-success fw-semibold" : "text-danger fw-semibold"}>
-                              {t.type === "income" ? "+ " : "− "}£{Number(t.amount).toFixed(2)}
+                            <span
+                              className={
+                                t.type === "income"
+                                  ? "text-success fw-semibold"
+                                  : "text-danger fw-semibold"
+                              }
+                            >
+                              {t.type === "income" ? "+ " : "− "}£
+                              {Number(t.amount).toFixed(2)}
                             </span>
 
                             {editingCategoryId === t.id ? (
@@ -1248,15 +1446,26 @@ const formattedBalance = useMemo(() => {
 
           {/* Import Modal */}
           {showImportModal && (
-            <div className="modal d-block" style={{ backgroundColor: "rgba(0, 0, 0, 0.5)" }} role="dialog">
+            <div
+              className="modal d-block"
+              style={{ backgroundColor: "rgba(0, 0, 0, 0.5)" }}
+              role="dialog"
+            >
               <div className="modal-dialog modal-lg" role="document">
                 <div className="modal-content">
                   <div className="modal-header">
                     <h5 className="modal-title">Import Bank Statement</h5>
-                    <button type="button" className="btn-close" onClick={() => setShowImportModal(false)}></button>
+                    <button
+                      type="button"
+                      className="btn-close"
+                      onClick={() => setShowImportModal(false)}
+                    ></button>
                   </div>
                   <div className="modal-body">
-                    <CsvPdfUpload onSave={bulkAddTransactions} onClose={() => setShowImportModal(false)} />
+                    <CsvPdfUpload
+                      onSave={bulkAddTransactions}
+                      onClose={() => setShowImportModal(false)}
+                    />
                   </div>
                 </div>
               </div>
@@ -1265,12 +1474,20 @@ const formattedBalance = useMemo(() => {
 
           {/* Quick Add Modal */}
           {showQuickAddModal && (
-            <div className="modal d-block" style={{ backgroundColor: "rgba(0, 0, 0, 0.5)" }} role="dialog">
+            <div
+              className="modal d-block"
+              style={{ backgroundColor: "rgba(0, 0, 0, 0.5)" }}
+              role="dialog"
+            >
               <div className="modal-dialog" role="document">
                 <div className="modal-content">
                   <div className="modal-header">
                     <h5 className="modal-title">Quick Add Transaction</h5>
-                    <button type="button" className="btn-close" onClick={() => setShowQuickAddModal(false)}></button>
+                    <button
+                      type="button"
+                      className="btn-close"
+                      onClick={() => setShowQuickAddModal(false)}
+                    ></button>
                   </div>
                   <div className="modal-body">
                     <div className="mb-3">
@@ -1288,7 +1505,11 @@ const formattedBalance = useMemo(() => {
 
                     <div className="mb-3">
                       <label className="form-label">Category</label>
-                      <select className="form-select" value={category} onChange={(e) => setCategory(e.target.value)}>
+                      <select
+                        className="form-select"
+                        value={category}
+                        onChange={(e) => setCategory(e.target.value)}
+                      >
                         {categories.map((c) => (
                           <option key={c} value={c}>
                             {c}
@@ -1308,7 +1529,11 @@ const formattedBalance = useMemo(() => {
                     </div>
                   </div>
                   <div className="modal-footer">
-                    <button type="button" className="btn btn-secondary" onClick={() => setShowQuickAddModal(false)}>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() => setShowQuickAddModal(false)}
+                    >
                       Cancel
                     </button>
                     <button
