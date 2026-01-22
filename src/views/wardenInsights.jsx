@@ -349,41 +349,40 @@ export default function WardenInsights() {
     }
   };
 
-  const isBankConnected = !!bankStatus?.connected;
+ const isBankConnected = bankStatus?.connected === true;
+const isBankDisconnected = bankStatus?.connected === false;
 
-  const hasLiveBankNumber =
-    Number.isFinite(displayBalance?.totalBalance) ||
-    Number.isFinite(bankBalance?.totalBalance);
+const hasLiveBankNumber =
+  Number.isFinite(displayBalance?.totalBalance) ||
+  Number.isFinite(bankBalance?.totalBalance);
 
-  const hasCachedBankNumber = Number.isFinite(cachedBalance?.totalBalance);
+const hasCachedBankNumber = Number.isFinite(cachedBalance?.totalBalance);
+const hasAnyBankNumber = hasLiveBankNumber || hasCachedBankNumber;
 
-  // Show loading only if we have nothing at all yet:
-  const hasAnyBankNumber = hasLiveBankNumber || hasCachedBankNumber;
+const canShowLocalTotals = isBankDisconnected && !hasAnyBankNumber;
 
-// Loading if:
-// - we don't have any bank number yet
-// - and bank status is still unknown (so we don't know if we should expect bank data)
-// - and cached call is still in-flight
-  const balanceIsLoading =
-    !hasAnyBankNumber && (bankStatusLoading || cachedBalanceLoading);
+const balanceIsLoading =
+  bankStatusLoading ||
+  (isBankConnected && !hasAnyBankNumber) ||
+  (!hasAnyBankNumber && cachedBalanceLoading);
 
+const balanceValue =
+  hasLiveBankNumber
+    ? (displayBalance?.totalBalance ?? bankBalance?.totalBalance)
+    : hasCachedBankNumber
+    ? cachedBalance.totalBalance
+    : canShowLocalTotals
+    ? (globalTotals?.balance ?? 0)
+    : null;
 
-  const balanceValue =
-    hasLiveBankNumber
-      ? (displayBalance?.totalBalance ?? bankBalance?.totalBalance)
-      : hasCachedBankNumber
-      ? cachedBalance.totalBalance
-      : globalTotals?.balance ?? 0;
+const isNegative = !balanceIsLoading && Number(balanceValue ?? 0) < 0;
 
-
-  const isNegative = !balanceIsLoading && Number(balanceValue ?? 0) < 0;
-
-  const formattedBalance = useMemo(() => {
-    if (balanceIsLoading || balanceValue === null) return "Loading…";
-    const b = Number(balanceValue ?? 0);
-    const sign = b < 0 ? "-" : "";
-    return `${sign}£${Math.abs(b).toFixed(2)}`;
-  }, [balanceIsLoading, balanceValue]);
+const formattedBalance = useMemo(() => {
+  if (balanceIsLoading || balanceValue === null) return "Loading…";
+  const b = Number(balanceValue ?? 0);
+  const sign = b < 0 ? "-" : "";
+  return `${sign}£${Math.abs(b).toFixed(2)}`;
+}, [balanceIsLoading, balanceValue]);
 
   const handleAddTransaction = (type) => {
     const value = Number(amount);
@@ -670,7 +669,7 @@ export default function WardenInsights() {
               strokeDashoffset={incomeArc / 2}
               transform="rotate(-90)"
             />
-            <text x="0" y="4" textAnchor="middle" fontSize="14" fontWeight={600}>
+            <text fill="#f8f8f8" x="0" y="4" textAnchor="middle" fontSize="14" fontWeight={600}>
               £{Math.abs(income - expense).toFixed(2)}
             </text>
             <text x="0" y="22" textAnchor="middle" fontSize="11" fill="#666">

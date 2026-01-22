@@ -4,6 +4,8 @@ import { useAuth0 } from '@auth0/auth0-react';
 import { getUserToken } from '../utils/userToken';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000/api';
+
+
 const TransactionsContext = createContext(null);
 
 /**
