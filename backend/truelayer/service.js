@@ -548,6 +548,7 @@ function normalizeTransaction(tx, userId) {
     date,
     category,
     description,
+    source: 'bank', // Mark as bank transaction
   };
 }
 

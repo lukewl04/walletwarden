@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import Navbar from "../components/navbar.jsx";
+import CsvPdfUpload from "../components/csv-pdf-upload.jsx";
 import { useTransactions } from "../state/TransactionsContext";
 import { useAuth0 } from "@auth0/auth0-react";
 import { TRANSACTION_CATEGORIES } from "../utils/categories";
@@ -28,6 +29,7 @@ export default function Options() {
   const { user, logout } = useAuth0();
   
   const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
   const [resetMessage, setResetMessage] = useState("");
   const [isResetting, setIsResetting] = useState(false);
   const [selectedCurrency, setSelectedCurrency] = useState(() => {
@@ -774,6 +776,12 @@ export default function Options() {
 
                 <div className="d-grid gap-2">
                   <button
+                    className="btn btn-primary"
+                    onClick={() => setShowImportModal(true)}
+                  >
+                    📄 Import CSV/PDF Statement
+                  </button>
+                  <button
                     className="btn btn-outline-danger"
                     onClick={handleDisconnectBank}
                     disabled={bankLoading}
@@ -782,7 +790,7 @@ export default function Options() {
                   </button>
                 </div>
                 <p className="text-muted small mt-3 mb-0">
-                  Disconnecting will remove your bank connection. You can reconnect the same or a different bank afterwards.
+                  You can import additional CSV or PDF bank statements here. Disconnecting will remove your bank connection. You can reconnect the same or a different bank afterwards.
                   Your existing imported transactions will remain.
                 </p>
               </div>
@@ -882,6 +890,11 @@ export default function Options() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* CSV/PDF Import Modal */}
+      {showImportModal && (
+        <CsvPdfUpload onClose={() => setShowImportModal(false)} />
       )}
     </div>
   );

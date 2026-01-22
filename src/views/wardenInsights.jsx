@@ -34,6 +34,8 @@ export default function WardenInsights() {
   // Insights controls
   const [monthsBack, setMonthsBack] = useState(6);
   const [showCumulative, setShowCumulative] = useState(true);
+  const [showInsightsDetails, setShowInsightsDetails] = useState(true); // Toggle for insights sections
+  const [transactionFilter, setTransactionFilter] = useState(30); // Days to show (7, 30, 180, 365, null for all)
 
   // Bank state
   const [bankStatus, setBankStatus] = useState(null); // null = unknown/loading
@@ -275,9 +277,12 @@ export default function WardenInsights() {
         // Ensure initial UI is populated ASAP
         await Promise.allSettled([p0, p1, p2]);
 
-
-        // Clean URL
+        // Clean URL and redirect after 2 seconds
         window.history.replaceState({}, "", window.location.pathname);
+        
+        setTimeout(() => {
+          window.location.href = window.location.pathname;
+        }, 2000);
       })();
 
       return () => {
@@ -429,9 +434,23 @@ const formattedBalance = useMemo(() => {
       const type =
         (t.type || "expense").toLowerCase() === "income" ? "income" : "expense";
       const desc = (t.description || "").trim();
-      return { ...t, date, amount: amt, type, description: desc };
+      // Treat missing source as 'manual' for backward compatibility with unmigrated transactions
+      const source = t.source || 'manual';
+      return { ...t, date, amount: amt, type, description: desc, source };
     });
   }, [transactions]);
+
+  // When bank is connected, only use bank transactions for charts (to avoid double-counting old CSV imports)
+  // Manual transactions are still in the database but filtered out from analytics
+  const chartTransactions = useMemo(() => {
+    if (isBankConnected && parsed.length > 0) {
+      // Only include transactions with source='bank'
+      const bankTxs = parsed.filter(t => t.source === 'bank');
+      // If we have bank transactions, use only those; otherwise fall back to all (for backward compatibility)
+      return bankTxs.length > 0 ? bankTxs : parsed;
+    }
+    return parsed; // If no bank connection, show all transactions
+  }, [parsed, isBankConnected]);
 
   const recentSorted = useMemo(() => {
     return [...parsed].sort((a, b) => {
@@ -442,15 +461,29 @@ const formattedBalance = useMemo(() => {
     });
   }, [parsed]);
 
+  // Filter recent transactions by time range
+  const filteredRecentTransactions = useMemo(() => {
+    if (transactionFilter === null) return recentSorted; // Show all
+
+    const now = new Date();
+    const cutoffDate = new Date(now);
+    cutoffDate.setDate(cutoffDate.getDate() - transactionFilter);
+
+    return recentSorted.filter(t => {
+      const txDate = t.date instanceof Date ? t.date : new Date(t.date);
+      return txDate >= cutoffDate;
+    });
+  }, [recentSorted, transactionFilter]);
+
   const totals = useMemo(() => {
     let income = 0;
     let expense = 0;
-    parsed.forEach((t) => {
+    chartTransactions.forEach((t) => {
       if (t.type === "income") income += t.amount;
       else expense += t.amount;
     });
     return { income, expense };
-  }, [parsed]);
+  }, [chartTransactions]);
 
   const monthly = useMemo(() => {
     const now = new Date();
@@ -468,7 +501,7 @@ const formattedBalance = useMemo(() => {
     const map = {};
     months.forEach((m) => (map[m.key] = { income: 0, expense: 0 }));
 
-    parsed.forEach((t) => {
+    chartTransactions.forEach((t) => {
       const key = t.date.toISOString().slice(0, 7);
       if (!map[key]) return;
       if (t.type === "income") map[key].income += t.amount;
@@ -488,7 +521,7 @@ const formattedBalance = useMemo(() => {
       cum += l.net;
       return { ...l, cum };
     });
-  }, [parsed, monthsBack, showCumulative]);
+  }, [chartTransactions, monthsBack, showCumulative]);
 
   const topExpenses = useMemo(() => {
     const buckets = [
@@ -516,7 +549,7 @@ const formattedBalance = useMemo(() => {
     ];
 
     const map = {};
-    parsed.forEach((t) => {
+    chartTransactions.forEach((t) => {
       if (t.type !== "expense") return;
 
       let key = null;
@@ -541,11 +574,11 @@ const formattedBalance = useMemo(() => {
       .map(([category, amount]) => ({ category, amount }))
       .sort((a, b) => b.amount - a.amount)
       .slice(0, 6);
-  }, [parsed]);
+  }, [chartTransactions]);
 
   const topMerchants = useMemo(() => {
     const map = {};
-    parsed.forEach((t) => {
+    chartTransactions.forEach((t) => {
       if (t.type !== "expense" || !t.description) return;
       const vendor = t.description
         .split(/[\s-]/)
@@ -559,7 +592,7 @@ const formattedBalance = useMemo(() => {
       .map(([vendor, amount]) => ({ vendor, amount }))
       .sort((a, b) => b.amount - a.amount)
       .slice(0, 8);
-  }, [parsed]);
+  }, [chartTransactions]);
 
   const spendingForecast = useMemo(() => {
     if (monthly.length === 0) return null;
@@ -611,7 +644,7 @@ const formattedBalance = useMemo(() => {
     ];
 
     const map = {};
-    parsed.forEach((t) => {
+    chartTransactions.forEach((t) => {
       if (t.type !== "expense") return;
 
       const desc = (t.description || "").toLowerCase();
@@ -635,7 +668,7 @@ const formattedBalance = useMemo(() => {
       }))
       .sort((a, b) => b.yearlyPotential - a.yearlyPotential)
       .slice(0, 5);
-  }, [parsed, monthsBack]);
+  }, [chartTransactions, monthsBack]);
 
   // ---- charts ----
   const Donut = ({ income, expense, size = 160, thickness = 22 }) => {
@@ -896,43 +929,41 @@ const formattedBalance = useMemo(() => {
             </div>
           </div>
 
-          {/* Import / Bank connect */}
-          <div className="card shadow-sm mb-3">
-            <div className="card-body">
-              <div className="d-flex align-items-center justify-content-between">
-                <h2 className="h6 mb-0">Import Transactions</h2>
-              </div>
-              <p className="text-muted small mt-2 mb-3">Upload your bank statements in CSV or PDF format, or connect your bank directly</p>
+          {/* Import / Bank connect - Only show if bank is NOT connected */}
+          {!bankStatus?.connected && (
+            <div className="card shadow-sm mb-3">
+              <div className="card-body">
+                <div className="d-flex align-items-center justify-content-between">
+                  <h2 className="h6 mb-0">Import Transactions</h2>
+                </div>
+                <p className="text-muted small mt-2 mb-3">Upload your bank statements in CSV or PDF format, or connect your bank directly</p>
 
-              <div className="d-flex flex-column gap-2">
-                <button className="btn btn-primary w-100" onClick={() => setShowImportModal(true)}>
-                  📄 Import CSV/PDF Statement
-                </button>
+                <div className="d-flex flex-column gap-2">
+                  <button className="btn btn-primary w-100" onClick={() => setShowImportModal(true)}>
+                    📄 Import CSV/PDF Statement
+                  </button>
 
-                {bankStatusLoading ? (
-                  <button className="btn btn-outline-secondary w-100" disabled>
-                    <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
-                    Checking bank connection...
-                  </button>
-                ) : bankStatus?.connected ? (
-                  <div className="alert alert-success mb-0 py-2">
-                    <small>✅ Bank connected via Open Banking</small>
-                  </div>
-                ) : (
-                  <button className="btn btn-outline-primary w-100" onClick={handleConnectBank} disabled={bankLoading}>
-                    {bankLoading ? (
-                      <>
-                        <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
-                        Connecting...
-                      </>
-                    ) : (
-                      "🏦 Connect Bank (Open Banking)"
-                    )}
-                  </button>
-                )}
+                  {bankStatusLoading ? (
+                    <button className="btn btn-outline-secondary w-100" disabled>
+                      <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                      Checking bank connection...
+                    </button>
+                  ) : (
+                    <button className="btn btn-outline-primary w-100" onClick={handleConnectBank} disabled={bankLoading}>
+                      {bankLoading ? (
+                        <>
+                          <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                          Connecting...
+                        </>
+                      ) : (
+                        "🏦 Connect Bank (Open Banking)"
+                      )}
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
-          </div>
+          )}
 
           {/* Charts */}
           {parsed.length === 0 ? (
@@ -955,6 +986,20 @@ const formattedBalance = useMemo(() => {
                 </div>
               </div>
 
+              {/* Toggle button for insights details */}
+              <div className="d-flex justify-content-center mb-3">
+                <button
+                  className="btn btn-sm btn-outline-secondary"
+                  onClick={() => setShowInsightsDetails(!showInsightsDetails)}
+                  title={showInsightsDetails ? "Hide insights details" : "Show insights details"}
+                >
+                  {showInsightsDetails ? "▼ Hide Insights" : "▶ Show Insights"}
+                </button>
+              </div>
+
+              {/* Collapsible insights sections */}
+              {showInsightsDetails && (
+                <>
               <div className="row g-3 mb-3">
                 <div className="col-12 col-lg-6">
                   <div className="card p-2">
@@ -1086,6 +1131,8 @@ const formattedBalance = useMemo(() => {
                   </div>
                 </div>
               )}
+                </>
+              )}
             </div>
           )}
 
@@ -1094,14 +1141,50 @@ const formattedBalance = useMemo(() => {
             <div className="card-body">
               <div className="d-flex align-items-center justify-content-between mb-3">
                 <h2 className="h6 mb-0">Recent Transactions</h2>
-                <span className="text-muted small">{transactions.length} total</span>
+                <span className="text-muted small">{filteredRecentTransactions.length} / {transactions.length} total</span>
+              </div>
+
+              {/* Time range filter buttons */}
+              <div className="d-flex gap-2 mb-3 flex-wrap">
+                <button
+                  className={`btn btn-sm ${transactionFilter === 7 ? "btn-primary" : "btn-outline-secondary"}`}
+                  onClick={() => setTransactionFilter(7)}
+                >
+                  7d
+                </button>
+                <button
+                  className={`btn btn-sm ${transactionFilter === 30 ? "btn-primary" : "btn-outline-secondary"}`}
+                  onClick={() => setTransactionFilter(30)}
+                >
+                  1m
+                </button>
+                <button
+                  className={`btn btn-sm ${transactionFilter === 180 ? "btn-primary" : "btn-outline-secondary"}`}
+                  onClick={() => setTransactionFilter(180)}
+                >
+                  6m
+                </button>
+                <button
+                  className={`btn btn-sm ${transactionFilter === 365 ? "btn-primary" : "btn-outline-secondary"}`}
+                  onClick={() => setTransactionFilter(365)}
+                >
+                  1y
+                </button>
+                <button
+                  className={`btn btn-sm ${transactionFilter === null ? "btn-primary" : "btn-outline-secondary"}`}
+                  onClick={() => setTransactionFilter(null)}
+                >
+                  All
+                </button>
               </div>
 
               {transactions.length === 0 ? (
                 <div className="text-muted">No transactions yet</div>
+              ) : filteredRecentTransactions.length === 0 ? (
+                <div className="text-muted">No transactions in this time range</div>
               ) : (
                 <ul className="list-group">
-                  {recentSorted.map((t) => (
+                  {filteredRecentTransactions.map((t) => (
                     <li key={t.id} className="list-group-item">
                       <div className="d-flex align-items-start justify-content-between gap-2">
                         <div style={{ flex: 1 }}>

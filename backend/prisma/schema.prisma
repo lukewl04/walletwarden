@@ -17,9 +17,11 @@ model Transaction {
   date        DateTime
   category    String?
   description String?
+  source      String   @default("manual") // 'bank' or 'manual'
   created_at  DateTime @default(now())
 
   @@index([user_id])
+  @@index([user_id, source])
   @@map("transactions")
 }
 

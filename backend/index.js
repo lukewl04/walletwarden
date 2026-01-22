@@ -102,7 +102,8 @@ app.get('/api/transactions', async (req, res) => {
         amount: true,
         date: true,
         category: true,
-        description: true
+        description: true,
+        source: true
       }
     });
     // Convert date fields to ISO string for frontend compatibility
@@ -135,7 +136,8 @@ app.post('/api/transactions/bulk', async (req, res) => {
             amount: it.amount,
             date: it.date ? new Date(it.date) : undefined,
             category: it.category || null,
-            description: it.description || null
+            description: it.description || null,
+            source: 'manual' // Mark as manually uploaded
           }
         }).catch(e => {
           // Ignore duplicate key errors
@@ -172,7 +174,8 @@ app.post('/api/transactions', async (req, res) => {
         amount,
         date: date ? new Date(date) : undefined,
         category: category || null,
-        description: description || null
+        description: description || null,
+        source: 'manual' // Mark as manually created
       }
     });
     return res.json({ ok: true });
