@@ -1,4 +1,5 @@
-import React, { useMemo, useState } from "react";
+// src/views/WardenInsights.jsx
+import React, { useMemo, useState, useEffect, useRef } from "react";
 import { useLocation } from "react-router-dom";
 import CsvPdfUpload from "../components/csv-pdf-upload.jsx";
 import Navbar from "../components/navbar.jsx";
@@ -6,6 +7,10 @@ import HelpPanel from "../components/help-panel.jsx";
 import { useTransactions } from "../state/TransactionsContext";
 import { TRANSACTION_CATEGORIES } from "../utils/categories";
 import { getUserToken } from "../utils/userToken";
+
+import Donut from "../components/charts/Donut.jsx";
+import LineChart from "../components/charts/LineChart.jsx";
+import Bars from "../components/charts/Bars.jsx";
 
 export default function WardenInsights() {
   const location = useLocation();
@@ -53,7 +58,7 @@ export default function WardenInsights() {
   const [cachedBalance, setCachedBalance] = useState(null); // { totalBalance, availableBalance, currency, lastSyncedAt }
   const [cachedBalanceLoading, setCachedBalanceLoading] = useState(true);
 
-  const autoSyncHasRun = React.useRef(false);
+  const autoSyncHasRun = useRef(false);
 
   const API_URL = "http://localhost:4000/api";
   const getAuthHeaders = () => ({ Authorization: `Bearer ${getUserToken()}` });
@@ -181,7 +186,7 @@ export default function WardenInsights() {
   };
 
   // Mount: resolve bank connection + handle callback
-  React.useEffect(() => {
+  useEffect(() => {
     setBankLoading(false);
     setBankStatus(null);
 
@@ -271,7 +276,7 @@ export default function WardenInsights() {
   }, []);
 
   // Auto-sync when bank is connected (runs once)
-  React.useEffect(() => {
+  useEffect(() => {
     if (bankStatus?.connected && !bankStatusLoading && !autoSyncHasRun.current) {
       autoSyncHasRun.current = true;
       handleSyncBank(true);
@@ -629,189 +634,6 @@ export default function WardenInsights() {
       .slice(0, 5);
   }, [chartTransactions, monthsBack]);
 
-  // ---- charts ----
-  const Donut = ({ income, expense, size = 160, thickness = 22 }) => {
-    const total = income + expense || 1;
-    const radius = (size - thickness) / 2;
-    const circ = 2 * Math.PI * radius;
-
-    const incomeArc = (income / total) * circ;
-    const expenseArc = (expense / total) * circ;
-
-    return (
-      <div style={{ width: size, textAlign: "center" }}>
-        <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-          <g transform={`translate(${size / 2},${size / 2})`}>
-            <circle r={radius} fill="none" stroke="#eee" strokeWidth={thickness} />
-            <circle
-              r={radius}
-              fill="none"
-              stroke="#1c7d3a"
-              strokeWidth={thickness}
-              strokeDasharray={`${incomeArc} ${circ - incomeArc}`}
-              strokeDashoffset={-expenseArc / 2}
-              transform="rotate(-90)"
-            />
-            <circle
-              r={radius}
-              fill="none"
-              stroke="#c53030"
-              strokeWidth={thickness}
-              strokeDasharray={`${expenseArc} ${circ - expenseArc}`}
-              strokeDashoffset={incomeArc / 2}
-              transform="rotate(-90)"
-            />
-            <text
-              fill="#f8f8f8"
-              x="0"
-              y="4"
-              textAnchor="middle"
-              fontSize="14"
-              fontWeight={600}
-            >
-              £{Math.abs(income - expense).toFixed(2)}
-            </text>
-            <text x="0" y="22" textAnchor="middle" fontSize="11" fill="#666">
-              Net
-            </text>
-          </g>
-        </svg>
-        <div className="small text-muted">
-          Income £{income.toFixed(2)} · Expense £{expense.toFixed(2)}
-        </div>
-      </div>
-    );
-  };
-
-  const LineChart = ({ data, width = 600, height = 160 }) => {
-    const values = data.map((d) => Number(showCumulative ? d.cum : d.net) || 0);
-    const max = Math.max(...values, 1);
-    const min = Math.min(...values, 0);
-    const range = max - min || 1;
-
-    const pad = { l: 28, r: 12, t: 8, b: 24 };
-    const w = width - pad.l - pad.r;
-    const h = height - pad.t - pad.b;
-
-    const pts = values.map((v, i) => {
-      const x = (i / Math.max(1, values.length - 1)) * w + pad.l;
-      const y = ((max - v) / range) * h + pad.t;
-      return [x, y];
-    });
-
-    const d = pts
-      .map((p, i) =>
-        `${i === 0 ? "M" : "L"}${p[0].toFixed(1)},${p[1].toFixed(1)}`
-      )
-      .join(" ");
-
-    return (
-      <svg
-        width="100%"
-        height={height}
-        viewBox={`0 0 ${width} ${height}`}
-        style={{ display: "block" }}
-      >
-        {[0, 0.25, 0.5, 0.75, 1].map((f) => {
-          const y = pad.t + f * h;
-          return (
-            <line
-              key={f}
-              x1={pad.l}
-              x2={width - pad.r}
-              y1={y}
-              y2={y}
-              stroke="#eee"
-            />
-          );
-        })}
-
-        {data.map((it, i) => {
-          const x = (i / Math.max(1, data.length - 1)) * w + pad.l;
-          return (
-            <text
-              key={i}
-              x={x}
-              y={height - 6}
-              fontSize={11}
-              textAnchor="middle"
-              fill="#666"
-            >
-              {it.label}
-            </text>
-          );
-        })}
-
-        <path
-          d={`${d} L ${width - pad.r},${height - pad.b} L ${pad.l},${
-            height - pad.b
-          } Z`}
-          fill="rgba(28,125,58,0.08)"
-        />
-        <path d={d} fill="none" stroke="#1c7d3a" strokeWidth={2} />
-
-        {pts.map((p, i) => (
-          <circle
-            key={i}
-            cx={p[0]}
-            cy={p[1]}
-            r={2.5}
-            fill="#fff"
-            stroke="#1c7d3a"
-            strokeWidth={1.2}
-          />
-        ))}
-      </svg>
-    );
-  };
-
-  const Bars = ({ items = [], width = 700, height = 220 }) => {
-    if (!items.length) return null;
-
-    const pad = { l: 12, r: 12, t: 20, b: 60 };
-    const w = width - pad.l - pad.r;
-    const h = height - pad.t - pad.b;
-
-    const gap = 12;
-    const bw = Math.max(32, (w - (items.length - 1) * gap) / items.length);
-    const max = Math.max(...items.map((i) => i.amount), 1);
-
-    return (
-      <svg
-        width="100%"
-        height={height}
-        viewBox={`0 0 ${width} ${height}`}
-        style={{ display: "block" }}
-      >
-        {items.map((it, idx) => {
-          const x = pad.l + idx * (bw + gap);
-          const barH = (it.amount / max) * h;
-          const y = pad.t + (h - barH);
-
-          return (
-            <g key={idx}>
-              <rect x={x} y={y} width={bw} height={barH} fill="#0d6efd" rx={6} />
-              <text
-                x={x + bw / 2}
-                y={pad.t + h + 10}
-                fontSize={10}
-                fill="#333"
-                textAnchor="end"
-                transform={`rotate(-45 ${x + bw / 2} ${pad.t + h + 10})`}
-                dominantBaseline="middle"
-              >
-                {it.category.length > 16 ? it.category.slice(0, 16) + "…" : it.category}
-              </text>
-              <text x={x + bw / 2} y={y - 8} fontSize={11} fill="#333" textAnchor="middle">
-                £{it.amount.toFixed(0)}
-              </text>
-            </g>
-          );
-        })}
-      </svg>
-    );
-  };
-
   return (
     <div
       className="container-fluid py-4 mt-5"
@@ -984,7 +806,11 @@ export default function WardenInsights() {
                       : "text-bg-success"
                   }`}
                 >
-                  {balanceIsLoading ? "Loading…" : isNegative ? "Over budget" : "Looking good"}
+                  {balanceIsLoading
+                    ? "Loading…"
+                    : isNegative
+                    ? "Over budget"
+                    : "Looking good"}
                 </span>
               </div>
             </div>
@@ -1076,7 +902,12 @@ export default function WardenInsights() {
                     <small className="text-muted">{monthsBack} months</small>
                   </div>
                   <div style={{ width: "100%", height: 160 }}>
-                    <LineChart data={monthly} width={600} height={160} />
+                    <LineChart
+                      data={monthly}
+                      showCumulative={showCumulative}
+                      width={600}
+                      height={160}
+                    />
                   </div>
                 </div>
               </div>
