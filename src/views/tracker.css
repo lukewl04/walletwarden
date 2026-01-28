@@ -35,13 +35,283 @@
   filter: brightness(1.08);
 }
 
+/* ========================================
+   PIVOT TABLE: Premium Data Surface Styling
+   ======================================== */
+
+/* Remove default Bootstrap borders and spacing */
+.tracker-pivot-table {
+  border-collapse: separate !important;
+  border-spacing: 0;
+  border: none !important;
+}
+
+.tracker-pivot-table thead th,
+.tracker-pivot-table tbody td,
+.tracker-pivot-table tfoot th {
+  border: none !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
+  vertical-align: middle;
+  padding: 12px 8px;
+}
+
+/* Header styling */
+.tracker-pivot-table thead th {
+  background: linear-gradient(180deg, rgba(13, 110, 253, 0.08) 0%, rgba(13, 110, 253, 0.03) 100%) !important;
+  border-bottom: 2px solid rgba(13, 110, 253, 0.2) !important;
+  font-weight: 600;
+  font-size: 0.85rem;
+  letter-spacing: 0.02em;
+  padding: 14px 8px;
+}
+
+/* Period column divider */
+.tracker-pivot-table tbody td:first-child,
+.tracker-pivot-table thead th:first-child,
+.tracker-pivot-table tfoot th:first-child {
+  border-right: 1px solid rgba(255, 255, 255, 0.06) !important;
+}
+
+/* Total column styling - make it more prominent */
+.tracker-pivot-table tbody td:last-child,
+.tracker-pivot-table thead th:last-child,
+.tracker-pivot-table tfoot th:last-child {
+  border-left: 1px solid rgba(255, 255, 255, 0.08) !important;
+  background: rgba(13, 110, 253, 0.02);
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+/* Footer (Totals row) styling */
+.tracker-pivot-table tfoot th {
+  border-top: 2px solid rgba(13, 110, 253, 0.2) !important;
+  border-bottom: none !important;
+  background: linear-gradient(180deg, rgba(13, 110, 253, 0.06) 0%, rgba(13, 110, 253, 0.12) 100%) !important;
+  font-weight: 700;
+  font-size: 0.9rem;
+  padding: 16px 8px;
+}
+
+/* Row hover effect - subtle highlight */
+.tracker-pivot-table tbody tr:hover {
+  background: rgba(13, 110, 253, 0.03) !important;
+}
+
+/* Current period row styling (preserve existing) */
+.tracker-pivot-table tbody tr[style*="backgroundColor"] {
+  background: rgba(13, 110, 253, 0.06) !important;
+}
+
+.tracker-pivot-table tbody tr[style*="backgroundColor"]:hover {
+  background: rgba(13, 110, 253, 0.09) !important;
+}
+
+/* ========================================
+   CELL CARDS: Soft Interactive Elements
+   ======================================== */
+
+/* Cell container */
+.tracker-cell {
+  padding: 4px !important;
+  position: relative;
+}
+
+/* The clickable button inside non-zero cells */
+.tracker-cell-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 12px;
+  background: rgba(13, 110, 253, 0.08);
+  backdrop-filter: blur(8px);
+  cursor: pointer;
+  transition: all 180ms cubic-bezier(0.4, 0, 0.2, 1);
+  font-family: inherit;
+  color: inherit;
+  text-align: center;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+/* Hover state for cell buttons */
+.tracker-cell-btn:hover {
+  transform: translateY(-2px);
+  background: rgba(13, 110, 253, 0.14);
+  box-shadow: 0 4px 12px rgba(13, 110, 253, 0.18),
+              0 2px 6px rgba(0, 0, 0, 0.08);
+}
+
+/* Active/click state */
+.tracker-cell-btn:active {
+  transform: translateY(-1px);
+  transition-duration: 80ms;
+}
+
+/* Focus state (accessibility) */
+.tracker-cell-btn:focus-visible {
+  outline: 2px solid rgba(13, 110, 253, 0.5);
+  outline-offset: 2px;
+}
+
+/* Zero-value cells - muted appearance */
+.tracker-cell:not(.tracker-cell--has) {
+  opacity: 0.4;
+}
+
+.tracker-cell:not(.tracker-cell--has) .text-body-secondary {
+  font-size: 0.85rem;
+  font-weight: 400;
+}
+
+/* Heat intensity overlay on cells with values */
+.tracker-heat-cell.tracker-cell--has {
+  position: relative;
+}
+
+/* Remove old hover effect on heat cells (replaced by button hover) */
+.tracker-heat-cell:hover {
+  border-color: transparent !important;
+  filter: none !important;
+}
+
+/* ========================================
+   HOVER TOOLTIP STYLING
+   ======================================== */
+
+.tracker-hover-tip {
+  position: fixed;
+  z-index: 9999;
+  background: rgba(20, 20, 30, 0.98);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(13, 110, 253, 0.3);
+  border-radius: 12px;
+  padding: 0;
+  min-width: 280px;
+  max-width: 320px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4),
+              0 2px 8px rgba(13, 110, 253, 0.2);
+  color: #fff;
+  font-size: 0.85rem;
+  overflow: hidden;
+}
+
+.tracker-hover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 14px;
+  background: linear-gradient(135deg, rgba(13, 110, 253, 0.15) 0%, rgba(13, 110, 253, 0.08) 100%);
+  border-bottom: 1px solid rgba(13, 110, 253, 0.2);
+}
+
+.tracker-hover-title {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: #fff;
+  flex: 1;
+}
+
+.tracker-hover-close {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 4px 8px;
+  transition: color 0.15s ease, transform 0.15s ease;
+  border-radius: 4px;
+}
+
+.tracker-hover-close:hover {
+  color: #0d6efd;
+  transform: scale(1.15);
+  background: rgba(13, 110, 253, 0.1);
+}
+
+.tracker-hover-list {
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.tracker-hover-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  transition: background 0.15s ease;
+}
+
+.tracker-hover-row:hover {
+  background: rgba(13, 110, 253, 0.08);
+}
+
+.tracker-hover-desc {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 0.85rem;
+}
+
+.tracker-hover-amt {
+  font-weight: 600;
+  color: #0d6efd;
+  white-space: nowrap;
+  font-size: 0.9rem;
+}
+
+.tracker-hover-more {
+  padding: 8px 10px;
+  text-align: center;
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.5);
+  font-style: italic;
+}
+
+.tracker-hover-empty {
+  padding: 20px;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 0.85rem;
+}
+
+/* ========================================
+   RESPONSIVE & ACCESSIBILITY
+   ======================================== */
+
+@media (max-width: 768px) {
+  .tracker-cell-btn {
+    padding: 8px 10px;
+    font-size: 0.85rem;
+  }
+
+  .tracker-hover-tip {
+    min-width: 260px;
+    max-width: 90vw;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .tracker-summary-item,
   .tracker-progress-fill,
   .tracker-heat-cell,
   .tracker-glow-over,
-  .tracker-hero-fab {
+  .tracker-cell-btn {
     transition: none !important;
     animation: none !important;
+  }
+
+  .tracker-cell-btn:hover {
+    transform: none !important;
   }
 }

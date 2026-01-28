@@ -1589,7 +1589,7 @@ useEffect(() => {
                     return (
                       <>
                         <div className="table-responsive" style={{ maxHeight: "420px", overflowY: "auto" }}>
-                          <table className="table table-bordered table-sm mb-0 tracker-pivot-table" style={{ tableLayout: "fixed" }}>
+                          <table className="table table-sm mb-0 tracker-pivot-table" style={{ tableLayout: "fixed" }}>
 
                             <thead className="table-light" style={{ position: "sticky", top: 0, zIndex: 1 }}>
                               <tr>
