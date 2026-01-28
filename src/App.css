@@ -1,9 +1,14 @@
-/* Global reset-ish */
+/* =========================================================
+   App.css
+   Global theming + Bootstrap overrides + Tracker UI helpers
+   ========================================================= */
+
+/* Global reset */
 * {
   box-sizing: border-box;
 }
 
-/* Custom scrollbar styling */
+/* Scrollbars (WebKit) */
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
@@ -24,12 +29,13 @@
   background: #3b82f6;
 }
 
-/* Firefox scrollbar */
+/* Scrollbars (Firefox) */
 * {
   scrollbar-width: thin;
   scrollbar-color: #0d6efd var(--card-bg, #020617);
 }
 
+/* Theme variables */
 :root {
   --bg: #0f172a;
   --text: #e5e7eb;
@@ -39,6 +45,7 @@
   --nav-text: #e5e7eb;
   --muted: #94a3b8;
   --link: #0d6efd;
+
   --tracker-accent: #ffffff;
   --tracker-accent-bg: #ffffff;
   --tracker-budget-ok: #ffffff;
@@ -53,6 +60,7 @@
   --nav-text: #2c2c2c;
   --muted: #555555;
   --link: #0d6efd;
+
   --tracker-accent: #2c2c2c;
   --tracker-accent-bg: #e8ecf1;
   --tracker-budget-ok: #2c2c2c;
@@ -67,11 +75,13 @@
   --nav-text: #e5e7eb;
   --muted: #94a3b8;
   --link: #0d6efd;
+
   --tracker-accent: #ffffff;
   --tracker-accent-bg: #ffffff;
   --tracker-budget-ok: #ffffff;
 }
 
+/* Base document */
 body {
   margin: 0;
   background-color: var(--bg);
@@ -80,27 +90,25 @@ body {
   transition: background-color 0.25s ease, color 0.25s ease;
 }
 
-/* Root should not dictate layout */
 #root {
   min-height: 100vh;
 }
 
-/* Remove tutorial leftovers */
+/* Vite starter leftovers */
 .logo,
 .read-the-docs {
   display: none;
 }
 
-/* Sensible defaults */
-button {
+/* Form element font inheritance */
+button,
+input,
+select,
+textarea {
   font-family: inherit;
 }
 
-input {
-  font-family: inherit;
-}
-
-/* Utility card base (optional) */
+/* Card baseline */
 .card {
   background: var(--card-bg);
   border: 1px solid var(--card-border);
@@ -108,9 +116,30 @@ input {
   color: var(--text);
 }
 
+/* Links */
+a {
+  color: var(--link);
+}
+
+/* Navbar */
+.navbar,
+.navbar-dark,
+.navbar-light {
+  background: var(--nav-bg) !important;
+}
+
+.navbar-brand {
+  color: var(--nav-text) !important;
+}
+
+.navbar-brand:hover {
+  color: var(--nav-text) !important;
+}
+
 .navbar .nav-link {
   position: relative;
   color: var(--nav-text) !important;
+  text-decoration: none !important;
 }
 
 .navbar .nav-link::after {
@@ -128,30 +157,13 @@ input {
   width: 100%;
 }
 
-.navbar,
-.navbar-dark,
-.navbar-light {
-  background: var(--nav-bg) !important;
-}
-
-.navbar-brand {
-  color: var(--nav-text) !important;
-}
-
-.navbar-brand:hover {
-  color: var(--nav-text) !important;
-}
-
+/* Muted text */
 .text-muted,
 .form-text {
   color: var(--muted) !important;
 }
 
-a {
-  color: var(--link);
-}
-
-/* Bootstrap Form Controls */
+/* Bootstrap form controls */
 .form-control,
 .form-select,
 .input-group .form-control {
@@ -178,6 +190,44 @@ a {
   background-color: #333 !important;
   color: var(--muted) !important;
   opacity: 0.65;
+}
+
+.input-group-text {
+  background-color: var(--card-bg) !important;
+  color: var(--text) !important;
+  border-color: var(--card-border) !important;
+}
+
+/* Buttons */
+.btn-primary {
+  background-color: #0d6efd;
+  border-color: #0d6efd;
+}
+
+.btn-primary:hover {
+  background-color: #0b5ed7;
+  border-color: #0a58ca;
+}
+
+.btn-secondary,
+.btn-outline-secondary {
+  color: var(--text);
+  border-color: var(--card-border);
+  background-color: var(--card-bg);
+}
+
+.btn-secondary:hover,
+.btn-outline-secondary:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+  border-color: var(--muted);
+}
+
+.btn:hover {
+  text-decoration: none !important;
+}
+
+.btn-close:focus {
+  box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
 }
 
 /* Tables */
@@ -236,51 +286,16 @@ a {
   filter: invert(1);
 }
 
-/* Buttons */
-.btn-primary {
-  background-color: #0d6efd;
-  border-color: #0d6efd;
-}
-
-.btn-primary:hover {
-  background-color: #0b5ed7;
-  border-color: #0a58ca;
-}
-
-.btn-secondary,
-.btn-outline-secondary {
-  color: var(--text);
-  border-color: var(--card-border);
-  background-color: var(--card-bg);
-}
-
-.btn-secondary:hover,
-.btn-outline-secondary:hover {
-  background-color: rgba(255, 255, 255, 0.1);
-  border-color: var(--muted);
-}
-
-.btn-close:focus {
-  box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
-}
-
-/* Input Group */
-.input-group-text {
-  background-color: var(--card-bg) !important;
-  color: var(--text) !important;
-  border-color: var(--card-border) !important;
-}
-
-/* Progress bars */
-.progress {
-  background-color: rgba(255, 255, 255, 0.1) !important;
-}
-
-/* Alerts & Cards */
+/* Alerts */
 .alert {
   background-color: var(--card-bg) !important;
   color: var(--text) !important;
   border-color: var(--card-border) !important;
+}
+
+/* Progress */
+.progress {
+  background-color: rgba(255, 255, 255, 0.1) !important;
 }
 
 /* Dropdowns */
@@ -291,6 +306,7 @@ a {
 
 .dropdown-item {
   color: var(--text) !important;
+  text-decoration: none !important;
 }
 
 .dropdown-item:hover,
@@ -299,11 +315,7 @@ a {
   color: var(--text) !important;
 }
 
-.dropdown-divider {
-  border-color: var(--card-border) !important;
-}
-
-/* List Groups */
+/* List groups */
 .list-group {
   background-color: transparent;
 }
@@ -323,37 +335,165 @@ a {
   border-color: #0d6efd !important;
 }
 
-/* Disable underline on nav links on hover */
-.navbar-nav .nav-link:hover {
-  text-decoration: none !important;
+/* =========================================================
+   Tracker: Pivot table layout
+   ========================================================= */
+
+.table-responsive {
+  overflow-x: auto;
 }
 
-/* Disable underline on dropdown items on hover */
-.dropdown-item:hover {
-  text-decoration: none !important;
+/* Category header cells should stretch to fit */
+.tracker-pivot-table .tracker-cat-th {
+  min-width: max-content;
+  padding: 8px 10px;
+  vertical-align: middle;
+  white-space: nowrap;
 }
 
-/* Disable underline on buttons on hover */
-.btn:hover {
-  text-decoration: none !important;
+/* Category header labels: one line, no truncation */
+.tracker-cat-label {
+  display: inline-block;
+  white-space: nowrap;
+  font-size: 0.85rem;
+  line-height: 1.1;
 }
 
-/* Settings tooltip animation */
-@keyframes fadeInOut {
-  0% {
+/* Cell button */
+.tracker-cell-btn {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  padding: 6px 4px;
+  cursor: default;
+  text-align: center;
+
+  color: var(--text) !important;
+}
+
+.tracker-cell--has .tracker-cell-btn {
+  cursor: pointer;
+}
+
+.tracker-cell--has .tracker-cell-btn:hover {
+  background: rgba(13, 110, 253, 0.06);
+}
+
+/* Ensure the "items" subtext is readable in both themes */
+.tracker-cell-btn .text-body-secondary {
+  color: var(--muted) !important;
+}
+
+/* Make table text always follow the theme */
+.tracker-pivot-table td,
+.tracker-pivot-table th,
+.tracker-pivot-table thead th,
+.tracker-pivot-table tfoot th {
+  color: var(--text) !important;
+}
+
+/* =========================================================
+   Tracker: Hover tooltip
+   ========================================================= */
+
+.tracker-hover-tip {
+  position: fixed;
+  width: 320px;
+  max-width: calc(100vw - 24px);
+  max-height: 220px;
+
+  padding: 10px 12px;
+  border-radius: 10px;
+
+  background: rgba(15, 18, 25, 0.98);
+  color: #ffffff;
+
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+
+  z-index: 99999;
+  pointer-events: auto;
+
+  animation: trackerHoverFade 0.12s ease-out;
+}
+
+.tracker-hover-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.tracker-hover-title {
+  font-weight: 700;
+  font-size: 0.85rem;
+  line-height: 1.2;
+  opacity: 0.95;
+}
+
+.tracker-hover-close {
+  border: 0;
+  background: transparent;
+  color: #ffffff;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 6px;
+  opacity: 0.7;
+}
+
+.tracker-hover-close:hover {
+  opacity: 1;
+}
+
+.tracker-hover-list {
+  max-height: 160px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.tracker-hover-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.tracker-hover-row:first-child {
+  border-top: 0;
+}
+
+.tracker-hover-desc {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.82rem;
+  opacity: 0.95;
+}
+
+.tracker-hover-amt {
+  font-weight: 700;
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+.tracker-hover-empty,
+.tracker-hover-more {
+  font-size: 0.8rem;
+  opacity: 0.75;
+  padding-top: 6px;
+}
+
+@keyframes trackerHoverFade {
+  from {
     opacity: 0;
-    transform: translateY(10px);
+    transform: translateY(4px);
   }
-  10% {
+  to {
     opacity: 1;
     transform: translateY(0);
-  }
-  90% {
-    opacity: 1;
-    transform: translateY(0);
-  }
-  100% {
-    opacity: 0;
-    transform: translateY(10px);
   }
 }

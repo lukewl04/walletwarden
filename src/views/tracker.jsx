@@ -8,6 +8,8 @@ import { getUserToken } from "../utils/userToken";
 
 const API_URL = "http://localhost:4000/api";
 
+
+
 // Helper to get auth headers with unique user token
 const getAuthHeaders = () => ({ Authorization: `Bearer ${getUserToken()}` });
 
@@ -321,6 +323,8 @@ export default function Tracker() {
     loadDataFromBackend();
   }, []);
 
+
+
   // Normalize transactions (Warden Insights)
   const normalizedTransactions = useMemo(() => {
     if (!Array.isArray(globalTransactions)) return [];
@@ -557,22 +561,36 @@ export default function Tracker() {
       selectedIncomeSettings.expected_amount > 0
     );
   }, [periodIncomeTotal, selectedIncomeSettings]);
+ // ===== Hover tooltip for purchases cells =====
+const [hoverTip, setHoverTip] = useState(null);
 
-  // Unlinked count
-  useEffect(() => {
-    if (!selectedSplit || !normalizedTransactions || isLoading || !purchasesLoadedFromBackend.current) {
-      setUnlinkedTransactionsCount(0);
-      return;
-    }
+// hoverTip shape:
+// { x, y, title, items: [], pinned: boolean }
 
-    const linkedTransactionIds = new Set(purchases.map((p) => p.transaction_id).filter(Boolean));
-    splitIncomes.forEach((i) => {
-      if (i.transaction_id) linkedTransactionIds.add(i.transaction_id);
+const openHoverTip = (evt, title, items, pinned = false) => {
+  const padding = 12;
+  const x = Math.min(evt.clientX + padding, window.innerWidth - 320);
+  const y = Math.min(evt.clientY + padding, window.innerHeight - 220);
+  setHoverTip({ x, y, title, items, pinned });
+};
+
+const closeHoverTip = () => setHoverTip(null);
+
+// ✅ Close on outside click ONLY if pinned
+useEffect(() => {
+  const onDocMouseDown = () => {
+    setHoverTip((prev) => {
+      if (!prev) return prev;
+      if (!prev.pinned) return prev; // hover preview stays controlled by mouseleave
+      return null; // pinned closes on outside click
     });
+  };
 
-    const unlinked = normalizedTransactions.filter((t) => t.type === "expense" && !linkedTransactionIds.has(t.id));
-    setUnlinkedTransactionsCount(unlinked.length);
-  }, [normalizedTransactions, purchases, splitIncomes, selectedSplit, isLoading]);
+  document.addEventListener("mousedown", onDocMouseDown);
+  return () => document.removeEventListener("mousedown", onDocMouseDown);
+}, []);
+
+
 
   // Sync splits
   useEffect(() => {
@@ -1109,8 +1127,32 @@ export default function Tracker() {
 
   const formatMoney = (n) => `£${Number(n || 0).toFixed(2)}`;
 
+  // alias because your tooltip uses money(...)
+  const money = (n) => formatMoney(n);
+
+  //  returns the purchases inside a cell (period range + category)
+  const getCellItems = useCallback(
+    (start, end, categoryName) => {
+      const items = filteredPurchases
+        .filter((p) => {
+          const d = toLocalDate(p.date);
+          return d >= start && d <= end && (p.category || "Other") === categoryName;
+        })
+        .sort((a, b) => toLocalDate(b.date) - toLocalDate(a.date))
+        .map((p) => ({
+          id: p.id,
+          description: p.description || "—",
+          amount: Number(p.amount) || 0,
+        }));
+
+      return items;
+    },
+    [filteredPurchases]
+  );
+
   return (
-    <div className="container-fluid py-4 mt-5" style={{ maxWidth: 1200, minHeight: "100vh" }}>
+    <div className="container-fluid py-4 mt-5" style={{ maxWidth: "100%", minHeight: "100vh" }}>
+
       <Navbar />
 
       <div className="mb-4">
@@ -1488,15 +1530,21 @@ export default function Tracker() {
                     return (
                       <>
                         <div className="table-responsive" style={{ maxHeight: "420px", overflowY: "auto" }}>
-                          <table className="table table-bordered table-sm mb-0" style={{ tableLayout: "fixed" }}>
+                          <table className="table table-bordered table-sm mb-0 tracker-pivot-table" style={{ tableLayout: "fixed" }}>
+
                             <thead className="table-light" style={{ position: "sticky", top: 0, zIndex: 1 }}>
                               <tr>
                                 <th style={{ width: "220px" }}>Period</th>
-                                {splitCategoryNames.map((cat) => (
-                                  <th key={cat} className="text-center" style={{ minWidth: 120 }}>
-                                    {cat}
-                                  </th>
-                                ))}
+                                    {splitCategoryNames.map((cat) => (
+                                      <th
+                                        key={cat}
+                                        className="text-center tracker-cat-th"
+                                        title={cat}
+                                      >
+                                        <span className="tracker-cat-label">{cat}</span>
+                                      </th>
+                                    ))}
+
                                 <th className="text-end" style={{ width: "120px" }}>
                                   Total
                                 </th>
@@ -1523,19 +1571,55 @@ export default function Tracker() {
                                       const count = counts[cat] || 0;
 
                                       return (
-                                        <td key={cat} className="text-center">
-                                          {value > 0 ? (
-                                            <>
-                                              <div className="fw-bold">{formatMoney(value)}</div>
-                                              <div className="text-body-secondary" style={{ fontSize: "0.75rem" }}>
-                                                {count} item{count === 1 ? "" : "s"}
-                                              </div>
-                                            </>
-                                          ) : (
-                                            <span className="text-body-secondary">—</span>
-                                          )}
-                                        </td>
-                                      );
+                                              <td
+                                                key={cat}
+                                                className={`text-center tracker-cell ${value > 0 ? "tracker-cell--has" : ""}`}
+                                                onMouseLeave={() => {
+                                                  if (!hoverTip?.pinned) closeHoverTip();
+                                                }}
+                                                onBlur={() => {
+                                                  if (!hoverTip?.pinned) closeHoverTip();
+                                                }}
+                                              >
+                                                {value > 0 ? (
+                                                  <button
+                                                    type="button"
+                                                    className="tracker-cell-btn"
+                                                    onMouseEnter={(e) => {
+                                                      // If tooltip is pinned, don't override it by hovering other cells
+                                                      if (hoverTip?.pinned) return;
+
+                                                      const items = getCellItems(row.start, row.end, cat);
+                                                      openHoverTip(
+                                                        e,
+                                                        `${row.label} • ${cat} • ${money(value)} (${count} item${count === 1 ? "" : "s"})`,
+                                                        items,
+                                                        false // hover = NOT pinned
+                                                      );
+                                                    }}
+                                                    onClick={(e) => {
+                                                      e.stopPropagation(); // prevent document click from closing it
+
+                                                      const items = getCellItems(row.start, row.end, cat);
+                                                      openHoverTip(
+                                                        e,
+                                                        `${row.label} • ${cat} • ${money(value)} (${count} item${count === 1 ? "" : "s"})`,
+                                                        items,
+                                                        true // click = PINNED
+                                                      );
+                                                    }}
+                                                  >
+                                                    <div className="fw-bold">{formatMoney(value)}</div>
+                                                    <div className="text-body-secondary" style={{ fontSize: "0.75rem" }}>
+                                                      {count} item{count === 1 ? "" : "s"}
+                                                    </div>
+                                                  </button>
+                                                ) : (
+                                                  <span className="text-body-secondary">—</span>
+                                                )}
+                                              </td>
+                                            );
+
                                     })}
 
                                     <td className="text-end fw-bold">{formatMoney(rowTotal)}</td>
@@ -1557,6 +1641,54 @@ export default function Tracker() {
                             </tfoot>
                           </table>
                         </div>
+                          {hoverTip && (
+                            <div
+                              className="tracker-hover-tip shadow"
+                              style={{ left: hoverTip.x, top: hoverTip.y }}
+                              role="dialog"
+                              aria-label="Purchase details"
+                              onMouseDown={(e) => e.stopPropagation()} // prevents outside-click handler firing
+                            >
+                              <div className="tracker-hover-header">
+                                <div className="tracker-hover-title">{hoverTip.title}</div>
+
+                                {hoverTip.pinned && (
+                                  <button
+                                    type="button"
+                                    className="tracker-hover-close"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      closeHoverTip();
+                                    }}
+                                    aria-label="Close"
+                                    title="Close"
+                                  >
+                                    ✕
+                                  </button>
+                                )}
+                              </div>
+
+                              {hoverTip.items?.length ? (
+                                <div className="tracker-hover-list">
+                                  {hoverTip.items.slice(0, 12).map((it) => (
+                                    <div key={it.id} className="tracker-hover-row">
+                                      <div className="tracker-hover-desc" title={it.description}>
+                                        {it.description}
+                                      </div>
+                                      <div className="tracker-hover-amt">{money(it.amount)}</div>
+                                    </div>
+                                  ))}
+                                  {hoverTip.items.length > 12 && (
+                                    <div className="tracker-hover-more">+ {hoverTip.items.length - 12} more…</div>
+                                  )}
+                                </div>
+                              ) : (
+                                <div className="tracker-hover-empty">No items</div>
+                              )}
+                            </div>
+                          )}
+
+
 
                         <div className="mt-2 text-end fw-bold">
                           {viewMode === "yearly" ? "Year Total" : viewMode === "monthly" ? "Month Total" : "Week Total"}: £
