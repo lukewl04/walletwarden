@@ -1,3 +1,4 @@
+// npm i framer-motion
 import React, { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { Link } from "react-router-dom";
 import Navbar from "../components/navbar.jsx";
@@ -5,6 +6,8 @@ import CsvPdfUpload from "../components/csv-pdf-upload.jsx";
 import { useTransactions } from "../state/TransactionsContext";
 import { generateId } from "../models/transaction";
 import { getUserToken } from "../utils/userToken";
+import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
+import "./tracker.css";
 
 const API_URL = "http://localhost:4000/api";
 
@@ -67,6 +70,8 @@ const sanitizeIncome = (entry) => {
 export default function Tracker() {
   const { addTransaction, bulkAddTransactions, transactions: globalTransactions = [] } =
     useTransactions?.() ?? {};
+
+  const prefersReducedMotion = useReducedMotion();
 
   const [savedSplits, setSavedSplits] = useState([]);
   const [selectedSplit, setSelectedSplit] = useState(null);
@@ -1016,6 +1021,50 @@ useEffect(() => {
     return getWeekTotal;
   }, [viewMode, getYearTotal, getMonthTotal, getWeekTotal]);
 
+  const viewIncomeTotal = useMemo(
+    () => viewIncomeTransactions.reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0),
+    [viewIncomeTransactions]
+  );
+
+  const viewBudgetIncome = useMemo(() => {
+    let budgetIncome = viewIncomeTotal;
+    if (
+      viewIncomeTotal === 0 &&
+      selectedIncomeSettings?.use_expected_when_no_actual &&
+      selectedIncomeSettings?.expected_amount > 0
+    ) {
+      const expectedFreq = selectedIncomeSettings.frequency;
+      if (viewMode === "weekly") {
+        budgetIncome =
+          expectedFreq === "monthly"
+            ? selectedIncomeSettings.expected_amount / 4.33
+            : expectedFreq === "yearly"
+            ? selectedIncomeSettings.expected_amount / 52
+            : selectedIncomeSettings.expected_amount;
+      } else if (viewMode === "monthly") {
+        budgetIncome =
+          expectedFreq === "weekly"
+            ? selectedIncomeSettings.expected_amount * 4.33
+            : expectedFreq === "yearly"
+            ? selectedIncomeSettings.expected_amount / 12
+            : selectedIncomeSettings.expected_amount;
+      } else {
+        budgetIncome =
+          expectedFreq === "weekly"
+            ? selectedIncomeSettings.expected_amount * 52
+            : expectedFreq === "monthly"
+            ? selectedIncomeSettings.expected_amount * 12
+            : selectedIncomeSettings.expected_amount;
+      }
+    }
+    return budgetIncome;
+  }, [viewIncomeTotal, selectedIncomeSettings, viewMode]);
+
+  const viewUsingExpectedIncome = useMemo(
+    () => viewIncomeTotal === 0 && viewBudgetIncome > 0,
+    [viewIncomeTotal, viewBudgetIncome]
+  );
+
   const formatDisplayDate = (value) => {
     const d = toLocalDate(value);
     return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
@@ -1256,121 +1305,103 @@ useEffect(() => {
           </div>
 
           {/* Summary Box */}
-          {selectedSplitData &&
-            (() => {
-              const viewIncomeTotal = viewIncomeTransactions.reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0);
+          {selectedSplitData && (
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={`summary-${viewMode}`}
+                initial={prefersReducedMotion ? false : { opacity: 0, y: 8 }}
+                animate={prefersReducedMotion ? { opacity: 1 } : { opacity: 1, y: 0 }}
+                exit={prefersReducedMotion ? { opacity: 1 } : { opacity: 0, y: -6 }}
+                transition={{ duration: prefersReducedMotion ? 0 : 0.25 }}
+                className="card mb-4 shadow-sm"
+                style={{ backgroundColor: "var(--card-bg)", borderColor: "var(--card-border)", overflowX: "auto" }}
+              >
+                <div className="card-body py-3 px-3">
+                  <div className="d-flex align-items-stretch gap-3" style={{ minWidth: "max-content" }}>
+                    <div className="d-flex flex-column justify-content-center" style={{ minWidth: "110px", flexShrink: 0 }}>
+                      <span
+                        className="fw-semibold text-primary"
+                        style={{
+                          fontSize: "0.75rem",
+                          textTransform: "uppercase",
+                          letterSpacing: "0.5px",
+                          opacity: 0.8,
+                        }}
+                      >
+                        {viewMode === "yearly" ? "Yearly" : viewMode === "monthly" ? "Monthly" : "Weekly"} Summary
+                      </span>
+                      <span className="fw-bold" style={{ fontSize: "1.25rem" }}>
+                        £{getViewTotal.toFixed(2)}
+                      </span>
+                      <span className="text-primary" style={{ fontSize: "0.75rem", opacity: 0.7 }}>
+                        of £{viewBudgetIncome.toFixed(2)} income
+                        {viewUsingExpectedIncome && (
+                          <span className="badge bg-warning text-dark ms-1" style={{ fontSize: "0.65rem" }}>
+                            Est.
+                          </span>
+                        )}
+                      </span>
+                    </div>
 
-              let budgetIncome = viewIncomeTotal;
-              if (
-                viewIncomeTotal === 0 &&
-                selectedIncomeSettings?.use_expected_when_no_actual &&
-                selectedIncomeSettings?.expected_amount > 0
-              ) {
-                const expectedFreq = selectedIncomeSettings.frequency;
-                if (viewMode === "weekly") {
-                  budgetIncome =
-                    expectedFreq === "monthly"
-                      ? selectedIncomeSettings.expected_amount / 4.33
-                      : expectedFreq === "yearly"
-                      ? selectedIncomeSettings.expected_amount / 52
-                      : selectedIncomeSettings.expected_amount;
-                } else if (viewMode === "monthly") {
-                  budgetIncome =
-                    expectedFreq === "weekly"
-                      ? selectedIncomeSettings.expected_amount * 4.33
-                      : expectedFreq === "yearly"
-                      ? selectedIncomeSettings.expected_amount / 12
-                      : selectedIncomeSettings.expected_amount;
-                } else {
-                  budgetIncome =
-                    expectedFreq === "weekly"
-                      ? selectedIncomeSettings.expected_amount * 52
-                      : expectedFreq === "monthly"
-                      ? selectedIncomeSettings.expected_amount * 12
-                      : selectedIncomeSettings.expected_amount;
-                }
-              }
-              const usingExpected = viewIncomeTotal === 0 && budgetIncome > 0;
+                    <div className="vr d-none d-sm-block" style={{ height: "50px", alignSelf: "center", flexShrink: 0 }} />
 
-              return (
-                <div
-                  className="card mb-4 shadow-sm"
-                  style={{ backgroundColor: "var(--card-bg)", borderColor: "var(--card-border)", overflowX: "auto" }}
-                >
-                  <div className="card-body py-3 px-3">
-                    <div className="d-flex align-items-stretch gap-3" style={{ minWidth: "max-content" }}>
-                      <div className="d-flex flex-column justify-content-center" style={{ minWidth: "110px", flexShrink: 0 }}>
-                        <span
-                          className="fw-semibold text-primary"
-                          style={{
-                            fontSize: "0.75rem",
-                            textTransform: "uppercase",
-                            letterSpacing: "0.5px",
-                            opacity: 0.8,
-                          }}
+                    {selectedSplitData.categories.map((cat) => {
+                      const categoryPurchases = getViewPurchases().filter((p) => p.category === cat.name);
+                      const categoryTotal = categoryPurchases.reduce((sum, p) => sum + p.amount, 0);
+                      const allocatedAmount = viewBudgetIncome > 0 ? (viewBudgetIncome * cat.percent) / 100 : 0;
+                      const percentUsed = allocatedAmount > 0 ? (categoryTotal / allocatedAmount) * 100 : 0;
+                      const remaining = allocatedAmount - categoryTotal;
+                      const progressWidth = Math.min(percentUsed, 100);
+
+                      return (
+                        <motion.div
+                          key={cat.id}
+                          className="d-flex flex-column justify-content-center tracker-summary-item"
+                          style={{ minWidth: "90px", flexShrink: 0 }}
+                          whileHover={prefersReducedMotion ? undefined : { y: -3 }}
+                          transition={{ type: "spring", stiffness: 250, damping: 20 }}
+                          title={`${cat.name}: £${categoryTotal.toFixed(2)} of £${allocatedAmount.toFixed(2)}`}
                         >
-                          {viewMode === "yearly" ? "Yearly" : viewMode === "monthly" ? "Monthly" : "Weekly"} Summary
-                        </span>
-                        <span className="fw-bold" style={{ fontSize: "1.25rem" }}>
-                          £{getViewTotal.toFixed(2)}
-                        </span>
-                        <span className="text-primary" style={{ fontSize: "0.75rem", opacity: 0.7 }}>
-                          of £{budgetIncome.toFixed(2)} income
-                          {usingExpected && (
-                            <span className="badge bg-warning text-dark ms-1" style={{ fontSize: "0.65rem" }}>
-                              Est.
+                          <span className="text-primary fw-medium" style={{ fontSize: "0.75rem", marginBottom: "2px", whiteSpace: "nowrap", opacity: 0.8 }}>
+                            {cat.name} <span style={{ opacity: 0.7 }}>({cat.percent}%)</span>
+                          </span>
+                          <div className="d-flex align-items-baseline gap-1">
+                            <span className="fw-bold" style={{ fontSize: "0.9rem" }}>
+                              £{categoryTotal.toFixed(2)}
                             </span>
-                          )}
-                        </span>
-                      </div>
-
-                      <div className="vr d-none d-sm-block" style={{ height: "50px", alignSelf: "center", flexShrink: 0 }} />
-
-                      {selectedSplitData.categories.map((cat) => {
-                        const categoryPurchases = getViewPurchases().filter((p) => p.category === cat.name);
-                        const categoryTotal = categoryPurchases.reduce((sum, p) => sum + p.amount, 0);
-                        const allocatedAmount = budgetIncome > 0 ? (budgetIncome * cat.percent) / 100 : 0;
-                        const percentUsed = allocatedAmount > 0 ? (categoryTotal / allocatedAmount) * 100 : 0;
-                        const remaining = allocatedAmount - categoryTotal;
-
-                        return (
-                          <div key={cat.id} className="d-flex flex-column justify-content-center" style={{ minWidth: "90px", flexShrink: 0 }}>
-                            <span className="text-primary fw-medium" style={{ fontSize: "0.75rem", marginBottom: "2px", whiteSpace: "nowrap", opacity: 0.8 }}>
-                              {cat.name} <span style={{ opacity: 0.7 }}>({cat.percent}%)</span>
-                            </span>
-                            <div className="d-flex align-items-baseline gap-1">
-                              <span className="fw-bold" style={{ fontSize: "0.9rem" }}>
-                                £{categoryTotal.toFixed(2)}
-                              </span>
-                              <span className="text-primary" style={{ fontSize: "0.7rem", opacity: 0.7 }}>
-                                / £{allocatedAmount.toFixed(2)}
-                              </span>
-                            </div>
-                            <div className="progress" style={{ height: "4px", width: "100%", marginTop: "4px", marginBottom: "4px" }}>
-                              <div
-                                className={`progress-bar ${percentUsed > 100 ? "bg-danger" : percentUsed > 80 ? "bg-warning" : ""}`}
-                                style={{
-                                  width: `${Math.min(percentUsed, 100)}%`,
-                                  backgroundColor: percentUsed <= 80 ? "var(--tracker-budget-ok)" : undefined,
-                                }}
-                              />
-                            </div>
-                            <span className="fw-medium" style={{ fontSize: "0.7rem", whiteSpace: "nowrap", color: remaining < 0 ? "var(--bs-danger)" : "var(--tracker-budget-ok)" }}>
-                              {remaining >= 0 ? `£${remaining.toFixed(2)} left` : `-£${Math.abs(remaining).toFixed(2)} over`}
+                            <span className="text-primary" style={{ fontSize: "0.7rem", opacity: 0.7 }}>
+                              / £{allocatedAmount.toFixed(2)}
                             </span>
                           </div>
-                        );
-                      })}
-                    </div>
+                          <div className="progress" style={{ height: "4px", width: "100%", marginTop: "4px", marginBottom: "4px" }}>
+                            <motion.div
+                              className={`progress-bar tracker-progress-fill ${percentUsed > 100 ? "tracker-glow-over" : percentUsed > 80 ? "bg-warning" : ""}`}
+                              initial={prefersReducedMotion ? false : { width: 0 }}
+                              animate={{ width: `${progressWidth}%` }}
+                              transition={{ duration: prefersReducedMotion ? 0 : 0.6, ease: "easeOut" }}
+                              style={{ backgroundColor: percentUsed <= 80 ? "var(--tracker-budget-ok)" : undefined }}
+                            />
+                          </div>
+                          <span className="fw-medium" style={{ fontSize: "0.7rem", whiteSpace: "nowrap", color: remaining < 0 ? "var(--bs-danger)" : "var(--tracker-budget-ok)" }}>
+                            {remaining >= 0 ? `£${remaining.toFixed(2)} left` : `-£${Math.abs(remaining).toFixed(2)} over`}
+                          </span>
+                        </motion.div>
+                      );
+                    })}
                   </div>
                 </div>
-              );
-            })()}
+              </motion.div>
+            </AnimatePresence>
+          )}
 
           <div className="row g-3">
             {/* Sidebar */}
             <div className="col-12 col-lg-3">
-              <div className="card shadow-sm mb-3">
+              <motion.div
+                className="card shadow-sm mb-3 tracker-card-hover"
+                whileHover={prefersReducedMotion ? undefined : { y: -2, boxShadow: "0 10px 24px rgba(13,110,253,0.12)" }}
+                transition={{ duration: prefersReducedMotion ? 0 : 0.2 }}
+              >
                 <div className="card-body">
                   <h6 className="mb-3">Add or Import</h6>
 
@@ -1380,13 +1411,13 @@ useEffect(() => {
 
                   <div className="text-body small">Manage all new expenses and income from Warden Insights; they’ll sync back here.</div>
                 </div>
-              </div>
-            </div>
+              </motion.div>
 
-            {/* Main */}
-            <div className="col-12 col-lg-9">
-              {/* Income */}
-              <div className="card mb-4">
+              <motion.div
+                className="card shadow-sm mb-3 tracker-card-hover"
+                whileHover={prefersReducedMotion ? undefined : { y: -2, boxShadow: "0 10px 24px rgba(13,110,253,0.12)" }}
+                transition={{ duration: prefersReducedMotion ? 0 : 0.2 }}
+              >
                 <div className="card-body">
                   <div className="d-flex align-items-center justify-content-between mb-2">
                     <div className="d-flex align-items-center gap-2">
@@ -1450,10 +1481,18 @@ useEffect(() => {
                     </div>
                   )}
                 </div>
-              </div>
+              </motion.div>
+            </div>
 
+            {/* Main */}
+            <div className="col-12 col-lg-9">
               {/* Purchases (NEW: categories as columns) */}
-              <div className="card mb-4">
+              <motion.div
+                className="card mb-4"
+                initial={prefersReducedMotion ? false : { opacity: 0, y: 10 }}
+                animate={prefersReducedMotion ? { opacity: 1 } : { opacity: 1, y: 0 }}
+                transition={{ duration: prefersReducedMotion ? 0 : 0.35, ease: "easeOut" }}
+              >
                 <div className="card-body">
                   <div className="d-flex align-items-center justify-content-between mb-3">
                     <h5 className="mb-0">Purchases</h5>
@@ -1479,7 +1518,15 @@ useEffect(() => {
                     </div>
                   </div>
 
-                  {(() => {
+                  <AnimatePresence mode="wait">
+                    <motion.div
+                      key={`table-${viewMode}`}
+                      initial={prefersReducedMotion ? false : { opacity: 0 }}
+                      animate={prefersReducedMotion ? { opacity: 1 } : { opacity: 1 }}
+                      exit={prefersReducedMotion ? { opacity: 1 } : { opacity: 0 }}
+                      transition={{ duration: prefersReducedMotion ? 0 : 0.2 }}
+                    >
+                    {(() => {
                     let rows = [];
 
                     if (viewMode === "weekly") {
@@ -1527,6 +1574,18 @@ useEffect(() => {
                     for (const c of splitCategoryNames) grandTotals[c] = 0;
                     let grandRowTotal = 0;
 
+                    const rowData = rows.map((row) => {
+                      const rangePurchases = getPurchasesInRange(row.start, row.end);
+                      const { totals, counts } = buildCategoryTotals(rangePurchases);
+                      const rowTotal = Object.values(totals).reduce((s, v) => s + (Number(v) || 0), 0);
+                      return { row, totals, counts, rowTotal };
+                    });
+
+                    const maxCellValue = rowData.reduce((max, r) => {
+                      const rowMax = Math.max(0, ...Object.values(r.totals).map((v) => Number(v) || 0));
+                      return Math.max(max, rowMax);
+                    }, 0);
+
                     return (
                       <>
                         <div className="table-responsive" style={{ maxHeight: "420px", overflowY: "auto" }}>
@@ -1552,10 +1611,7 @@ useEffect(() => {
                             </thead>
 
                             <tbody>
-                              {rows.map((row) => {
-                                const rangePurchases = getPurchasesInRange(row.start, row.end);
-                                const { totals, counts } = buildCategoryTotals(rangePurchases);
-                                const rowTotal = Object.values(totals).reduce((s, v) => s + (Number(v) || 0), 0);
+                              {rowData.map(({ row, totals, counts, rowTotal }) => {
 
                                 for (const [cat, val] of Object.entries(totals)) {
                                   grandTotals[cat] = (grandTotals[cat] || 0) + (Number(val) || 0);
@@ -1569,11 +1625,18 @@ useEffect(() => {
                                     {splitCategoryNames.map((cat) => {
                                       const value = totals[cat] || 0;
                                       const count = counts[cat] || 0;
+                                      const intensity = maxCellValue > 0 ? Math.min(value / maxCellValue, 1) : 0;
+                                      const heatAlpha = value > 0 ? 0.08 + 0.35 * intensity : 0;
 
                                       return (
                                               <td
                                                 key={cat}
-                                                className={`text-center tracker-cell ${value > 0 ? "tracker-cell--has" : ""}`}
+                                                className={`text-center tracker-cell tracker-heat-cell ${value > 0 ? "tracker-cell--has" : ""}`}
+                                                style={
+                                                  value > 0
+                                                    ? { backgroundColor: `rgba(13, 110, 253, ${heatAlpha})` }
+                                                    : undefined
+                                                }
                                                 onMouseLeave={() => {
                                                   if (!hoverTip?.pinned) closeHoverTip();
                                                 }}
@@ -1693,12 +1756,14 @@ useEffect(() => {
                         <div className="mt-2 text-end fw-bold">
                           {viewMode === "yearly" ? "Year Total" : viewMode === "monthly" ? "Month Total" : "Week Total"}: £
                           {getViewTotal.toFixed(2)}
-                        </div>
-                      </>
-                    );
-                  })()}
-                </div>
-              </div>
+                            </div>
+                          </>
+                        );
+                      })()}
+                      </motion.div>
+                      </AnimatePresence>
+                    </div>
+                  </motion.div>
             </div>
           </div>
 
