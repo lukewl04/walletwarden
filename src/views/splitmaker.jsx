@@ -9,6 +9,136 @@ const API_URL = "http://localhost:4000/api";
 // Helper to get auth headers with unique user token
 const getAuthHeaders = () => ({ Authorization: `Bearer ${getUserToken()}` });
 
+// Rebalance percentages to total 100%, staying close to preset shape when adding/removing
+const rebalancePercents = ({ people, presets, selectedPreset, keepIdZero = null }) => {
+  if (people.length === 0) return [];
+  
+  // When manually rebalancing (no keepIdZero), just scale current percents proportionally
+  if (keepIdZero === null) {
+    const currentSum = people.reduce((sum, p) => sum + (Number(p.percent) || 0), 0);
+    
+    // If already at 100, no change needed
+    if (Math.abs(currentSum - 100) < 0.01) {
+      return people;
+    }
+    
+    // If all are zero, equal split
+    if (currentSum === 0) {
+      if (people.length === 0) return people;
+      const each = Math.round(100 / people.length);
+      return people.map(p => ({
+        ...p,
+        percent: each,
+      }));
+    }
+    
+    // Scale existing proportions to 100%
+    const scale = 100 / currentSum;
+    const newPercents = people.map(p => {
+      const scaled = (Number(p.percent) || 0) * scale;
+      return { ...p, _scaled: scaled };
+    });
+    
+    // Round and fix drift
+    return fixRounding(newPercents);
+  }
+  
+  // When adding/removing categories (keepIdZero is set), try to match preset shape
+  const preset = presets.find(p => p.label === selectedPreset);
+  const presetMapping = preset?.mapping || {};
+  
+  const notAtZero = people.filter(p => p.id !== keepIdZero && (Number(p.percent) || 0) !== 0);
+  const hasNonZeroValues = notAtZero.length > 0;
+  
+  if (!hasNonZeroValues) {
+    // All are zero: equal split among all EXCEPT keepIdZero
+    const toSplit = people.filter(p => p.id !== keepIdZero);
+    if (toSplit.length === 0) return people;
+    
+    const each = Math.round(100 / toSplit.length);
+    return people.map(p => ({
+      ...p,
+      percent: p.id === keepIdZero ? 0 : each,
+    }));
+  }
+  
+  // Build targets based on preset mapping and current values
+  const targets = {};
+  for (const p of people) {
+    if (p.id === keepIdZero) {
+      targets[p.id] = 0;
+    } else if (presetMapping[p.name] !== undefined) {
+      // In preset: use preset value as target
+      targets[p.id] = presetMapping[p.name];
+    } else {
+      // Not in preset: preserve current value
+      targets[p.id] = Number(p.percent) || 0;
+    }
+  }
+  
+  // Get flexible IDs (all except keepIdZero)
+  const flexibleIds = people.filter(p => p.id !== keepIdZero).map(p => p.id);
+  const flexibleTargetSum = flexibleIds.reduce((sum, id) => sum + targets[id], 0);
+  
+  if (flexibleTargetSum <= 0) {
+    // Fallback: equal split
+    const each = Math.round(100 / flexibleIds.length);
+    return people.map(p => ({
+      ...p,
+      percent: p.id === keepIdZero ? 0 : each,
+    }));
+  }
+  
+  // Scale targets to sum to 100 and apply rounding
+  const scale = 100 / flexibleTargetSum;
+  const newPercents = people.map(p => {
+    if (p.id === keepIdZero) {
+      return { ...p, _scaled: 0 };
+    }
+    return { ...p, _scaled: targets[p.id] * scale };
+  });
+  
+  return fixRounding(newPercents);
+};
+
+// Helper: round and distribute error so sum = 100
+const fixRounding = (itemsWithScaled) => {
+  // Floor all values
+  const rounded = {};
+  let sum = 0;
+  const remainders = {};
+  
+  for (const item of itemsWithScaled) {
+    const val = item._scaled;
+    const floor = Math.floor(val);
+    rounded[item.id] = floor;
+    remainders[item.id] = val - floor;
+    sum += floor;
+  }
+  
+  // Distribute error starting with largest fractional remainders
+  let error = 100 - sum;
+  const ids = Object.keys(remainders).sort((a, b) => remainders[b] - remainders[a]);
+  
+  for (const id of ids) {
+    if (error === 0) break;
+    if (error > 0 && remainders[id] > 0) {
+      rounded[id]++;
+      error--;
+    } else if (error < 0 && rounded[id] > 0) {
+      rounded[id]--;
+      error++;
+    }
+  }
+  
+  // Map back to people array, removing _scaled
+  return itemsWithScaled.map(item => {
+    const { _scaled, ...rest } = item;
+    return { ...rest, percent: Math.max(0, rounded[item.id] || 0) };
+  });
+};
+
+
 // SplitMaker: split a total amount across named categories (or people) using % or £.
 export default function SplitMaker() {
   const location = useLocation();
@@ -80,6 +210,13 @@ export default function SplitMaker() {
   const [message, setMessage] = useState(null); // { type: "success"|"danger"|"warning", text: string }
   const [showFrequencyModal, setShowFrequencyModal] = useState(false);
   const [splitName, setSplitName] = useState("");
+  
+  // Auto-balance toggle: ON by default if preset selected, otherwise OFF
+  const [autoBalanceEnabled, setAutoBalanceEnabled] = useState(() => {
+    const saved = localStorage.getItem("walletwarden-autobalance");
+    if (saved !== null) return saved === "true";
+    return !!incomingPreset; // ON if we have an incoming preset
+  });
 
   // We'll call them "people" because your UI already uses that variable name,
   // but they behave like categories in this screen.
@@ -104,6 +241,8 @@ export default function SplitMaker() {
     setPeople(newPeople);
     setSelectedPreset(preset.label);
     setSplitName(preset.label);
+    setAutoBalanceEnabled(true); // Enable auto-balance when preset applied
+    localStorage.setItem("walletwarden-autobalance", "true");
     setMessage({ type: "success", text: `Applied preset: ${preset.label}` });
     setNeedsPreset(false);
   };
@@ -129,13 +268,28 @@ export default function SplitMaker() {
     );
   };
 
-  const removePerson = (id) => setPeople((prev) => prev.filter((p) => p.id !== id));
+  const removePerson = (id) => {
+    setPeople((prev) => {
+      const updated = prev.filter((p) => p.id !== id);
+      if (autoBalanceEnabled && updated.length > 0) {
+        return rebalancePercents({ people: updated, presets, selectedPreset });
+      }
+      return updated;
+    });
+  };
 
   const addPerson = () => {
-    setPeople((prev) => [
-      ...prev,
-      { id: crypto.randomUUID(), name: "New category", percent: 0, amount: "" },
-    ]);
+    const newId = crypto.randomUUID();
+    setPeople((prev) => {
+      const updated = [
+        ...prev,
+        { id: newId, name: "New category", percent: 0, amount: "" },
+      ];
+      if (autoBalanceEnabled) {
+        return rebalancePercents({ people: updated, presets, selectedPreset, keepIdZero: newId });
+      }
+      return updated;
+    });
   };
 
   const equalize = () => {
@@ -319,6 +473,30 @@ export default function SplitMaker() {
 
                   <hr className="my-3" />
 
+                  {/* Auto-balance toggle */}
+                  <div className="mb-3">
+                    <div className="form-check form-switch">
+                      <input
+                        className="form-check-input"
+                        type="checkbox"
+                        id="autoBalanceSwitch"
+                        checked={autoBalanceEnabled}
+                        onChange={(e) => {
+                          setAutoBalanceEnabled(e.target.checked);
+                          localStorage.setItem("walletwarden-autobalance", e.target.checked ? "true" : "false");
+                        }}
+                      />
+                      <label className="form-check-label fw-semibold" htmlFor="autoBalanceSwitch">
+                        Auto-balance (keep preset shape)
+                      </label>
+                    </div>
+                    <p className="text-muted small mt-2 mb-0">
+                      When adding/removing categories, adjusts other percents to keep total at 100% while matching the preset as closely as possible.
+                    </p>
+                  </div>
+
+                  <hr className="my-3" />
+
                   {/* Stats Panel (Percent-based) */}
                   <div className="p-3 rounded mb-3" style={{ backgroundColor: "var(--card-border)", border: "1px solid var(--card-border)" }}>
                     <div className="small text-muted mb-2">
@@ -353,6 +531,18 @@ export default function SplitMaker() {
                     >
                       + Add category
                     </button>
+                    {autoBalanceEnabled && (
+                      <button
+                        className="btn btn-sm btn-outline-info"
+                        onClick={() => {
+                          setPeople((prev) =>
+                            rebalancePercents({ people: prev, presets, selectedPreset })
+                          );
+                        }}
+                      >
+                        ↻ Rebalance now
+                      </button>
+                    )}
                     <button
                       className="btn btn-sm btn-outline-danger"
                       onClick={() => setPeople([])}

@@ -1,4 +1,4 @@
-// npm i framer-motion
+﻿// npm i framer-motion
 import React, { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { Link } from "react-router-dom";
 import Navbar from "../components/navbar.jsx";
@@ -8,6 +8,17 @@ import { generateId } from "../models/transaction";
 import { getUserToken } from "../utils/userToken";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import "./tracker.css";
+
+// Extracted components
+import TrackerHeader from "../components/tracker/TrackerHeader.jsx";
+import PeriodNavigation from "../components/tracker/PeriodNavigation.jsx";
+import SummaryCard from "../components/tracker/SummaryCard.jsx";
+import SidebarAddOrImportCard from "../components/tracker/SidebarAddOrImportCard.jsx";
+import IncomeCard from "../components/tracker/IncomeCard.jsx";
+import PurchasesPivotTable from "../components/tracker/PurchasesPivotTable.jsx";
+import AddPurchaseModal from "../components/tracker/AddPurchaseModal.jsx";
+import ImportModal from "../components/tracker/ImportModal.jsx";
+import ExpectedIncomeModal from "../components/tracker/ExpectedIncomeModal.jsx";
 
 const API_URL = "http://localhost:4000/api";
 
@@ -581,7 +592,7 @@ const openHoverTip = (evt, title, items, pinned = false) => {
 
 const closeHoverTip = () => setHoverTip(null);
 
-// ✅ Close on outside click ONLY if pinned
+// âœ… Close on outside click ONLY if pinned
 useEffect(() => {
   const onDocMouseDown = () => {
     setHoverTip((prev) => {
@@ -703,7 +714,7 @@ useEffect(() => {
 
       if (response.ok) {
         setPurchases((prev) => prev.filter((p) => p.id !== purchaseId));
-        setSyncMessage("Purchase deleted ✓");
+        setSyncMessage("Purchase deleted âœ“");
         setTimeout(() => setSyncMessage(""), 2000);
       }
     } catch (err) {
@@ -730,7 +741,7 @@ useEffect(() => {
     if (purchase?.description) upsertCategoryRule(purchase.description, newCategory);
 
     setEditingPurchaseId(null);
-    setSyncMessage("Category updated ✓");
+    setSyncMessage("Category updated âœ“");
     setTimeout(() => setSyncMessage(""), 1500);
   };
 
@@ -807,7 +818,7 @@ useEffect(() => {
 
       setCurrentDate(mostRecentDate);
 
-      setSyncMessage(`Added ${newPurchases.length} purchases from upload ✓ (viewing ${mostRecentDate.toLocaleDateString()})`);
+      setSyncMessage(`Added ${newPurchases.length} purchases from upload âœ“ (viewing ${mostRecentDate.toLocaleDateString()})`);
       setTimeout(() => setSyncMessage(""), 3000);
     }
 
@@ -971,7 +982,7 @@ useEffect(() => {
         return pDate > latest ? pDate : latest;
       }, toLocalDate((newPurchases[0] || newIncomes[0]).date));
       setCurrentDate(mostRecentDate);
-      setSyncMessage(`Imported ${importedCount} transaction${importedCount === 1 ? "" : "s"} from Warden Insights ✓`);
+      setSyncMessage(`Imported ${importedCount} transaction${importedCount === 1 ? "" : "s"} from Warden Insights âœ“`);
       setTimeout(() => setSyncMessage(""), 3000);
     }
 
@@ -1119,7 +1130,7 @@ useEffect(() => {
           }
           return [...prev, saved];
         });
-        setSyncMessage("Expected income saved ✓");
+        setSyncMessage("Expected income saved âœ“");
         setTimeout(() => setSyncMessage(""), 2000);
         setShowExpectedIncomeModal(false);
       } else {
@@ -1190,7 +1201,7 @@ useEffect(() => {
         .sort((a, b) => toLocalDate(b.date) - toLocalDate(a.date))
         .map((p) => ({
           id: p.id,
-          description: p.description || "—",
+          description: p.description || "â€”",
           amount: Number(p.amount) || 0,
         }));
 
@@ -1204,747 +1215,117 @@ useEffect(() => {
 
       <Navbar />
 
-      <div className="mb-4">
-        {syncMessage && (
-          <div className="alert alert-success alert-dismissible fade show" role="alert">
-            {syncMessage}
-          </div>
-        )}
-
-        {savedSplits.length === 0 ? (
-          <div className="alert alert-info">No saved splits found. Create a split on the Split Maker page first!</div>
-        ) : (
-          <div className="d-flex gap-3 align-items-end mb-3 flex-wrap">
-            <div>
-              <label className="form-label small fw-semibold">Select Split</label>
-              <select
-                className="form-select form-select-sm"
-                value={selectedSplit || ""}
-                onChange={(e) => setSelectedSplit(e.target.value)}
-                style={{ minWidth: "180px" }}
-              >
-                <option value="" disabled>
-                  Choose a split…
-                </option>
-                {savedSplits.map((split) => (
-                  <option key={split.id} value={split.id}>
-                    {split.name} ({split.frequency})
-                  </option>
-                ))}
-              </select>
-            </div>
-            <h1 className="h4 mb-0 ms-auto">
-              Warden <span className="text-primary">Tracker</span>
-            </h1>
-          </div>
-        )}
-
-        {unlinkedTransactionsCount > 0 && selectedSplit && (
-          <div className="alert alert-warning mb-3" role="alert">
-            <div className="d-flex align-items-center justify-content-between gap-3">
-              <div>
-                <strong>
-                  📥 {unlinkedTransactionsCount} transaction{unlinkedTransactionsCount !== 1 ? "s" : ""}
-                </strong>{" "}
-                from Warden Insights {unlinkedTransactionsCount !== 1 ? "are" : "is"} not linked to this split yet.
-                <br />
-                <small className="text-body-secondary">
-                  Click "Import Now" to automatically categorize and add them to this split.
-                </small>
-              </div>
-              <button
-                className="btn btn-primary"
-                onClick={handleImportFromWardenInsights}
-                disabled={isImportingFromInsights}
-                style={{ whiteSpace: "nowrap" }}
-              >
-                {isImportingFromInsights ? "Importing..." : "Import Now"}
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
+      <TrackerHeader
+        savedSplits={savedSplits}
+        selectedSplit={selectedSplit}
+        setSelectedSplit={setSelectedSplit}
+        syncMessage={syncMessage}
+        unlinkedTransactionsCount={unlinkedTransactionsCount}
+        handleImportFromWardenInsights={handleImportFromWardenInsights}
+        isImportingFromInsights={isImportingFromInsights}
+      />
 
       {selectedSplit && (
         <>
           {/* Period Navigation */}
-          <div className="d-flex align-items-center justify-content-between mb-4 pb-3 border-bottom">
-            <h5 className="mb-0">
-              {viewMode === "yearly"
-                ? yearStart.getFullYear().toString()
-                : viewMode === "monthly"
-                ? monthStart.toLocaleDateString("en-GB", { month: "long", year: "numeric" })
-                : `Week of ${weekStart.toLocaleDateString("en-GB", { day: "numeric", month: "short" })} - ${weekEnd.toLocaleDateString(
-                    "en-GB",
-                    { day: "numeric", month: "short", year: "numeric" }
-                  )}`}
-            </h5>
-            <div className="d-flex gap-2 align-items-center">
-              <button
-                className="btn btn-sm btn-outline-secondary"
-                onClick={viewMode === "yearly" ? previousYear : viewMode === "monthly" ? previousMonth : previousWeek}
-                title={viewMode === "yearly" ? "Previous year" : viewMode === "monthly" ? "Previous month" : "Previous week"}
-              >
-                ← Prev
-              </button>
-              <button
-                className="btn btn-sm btn-outline-primary"
-                onClick={viewMode === "yearly" ? goToCurrentYear : viewMode === "monthly" ? goToCurrentMonth : goToCurrentWeek}
-                title={viewMode === "yearly" ? "Go to current year" : viewMode === "monthly" ? "Go to current month" : "Go to current week"}
-              >
-                Today
-              </button>
-              <button
-                className="btn btn-sm btn-outline-secondary"
-                onClick={viewMode === "yearly" ? nextYear : viewMode === "monthly" ? nextMonth : nextWeek}
-                title={viewMode === "yearly" ? "Next year" : viewMode === "monthly" ? "Next month" : "Next week"}
-              >
-                Next →
-              </button>
-            </div>
-          </div>
+          <PeriodNavigation
+            viewMode={viewMode}
+            weekStart={weekStart}
+            weekEnd={weekEnd}
+            monthStart={monthStart}
+            yearStart={yearStart}
+            previousWeek={previousWeek}
+            nextWeek={nextWeek}
+            goToCurrentWeek={goToCurrentWeek}
+            previousMonth={previousMonth}
+            nextMonth={nextMonth}
+            goToCurrentMonth={goToCurrentMonth}
+            previousYear={previousYear}
+            nextYear={nextYear}
+            goToCurrentYear={goToCurrentYear}
+          />
 
           {/* Summary Box */}
-          {selectedSplitData && (
-            <AnimatePresence mode="wait">
-              <motion.div
-                key={`summary-${viewMode}`}
-                initial={prefersReducedMotion ? false : { opacity: 0, y: 8 }}
-                animate={prefersReducedMotion ? { opacity: 1 } : { opacity: 1, y: 0 }}
-                exit={prefersReducedMotion ? { opacity: 1 } : { opacity: 0, y: -6 }}
-                transition={{ duration: prefersReducedMotion ? 0 : 0.25 }}
-                className="card mb-4 shadow-sm"
-                style={{ backgroundColor: "var(--card-bg)", borderColor: "var(--card-border)", overflowX: "auto" }}
-              >
-                <div className="card-body py-3 px-3">
-                  <div className="d-flex align-items-stretch gap-3" style={{ minWidth: "max-content" }}>
-                    <div className="d-flex flex-column justify-content-center" style={{ minWidth: "110px", flexShrink: 0 }}>
-                      <span
-                        className="fw-semibold text-primary"
-                        style={{
-                          fontSize: "0.75rem",
-                          textTransform: "uppercase",
-                          letterSpacing: "0.5px",
-                          opacity: 0.8,
-                        }}
-                      >
-                        {viewMode === "yearly" ? "Yearly" : viewMode === "monthly" ? "Monthly" : "Weekly"} Summary
-                      </span>
-                      <span className="fw-bold" style={{ fontSize: "1.25rem" }}>
-                        £{getViewTotal.toFixed(2)}
-                      </span>
-                      <span className="text-primary" style={{ fontSize: "0.75rem", opacity: 0.7 }}>
-                        of £{viewBudgetIncome.toFixed(2)} income
-                        {viewUsingExpectedIncome && (
-                          <span className="badge bg-warning text-dark ms-1" style={{ fontSize: "0.65rem" }}>
-                            Est.
-                          </span>
-                        )}
-                      </span>
-                    </div>
-
-                    <div className="vr d-none d-sm-block" style={{ height: "50px", alignSelf: "center", flexShrink: 0 }} />
-
-                    {selectedSplitData.categories.map((cat) => {
-                      const categoryPurchases = getViewPurchases().filter((p) => p.category === cat.name);
-                      const categoryTotal = categoryPurchases.reduce((sum, p) => sum + p.amount, 0);
-                      const allocatedAmount = viewBudgetIncome > 0 ? (viewBudgetIncome * cat.percent) / 100 : 0;
-                      const percentUsed = allocatedAmount > 0 ? (categoryTotal / allocatedAmount) * 100 : 0;
-                      const remaining = allocatedAmount - categoryTotal;
-                      const progressWidth = Math.min(percentUsed, 100);
-
-                      return (
-                        <motion.div
-                          key={cat.id}
-                          className="d-flex flex-column justify-content-center tracker-summary-item"
-                          style={{ minWidth: "90px", flexShrink: 0 }}
-                          whileHover={prefersReducedMotion ? undefined : { y: -3 }}
-                          transition={{ type: "spring", stiffness: 250, damping: 20 }}
-                          title={`${cat.name}: £${categoryTotal.toFixed(2)} of £${allocatedAmount.toFixed(2)}`}
-                        >
-                          <span className="text-primary fw-medium" style={{ fontSize: "0.75rem", marginBottom: "2px", whiteSpace: "nowrap", opacity: 0.8 }}>
-                            {cat.name} <span style={{ opacity: 0.7 }}>({cat.percent}%)</span>
-                          </span>
-                          <div className="d-flex align-items-baseline gap-1">
-                            <span className="fw-bold" style={{ fontSize: "0.9rem" }}>
-                              £{categoryTotal.toFixed(2)}
-                            </span>
-                            <span className="text-primary" style={{ fontSize: "0.7rem", opacity: 0.7 }}>
-                              / £{allocatedAmount.toFixed(2)}
-                            </span>
-                          </div>
-                          <div className="progress" style={{ height: "4px", width: "100%", marginTop: "4px", marginBottom: "4px" }}>
-                            <motion.div
-                              className={`progress-bar tracker-progress-fill ${percentUsed > 100 ? "tracker-glow-over" : percentUsed > 80 ? "bg-warning" : ""}`}
-                              initial={prefersReducedMotion ? false : { width: 0 }}
-                              animate={{ width: `${progressWidth}%` }}
-                              transition={{ duration: prefersReducedMotion ? 0 : 0.6, ease: "easeOut" }}
-                              style={{ backgroundColor: percentUsed <= 80 ? "var(--tracker-budget-ok)" : undefined }}
-                            />
-                          </div>
-                          <span className="fw-medium" style={{ fontSize: "0.7rem", whiteSpace: "nowrap", color: remaining < 0 ? "var(--bs-danger)" : "var(--tracker-budget-ok)" }}>
-                            {remaining >= 0 ? `£${remaining.toFixed(2)} left` : `-£${Math.abs(remaining).toFixed(2)} over`}
-                          </span>
-                        </motion.div>
-                      );
-                    })}
-                  </div>
-                </div>
-              </motion.div>
-            </AnimatePresence>
-          )}
+          <SummaryCard
+            selectedSplitData={selectedSplitData}
+            viewMode={viewMode}
+            prefersReducedMotion={prefersReducedMotion}
+            getViewTotal={getViewTotal}
+            viewBudgetIncome={viewBudgetIncome}
+            viewUsingExpectedIncome={viewUsingExpectedIncome}
+            getViewPurchases={getViewPurchases}
+          />
 
           <div className="row g-3">
             {/* Sidebar */}
             <div className="col-12 col-lg-3">
-              <motion.div
-                className="card shadow-sm mb-3 tracker-card-hover"
-                whileHover={prefersReducedMotion ? undefined : { y: -2, boxShadow: "0 10px 24px rgba(13,110,253,0.12)" }}
-                transition={{ duration: prefersReducedMotion ? 0 : 0.2 }}
-              >
-                <div className="card-body">
-                  <h6 className="mb-3">Add or Import</h6>
+              <SidebarAddOrImportCard prefersReducedMotion={prefersReducedMotion} />
 
-                  <Link to="/wardeninsights" className="btn btn-primary w-100 mb-2" title="Add transactions or income in Warden Insights">
-                    Add
-                  </Link>
-
-                  <div className="text-body small">Manage all new expenses and income from Warden Insights; they’ll sync back here.</div>
-                </div>
-              </motion.div>
-
-              <motion.div
-                className="card shadow-sm mb-3 tracker-card-hover"
-                whileHover={prefersReducedMotion ? undefined : { y: -2, boxShadow: "0 10px 24px rgba(13,110,253,0.12)" }}
-                transition={{ duration: prefersReducedMotion ? 0 : 0.2 }}
-              >
-                <div className="card-body">
-                  <div className="d-flex align-items-center justify-content-between mb-2">
-                    <div className="d-flex align-items-center gap-2">
-                      <h5 className="mb-0">Income</h5>
-                      <button className="btn btn-sm btn-outline-secondary" onClick={openExpectedIncomeModal} title="Set expected income for budgeting">
-                        ⚙️ Expected
-                      </button>
-                    </div>
-                    <span className="badge fs-6" style={{ backgroundColor: "var(--tracker-accent-bg)", color: "#000000" }}>
-                      £{viewIncomeTransactions.reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0).toFixed(2)}
-                    </span>
-                  </div>
-
-                  {isUsingExpectedIncome && selectedIncomeSettings && (
-                    <div className="alert alert-info py-2 mb-3">
-                      <small>
-                        📊 <strong>Using expected income:</strong> £{selectedIncomeSettings.expected_amount?.toFixed(2)}
-                        {selectedIncomeSettings.next_payday && (
-                          <span className="ms-2">
-                            (next payday:{" "}
-                            {new Date(selectedIncomeSettings.next_payday + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" })})
-                          </span>
-                        )}
-                      </small>
-                    </div>
-                  )}
-
-                  {viewIncomeTransactions.length === 0 ? (
-                    <div className="text-body-secondary small">
-                      No income recorded for this {viewMode === "yearly" ? "year" : viewMode === "monthly" ? "month" : "week"}.
-                    </div>
-                  ) : (
-                    <div className="table-responsive" style={{ maxHeight: "140px", overflowY: "auto" }}>
-                      <table className="table table-sm table-hover mb-0">
-                        <thead className="table-light" style={{ position: "sticky", top: 0, zIndex: 1 }}>
-                          <tr>
-                            <th style={{ width: "120px" }}>Date</th>
-                            <th style={{ width: "120px" }} className="text-end">
-                              Amount
-                            </th>
-                            <th style={{ width: "160px" }}>Category</th>
-                            <th>Description</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {viewIncomeTransactions
-                            .slice()
-                            .sort((a, b) => toLocalDate(b.date) - toLocalDate(a.date))
-                            .map((tx) => (
-                              <tr key={tx.id}>
-                                <td>{formatDisplayDate(tx.date)}</td>
-                                <td className="text-end fw-bold">£{Number(tx.amount || 0).toFixed(2)}</td>
-                                <td>
-                                  <span className="badge text-bg-secondary">{tx.category || "Income"}</span>
-                                </td>
-                                <td className="text-light">{tx.description || "—"}</td>
-                              </tr>
-                            ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-              </motion.div>
+              <IncomeCard
+                prefersReducedMotion={prefersReducedMotion}
+                openExpectedIncomeModal={openExpectedIncomeModal}
+                isUsingExpectedIncome={isUsingExpectedIncome}
+                selectedIncomeSettings={selectedIncomeSettings}
+                viewIncomeTransactions={viewIncomeTransactions}
+                viewMode={viewMode}
+                toLocalDate={toLocalDate}
+                formatDisplayDate={formatDisplayDate}
+              />
             </div>
 
             {/* Main */}
             <div className="col-12 col-lg-9">
-              {/* Purchases (NEW: categories as columns) */}
-              <motion.div
-                className="card mb-4"
-                initial={prefersReducedMotion ? false : { opacity: 0, y: 10 }}
-                animate={prefersReducedMotion ? { opacity: 1 } : { opacity: 1, y: 0 }}
-                transition={{ duration: prefersReducedMotion ? 0 : 0.35, ease: "easeOut" }}
-              >
-                <div className="card-body">
-                  <div className="d-flex align-items-center justify-content-between mb-3">
-                    <h5 className="mb-0">Purchases</h5>
-                    <div className="btn-group" role="group">
-                      <button
-                        className={`btn btn-sm ${viewMode === "weekly" ? "btn-primary" : "btn-outline-secondary"}`}
-                        onClick={() => setViewMode("weekly")}
-                      >
-                        Weekly
-                      </button>
-                      <button
-                        className={`btn btn-sm ${viewMode === "monthly" ? "btn-primary" : "btn-outline-secondary"}`}
-                        onClick={() => setViewMode("monthly")}
-                      >
-                        Monthly
-                      </button>
-                      <button
-                        className={`btn btn-sm ${viewMode === "yearly" ? "btn-primary" : "btn-outline-secondary"}`}
-                        onClick={() => setViewMode("yearly")}
-                      >
-                        Yearly
-                      </button>
-                    </div>
-                  </div>
-
-                  <AnimatePresence mode="wait">
-                    <motion.div
-                      key={`table-${viewMode}`}
-                      initial={prefersReducedMotion ? false : { opacity: 0 }}
-                      animate={prefersReducedMotion ? { opacity: 1 } : { opacity: 1 }}
-                      exit={prefersReducedMotion ? { opacity: 1 } : { opacity: 0 }}
-                      transition={{ duration: prefersReducedMotion ? 0 : 0.2 }}
-                    >
-                    {(() => {
-                    let rows = [];
-
-                    if (viewMode === "weekly") {
-                      rows = weekDays.map((day, idx) => {
-                        const start = new Date(day.getFullYear(), day.getMonth(), day.getDate());
-                        const end = new Date(day.getFullYear(), day.getMonth(), day.getDate(), 23, 59, 59, 999);
-                        return {
-                          key: `day-${idx}-${toDateOnlyString(day)}`,
-                          label: `${dayNames[idx]} ${day.toLocaleDateString("en-GB", { day: "2-digit", month: "short" })}`,
-                          start,
-                          end,
-                          isCurrent: toDateOnlyString(day) === toDateOnlyString(new Date()),
-                        };
-                      });
-                    } else if (viewMode === "monthly") {
-                      rows = monthWeeks.map((w) => {
-                        const now = new Date();
-                        return {
-                          key: `week-${w.num}-${toDateOnlyString(w.start)}`,
-                          label: `${w.label} (${w.start.toLocaleDateString("en-GB", { day: "numeric", month: "short" })}–${w.end.toLocaleDateString(
-                            "en-GB",
-                            { day: "numeric", month: "short" }
-                          )})`,
-                          start: w.start,
-                          end: new Date(w.end.getFullYear(), w.end.getMonth(), w.end.getDate(), 23, 59, 59, 999),
-                          isCurrent: now >= w.start && now <= w.end,
-                        };
-                      });
-                    } else {
-                      rows = monthNames.map((mName, idx) => {
-                        const start = new Date(yearStart.getFullYear(), idx, 1);
-                        const end = new Date(yearStart.getFullYear(), idx + 1, 0, 23, 59, 59, 999);
-                        const now = new Date();
-                        return {
-                          key: `month-${idx}-${yearStart.getFullYear()}`,
-                          label: `${mName} ${yearStart.getFullYear()}`,
-                          start,
-                          end,
-                          isCurrent: now.getFullYear() === yearStart.getFullYear() && now.getMonth() === idx,
-                        };
-                      });
-                    }
-
-                    const grandTotals = {};
-                    for (const c of splitCategoryNames) grandTotals[c] = 0;
-                    let grandRowTotal = 0;
-
-                    const rowData = rows.map((row) => {
-                      const rangePurchases = getPurchasesInRange(row.start, row.end);
-                      const { totals, counts } = buildCategoryTotals(rangePurchases);
-                      const rowTotal = Object.values(totals).reduce((s, v) => s + (Number(v) || 0), 0);
-                      return { row, totals, counts, rowTotal };
-                    });
-
-                    const maxCellValue = rowData.reduce((max, r) => {
-                      const rowMax = Math.max(0, ...Object.values(r.totals).map((v) => Number(v) || 0));
-                      return Math.max(max, rowMax);
-                    }, 0);
-
-                    return (
-                      <>
-                        <div className="table-responsive" style={{ maxHeight: "420px", overflowY: "auto" }}>
-                          <table className="table table-sm mb-0 tracker-pivot-table" style={{ tableLayout: "fixed" }}>
-
-                            <thead className="table-light" style={{ position: "sticky", top: 0, zIndex: 1 }}>
-                              <tr>
-                                <th style={{ width: "220px" }}>Period</th>
-                                    {splitCategoryNames.map((cat) => (
-                                      <th
-                                        key={cat}
-                                        className="text-center tracker-cat-th"
-                                        title={cat}
-                                      >
-                                        <span className="tracker-cat-label">{cat}</span>
-                                      </th>
-                                    ))}
-
-                                <th className="text-end" style={{ width: "120px" }}>
-                                  Total
-                                </th>
-                              </tr>
-                            </thead>
-
-                            <tbody>
-                              {rowData.map(({ row, totals, counts, rowTotal }) => {
-
-                                for (const [cat, val] of Object.entries(totals)) {
-                                  grandTotals[cat] = (grandTotals[cat] || 0) + (Number(val) || 0);
-                                }
-                                grandRowTotal += rowTotal;
-
-                                return (
-                                  <tr key={row.key} style={row.isCurrent ? { backgroundColor: "rgba(13, 110, 253, 0.06)" } : undefined}>
-                                    <td className="fw-semibold">{row.label}</td>
-
-                                    {splitCategoryNames.map((cat) => {
-                                      const value = totals[cat] || 0;
-                                      const count = counts[cat] || 0;
-                                      const intensity = maxCellValue > 0 ? Math.min(value / maxCellValue, 1) : 0;
-                                      const heatAlpha = value > 0 ? 0.08 + 0.35 * intensity : 0;
-
-                                      return (
-                                              <td
-                                                key={cat}
-                                                className={`text-center tracker-cell tracker-heat-cell ${value > 0 ? "tracker-cell--has" : ""}`}
-                                                style={
-                                                  value > 0
-                                                    ? { backgroundColor: `rgba(13, 110, 253, ${heatAlpha})` }
-                                                    : undefined
-                                                }
-                                                onMouseLeave={() => {
-                                                  if (!hoverTip?.pinned) closeHoverTip();
-                                                }}
-                                                onBlur={() => {
-                                                  if (!hoverTip?.pinned) closeHoverTip();
-                                                }}
-                                              >
-                                                {value > 0 ? (
-                                                  <button
-                                                    type="button"
-                                                    className="tracker-cell-btn"
-                                                    onMouseEnter={(e) => {
-                                                      // If tooltip is pinned, don't override it by hovering other cells
-                                                      if (hoverTip?.pinned) return;
-
-                                                      const items = getCellItems(row.start, row.end, cat);
-                                                      openHoverTip(
-                                                        e,
-                                                        `${row.label} • ${cat} • ${money(value)} (${count} item${count === 1 ? "" : "s"})`,
-                                                        items,
-                                                        false // hover = NOT pinned
-                                                      );
-                                                    }}
-                                                    onClick={(e) => {
-                                                      e.stopPropagation(); // prevent document click from closing it
-
-                                                      const items = getCellItems(row.start, row.end, cat);
-                                                      openHoverTip(
-                                                        e,
-                                                        `${row.label} • ${cat} • ${money(value)} (${count} item${count === 1 ? "" : "s"})`,
-                                                        items,
-                                                        true // click = PINNED
-                                                      );
-                                                    }}
-                                                  >
-                                                    <div className="fw-bold">{formatMoney(value)}</div>
-                                                    <div className="text-body-secondary" style={{ fontSize: "0.75rem" }}>
-                                                      {count} item{count === 1 ? "" : "s"}
-                                                    </div>
-                                                  </button>
-                                                ) : (
-                                                  <span className="text-body-secondary">—</span>
-                                                )}
-                                              </td>
-                                            );
-
-                                    })}
-
-                                    <td className="text-end fw-bold">{formatMoney(rowTotal)}</td>
-                                  </tr>
-                                );
-                              })}
-                            </tbody>
-
-                            <tfoot className="table-light" style={{ position: "sticky", bottom: 0, zIndex: 1 }}>
-                              <tr>
-                                <th>Totals</th>
-                                {splitCategoryNames.map((cat) => (
-                                  <th key={cat} className="text-center">
-                                    {grandTotals[cat] > 0 ? formatMoney(grandTotals[cat]) : "—"}
-                                  </th>
-                                ))}
-                                <th className="text-end">{formatMoney(grandRowTotal)}</th>
-                              </tr>
-                            </tfoot>
-                          </table>
-                        </div>
-                          {hoverTip && (
-                            <div
-                              className="tracker-hover-tip shadow"
-                              style={{ left: hoverTip.x, top: hoverTip.y }}
-                              role="dialog"
-                              aria-label="Purchase details"
-                              onMouseDown={(e) => e.stopPropagation()} // prevents outside-click handler firing
-                            >
-                              <div className="tracker-hover-header">
-                                <div className="tracker-hover-title">{hoverTip.title}</div>
-
-                                {hoverTip.pinned && (
-                                  <button
-                                    type="button"
-                                    className="tracker-hover-close"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      closeHoverTip();
-                                    }}
-                                    aria-label="Close"
-                                    title="Close"
-                                  >
-                                    ✕
-                                  </button>
-                                )}
-                              </div>
-
-                              {hoverTip.items?.length ? (
-                                <div className="tracker-hover-list">
-                                  {hoverTip.items.slice(0, 12).map((it) => (
-                                    <div key={it.id} className="tracker-hover-row">
-                                      <div className="tracker-hover-desc" title={it.description}>
-                                        {it.description}
-                                      </div>
-                                      <div className="tracker-hover-amt">{money(it.amount)}</div>
-                                    </div>
-                                  ))}
-                                  {hoverTip.items.length > 12 && (
-                                    <div className="tracker-hover-more">+ {hoverTip.items.length - 12} more…</div>
-                                  )}
-                                </div>
-                              ) : (
-                                <div className="tracker-hover-empty">No items</div>
-                              )}
-                            </div>
-                          )}
-
-
-
-                        <div className="mt-2 text-end fw-bold">
-                          {viewMode === "yearly" ? "Year Total" : viewMode === "monthly" ? "Month Total" : "Week Total"}: £
-                          {getViewTotal.toFixed(2)}
-                            </div>
-                          </>
-                        );
-                      })()}
-                      </motion.div>
-                      </AnimatePresence>
-                    </div>
-                  </motion.div>
+              <PurchasesPivotTable
+                viewMode={viewMode}
+                setViewMode={setViewMode}
+                prefersReducedMotion={prefersReducedMotion}
+                weekDays={weekDays}
+                dayNames={dayNames}
+                monthWeeks={monthWeeks}
+                monthNames={monthNames}
+                yearStart={yearStart}
+                splitCategoryNames={splitCategoryNames}
+                getPurchasesInRange={getPurchasesInRange}
+                buildCategoryTotals={buildCategoryTotals}
+                getCellItems={getCellItems}
+                toDateOnlyString={toDateOnlyString}
+                formatMoney={formatMoney}
+                money={money}
+                hoverTip={hoverTip}
+                openHoverTip={openHoverTip}
+                closeHoverTip={closeHoverTip}
+                getViewTotal={getViewTotal}
+              />
             </div>
           </div>
 
           {/* Add Purchase Modal */}
-          {showAddModal && (
-            <div className="modal d-block" style={{ backgroundColor: "rgba(0,0,0,0.5)" }} role="dialog">
-              <div className="modal-dialog">
-                <div className="modal-content">
-                  <div className="modal-header">
-                    <h5 className="modal-title">Add Purchase</h5>
-                    <button type="button" className="btn-close" onClick={() => setShowAddModal(false)} />
-                  </div>
-                  <div className="modal-body">
-                    <div className="mb-3">
-                      <label className="form-label small">Date</label>
-                      <input
-                        type="date"
-                        className="form-control form-control-sm"
-                        value={newPurchase.date}
-                        onChange={(e) => setNewPurchase({ ...newPurchase, date: e.target.value })}
-                      />
-                    </div>
-                    <div className="mb-3">
-                      <label className="form-label small">Amount (£)</label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        className="form-control form-control-sm"
-                        value={newPurchase.amount}
-                        onChange={(e) => setNewPurchase({ ...newPurchase, amount: e.target.value })}
-                      />
-                    </div>
-                    <div className="mb-3">
-                      <label className="form-label small">Category</label>
-                      <select
-                        className="form-select form-select-sm"
-                        value={newPurchase.category}
-                        onChange={(e) => setNewPurchase({ ...newPurchase, category: e.target.value })}
-                      >
-                        <option value="">Select category…</option>
-                        {selectedSplitData?.categories.map((cat) => (
-                          <option key={cat.id} value={cat.name}>
-                            {cat.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="mb-3">
-                      <label className="form-label small">Description (optional)</label>
-                      <input
-                        type="text"
-                        className="form-control form-control-sm"
-                        value={newPurchase.description}
-                        onChange={(e) => setNewPurchase({ ...newPurchase, description: e.target.value })}
-                        placeholder="e.g. Tesco shopping"
-                      />
-                    </div>
-                  </div>
-                  <div className="modal-footer">
-                    <button type="button" className="btn btn-secondary" onClick={() => setShowAddModal(false)}>
-                      Cancel
-                    </button>
-                    <button type="button" className="btn btn-primary" onClick={handleAddPurchase}>
-                      Add Purchase
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
+          <AddPurchaseModal
+            showAddModal={showAddModal}
+            setShowAddModal={setShowAddModal}
+            newPurchase={newPurchase}
+            setNewPurchase={setNewPurchase}
+            selectedSplitData={selectedSplitData}
+            handleAddPurchase={handleAddPurchase}
+          />
 
           {/* Import Modal */}
-          {showImportModal && (
-            <div className="modal d-block" style={{ backgroundColor: "rgba(0,0,0,0.5)" }} role="dialog">
-              <div className="modal-dialog modal-lg">
-                <div className="modal-content">
-                  <div className="modal-header">
-                    <h5 className="modal-title">Import Bank Statement</h5>
-                    <button type="button" className="btn-close" onClick={() => setShowImportModal(false)} />
-                  </div>
-                  <div className="modal-body">
-                    <p className="text-body-secondary mb-3">
-                      Upload your bank statement in CSV or PDF format. Transactions will be automatically categorized based on your split's categories.
-                    </p>
-                    <CsvPdfUpload bulkAddTransactions={handleBulkAdd} />
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
+          <ImportModal
+            showImportModal={showImportModal}
+            setShowImportModal={setShowImportModal}
+            handleBulkAdd={handleBulkAdd}
+          />
 
           {/* Expected Income Modal */}
-          {showExpectedIncomeModal && (
-            <div className="modal d-block" style={{ backgroundColor: "rgba(0,0,0,0.5)" }}>
-              <div className="modal-dialog">
-                <div className="modal-content">
-                  <div className="modal-header">
-                    <h5 className="modal-title">Expected Income Settings</h5>
-                    <button type="button" className="btn-close" onClick={() => setShowExpectedIncomeModal(false)} />
-                  </div>
-                  <div className="modal-body">
-                    <p className="text-body-secondary mb-3">
-                      Set expected income for <strong>{selectedSplitData?.name || "this split"}</strong>. This will be used for budget calculations when no
-                      actual income has been imported yet.
-                    </p>
-
-                    <div className="mb-3">
-                      <label className="form-label">Expected Amount (£)</label>
-                      <input
-                        type="number"
-                        className="form-control"
-                        value={expectedIncomeForm.expected_amount}
-                        onChange={(e) => setExpectedIncomeForm((prev) => ({ ...prev, expected_amount: e.target.value }))}
-                        placeholder="0.00"
-                        step="0.01"
-                        min="0"
-                      />
-                    </div>
-
-                    <div className="mb-3">
-                      <label className="form-label">Next Payday</label>
-                      <input
-                        type="date"
-                        className="form-control"
-                        value={expectedIncomeForm.next_payday}
-                        onChange={(e) => setExpectedIncomeForm((prev) => ({ ...prev, next_payday: e.target.value }))}
-                      />
-                    </div>
-
-                    <div className="mb-3">
-                      <label className="form-label">Pay Frequency</label>
-                      <select
-                        className="form-select"
-                        value={expectedIncomeForm.frequency}
-                        onChange={(e) => setExpectedIncomeForm((prev) => ({ ...prev, frequency: e.target.value }))}
-                      >
-                        <option value="weekly">Weekly</option>
-                        <option value="fortnightly">Fortnightly</option>
-                        <option value="monthly">Monthly</option>
-                      </select>
-                    </div>
-
-                    <div className="form-check mb-3">
-                      <input
-                        type="checkbox"
-                        className="form-check-input"
-                        id="useExpectedCheckbox"
-                        checked={expectedIncomeForm.use_expected_when_no_actual}
-                        onChange={(e) =>
-                          setExpectedIncomeForm((prev) => ({ ...prev, use_expected_when_no_actual: e.target.checked }))
-                        }
-                      />
-                      <label className="form-check-label" htmlFor="useExpectedCheckbox">
-                        Use expected income when no actual income imported
-                      </label>
-                    </div>
-
-                    {selectedIncomeSettings && (
-                      <div className="alert alert-info py-2 small">
-                        Current settings: £{Number(selectedIncomeSettings.expected_amount || 0).toFixed(2)} {selectedIncomeSettings.frequency}
-                      </div>
-                    )}
-                  </div>
-                  <div className="modal-footer">
-                    <button type="button" className="btn btn-secondary" onClick={() => setShowExpectedIncomeModal(false)}>
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-primary"
-                      onClick={handleSaveExpectedIncome}
-                      disabled={!expectedIncomeForm.expected_amount || Number(expectedIncomeForm.expected_amount) <= 0}
-                    >
-                      Save Settings
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
+          <ExpectedIncomeModal
+            showExpectedIncomeModal={showExpectedIncomeModal}
+            setShowExpectedIncomeModal={setShowExpectedIncomeModal}
+            expectedIncomeForm={expectedIncomeForm}
+            setExpectedIncomeForm={setExpectedIncomeForm}
+            selectedSplitData={selectedSplitData}
+            selectedIncomeSettings={selectedIncomeSettings}
+            handleSaveExpectedIncome={handleSaveExpectedIncome}
+          />
         </>
       )}
     </div>
