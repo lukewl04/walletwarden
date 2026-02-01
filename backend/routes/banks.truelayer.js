@@ -242,7 +242,7 @@ router.get("/status", async (req, res) => {
 
 /**
  * GET /api/banks/truelayer/balance
- * Get the actual bank balance from connected accounts (from DB)
+ * Get the actual bank balance - fetches LIVE from TrueLayer if connected, otherwise from DB
  */
 router.get("/balance", async (req, res) => {
   try {
@@ -257,12 +257,102 @@ router.get("/balance", async (req, res) => {
       return res.status(503).json({ error: "database_unavailable", message: "Database client not available" });
     }
 
-    // Get all bank accounts for user
+    // Try to get live balance from TrueLayer
+    const accessToken = await service.getValidAccessToken(prisma, userId);
+    
+    if (accessToken) {
+      try {
+        // Fetch accounts from TrueLayer
+        const accounts = await client.getAccounts({ access_token: accessToken });
+        
+        if (accounts.length > 0) {
+          // Fetch and update balances for all accounts
+          const accountsWithBalances = [];
+          
+          for (const acc of accounts) {
+            try {
+              const balance = await client.getBalance({ access_token: accessToken, account_id: acc.account_id });
+              
+              // Update DB with latest balance
+              await prisma.bankAccount.upsert({
+                where: {
+                  user_id_provider_provider_account_id: {
+                    user_id: userId,
+                    provider: 'truelayer',
+                    provider_account_id: acc.account_id,
+                  },
+                },
+                update: {
+                  account_name: acc.display_name || acc.account_number?.number || null,
+                  currency: acc.currency || balance?.currency || null,
+                  balance: balance?.current ?? null,
+                  available_balance: balance?.available ?? null,
+                },
+                create: {
+                  user_id: userId,
+                  provider: 'truelayer',
+                  provider_account_id: acc.account_id,
+                  account_name: acc.display_name || acc.account_number?.number || null,
+                  currency: acc.currency || balance?.currency || null,
+                  balance: balance?.current ?? null,
+                  available_balance: balance?.available ?? null,
+                },
+              });
+              
+              accountsWithBalances.push({
+                name: acc.display_name || acc.account_number?.number,
+                balance: balance?.current ?? 0,
+                available: balance?.available ?? 0,
+                currency: balance?.currency || 'GBP',
+              });
+              
+              console.log(`[Balance API LIVE] Account "${acc.display_name}": £${balance?.current?.toFixed(2)}`);
+            } catch (balErr) {
+              console.error(`Failed to fetch live balance for ${acc.account_id}:`, balErr.message);
+            }
+          }
+          
+          if (accountsWithBalances.length > 0) {
+            // Log all accounts for debugging
+            console.log(`[Balance API LIVE] Found ${accountsWithBalances.length} account(s):`);
+            accountsWithBalances.forEach((a, i) => {
+              console.log(`  [${i}] "${a.name}" £${(a.balance || 0).toFixed(2)}`);
+            });
+
+            // Prefer "current/main" account - exclude pots/savings
+            const mainAccount =
+              accountsWithBalances.find(a => {
+                const name = (a.name || "").toLowerCase();
+                // Exclude pots, savings, vaults, jars
+                if (/\b(pot|savings|saving|vault|jar)\b/i.test(name)) return false;
+                return true;
+              }) ||
+              // Fallback: look for "current" or "personal" in name
+              accountsWithBalances.find(a => /\b(current|personal|main)\b/i.test(a.name || "")) ||
+              accountsWithBalances[0];
+            
+            console.log(`[Balance API LIVE] Selected main: "${mainAccount.name}" £${mainAccount.balance.toFixed(2)}`);
+            
+            return res.json({
+              totalBalance: mainAccount.balance,
+              availableBalance: mainAccount.available,
+              currency: mainAccount.currency,
+              accounts: accountsWithBalances,
+              source: 'live',
+            });
+          }
+        }
+      } catch (liveErr) {
+        console.log(`[Balance API] Live fetch failed, falling back to DB:`, liveErr.message);
+      }
+    }
+
+    // Fallback: Get from DB
     const accounts = await prisma.bankAccount.findMany({
       where: { user_id: userId, provider: "truelayer" },
       orderBy: [
-        { created_at: "asc" }, // deterministic
-        { provider_account_id: "asc" }, // deterministic tie-breaker
+        { created_at: "asc" },
+        { provider_account_id: "asc" },
       ],
       select: {
         account_name: true,
@@ -271,6 +361,7 @@ router.get("/balance", async (req, res) => {
         currency: true,
         provider_account_id: true,
         created_at: true,
+        updated_at: true,
       },
     });
 
@@ -278,23 +369,25 @@ router.get("/balance", async (req, res) => {
       return res.json({ totalBalance: null, accounts: [] });
     }
 
-    // Prefer "current/main" account over pots/savings
+    // Log all accounts for debugging
+    console.log(`[Balance API DB] User ${userId} has ${accounts.length} account(s):`);
+    accounts.forEach((a, i) => {
+      console.log(`  [${i}] "${a.account_name}" £${(a.balance || 0).toFixed(2)}`);
+    });
+
+    // Prefer "current/main" account - exclude pots/savings
     const mainAccount =
-      accounts.find(
-        (a) => !/pot|savings|saving|vault|jar/i.test(a.account_name || "")
-      ) || accounts[0];
+      accounts.find(a => {
+        const name = (a.account_name || "").toLowerCase();
+        // Exclude pots, savings, vaults, jars
+        if (/\b(pot|savings|saving|vault|jar)\b/i.test(name)) return false;
+        return true;
+      }) ||
+      // Fallback: look for "current" or "personal" in name
+      accounts.find(a => /\b(current|personal|main)\b/i.test(a.account_name || "")) ||
+      accounts[0];
 
-    // Sum up all account balances for reference
-    const totalAllAccounts = accounts.reduce(
-      (sum, acc) => sum + (acc.balance || 0),
-      0
-    );
-
-    console.log(
-      `[Balance API] User ${userId}: Main account £${(
-        mainAccount.balance || 0
-      ).toFixed(2)}, Total (all pots) £${totalAllAccounts.toFixed(2)}`
-    );
+    console.log(`[Balance API DB] Selected main: "${mainAccount.account_name}" £${(mainAccount.balance || 0).toFixed(2)}`);
 
     return res.json({
       totalBalance: mainAccount.balance ?? 0,
@@ -306,6 +399,7 @@ router.get("/balance", async (req, res) => {
         available: a.available_balance,
         currency: a.currency,
       })),
+      source: 'db',
     });
   } catch (err) {
     console.error("Error fetching balance:", err);
@@ -325,7 +419,8 @@ router.get('/balance-cached', async (req, res) => {
     const accounts = await prisma.bankAccount.findMany({
       where: { user_id: userId, provider: 'truelayer' },
       orderBy: [
-        { created_at: 'desc' },
+        { created_at: 'asc' }, // Same order as live endpoint - oldest first (main account)
+        { provider_account_id: 'asc' },
       ],
       select: {
         account_name: true,
@@ -341,18 +436,33 @@ router.get('/balance-cached', async (req, res) => {
       return res.json({ totalBalance: null, availableBalance: null, currency: 'GBP', lastSyncedAt: null });
     }
 
-    // Pick “main” account
-    const main =
-      accounts.find(a => !/pot|savings|saving|vault|jar/i.test(a.account_name || "")) ||
+    // Log all accounts for debugging
+    console.log(`[Balance Cached] User ${userId} has ${accounts.length} account(s):`);
+    accounts.forEach((a, i) => {
+      console.log(`  [${i}] "${a.account_name}" £${(a.balance || 0).toFixed(2)}`);
+    });
+
+    // Pick "main" account - exclude pots/savings (Monzo uses "Pot" prefix for savings pots)
+    // Also look for "Current" or "Personal" as positive indicators of main account
+    const mainAccount =
+      accounts.find(a => {
+        const name = (a.account_name || "").toLowerCase();
+        // Exclude pots, savings, vaults, jars
+        if (/\b(pot|savings|saving|vault|jar)\b/i.test(name)) return false;
+        return true;
+      }) ||
+      // Fallback: look for "current" or "personal" in name
+      accounts.find(a => /\b(current|personal|main)\b/i.test(a.account_name || "")) ||
       accounts[0];
 
-    const lastSyncedAt = main.created_at;
+    const lastSyncedAt = mainAccount.updated_at;
 
+    console.log(`[Balance Cached] Selected main: "${mainAccount.account_name}" £${(mainAccount.balance || 0).toFixed(2)}`);
 
     return res.json({
-      totalBalance: main.balance ?? null,
-      availableBalance: main.available_balance ?? null,
-      currency: main.currency || 'GBP',
+      totalBalance: mainAccount.balance ?? null,
+      availableBalance: mainAccount.available_balance ?? null,
+      currency: mainAccount.currency || 'GBP',
       lastSyncedAt,
       source: 'cached_db',
     });

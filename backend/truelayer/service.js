@@ -558,19 +558,18 @@ function normalizeTransaction(tx, userId) {
  * @param {string} userId - User ID
  */
 async function disconnectBank(prisma, userId) {
-  if (!prisma || !prisma.bankConnection || !prisma.bankAccount) {
+  if (!prisma || !prisma.bankConnection) {
     console.error('[TrueLayer] disconnectBank: prisma not fully available');
     throw new Error('Database client not available');
   }
 
+  // Only delete the connection tokens, keep bank accounts so we retain the last stored balance
   await prisma.bankConnection.deleteMany({
     where: { user_id: userId, provider: 'truelayer' },
   });
   
-  // Optionally clean up accounts (but keep transactions)
-  await prisma.bankAccount.deleteMany({
-    where: { user_id: userId, provider: 'truelayer' },
-  });
+  // NOTE: We intentionally keep BankAccount records so the last synced balance is preserved
+  // and can be displayed when the user is disconnected
 }
 
 module.exports = {

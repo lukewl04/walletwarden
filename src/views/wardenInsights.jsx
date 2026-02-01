@@ -54,9 +54,9 @@ export default function WardenInsights() {
   const [displayBalance, setDisplayBalance] = useState(null);
   const [bankBalance, setBankBalance] = useState(null);
 
-  // Cached balance (last stored in DB, even if disconnected)
-  const [cachedBalance, setCachedBalance] = useState(null); // { totalBalance, availableBalance, currency, lastSyncedAt }
-  const [cachedBalanceLoading, setCachedBalanceLoading] = useState(true);
+  // Stored balance from Supabase (used when TrueLayer is disconnected)
+  const [storedBalance, setStoredBalance] = useState(null);
+  const [storedBalanceLoading, setStoredBalanceLoading] = useState(true);
 
   const autoSyncHasRun = useRef(false);
 
@@ -89,39 +89,38 @@ export default function WardenInsights() {
     }
   };
 
-  // Fetch CACHED bank balance (only paint it when disconnected)
-  const fetchCachedBalance = async () => {
-    setCachedBalanceLoading(true);
+  // Fetch stored balance from Supabase (used when TrueLayer is disconnected)
+  const fetchStoredBalance = async () => {
+    setStoredBalanceLoading(true);
     try {
       const res = await fetch(`${API_URL}/banks/truelayer/balance-cached`, {
         headers: getAuthHeaders(),
         cache: "no-store",
       });
-      if (!res.ok) return;
+      if (!res.ok) {
+        setStoredBalanceLoading(false);
+        return;
+      }
 
       const data = await res.json();
       const tb = data?.totalBalance;
 
       if (typeof tb === "number" && Number.isFinite(tb)) {
-        setCachedBalance(data);
-
-        // ONLY paint cached if we're disconnected (prevents wrong-account flash)
-        if (bankStatus?.connected === false) {
-          const shaped = {
-            totalBalance: data.totalBalance,
-            availableBalance: data.availableBalance,
-            currency: data.currency,
-          };
-          setDisplayBalance(shaped);
-          setBankBalance(shaped);
-        }
+        setStoredBalance({
+          totalBalance: data.totalBalance,
+          availableBalance: data.availableBalance,
+          currency: data.currency,
+          lastSyncedAt: data.lastSyncedAt,
+        });
       }
     } catch (e) {
-      console.error("Failed to fetch cached balance:", e);
+      console.error("Failed to fetch stored balance:", e);
     } finally {
-      setCachedBalanceLoading(false);
+      setStoredBalanceLoading(false);
     }
   };
+
+
 
   // Sync bank transactions
   const handleSyncBank = async (silent = false, force = false) => {
@@ -208,7 +207,7 @@ export default function WardenInsights() {
 
         if (!res.ok) {
           setBankStatus({ connected: false });
-          await fetchCachedBalance();
+          await fetchStoredBalance(); // Fetch stored balance from Supabase
           return;
         }
 
@@ -219,14 +218,14 @@ export default function WardenInsights() {
         if (connected) {
           await fetchBankBalance(); // LIVE only
         } else {
-          await fetchCachedBalance(); // cached only
+          await fetchStoredBalance(); // Stored balance from Supabase
         }
       } catch (err) {
         clearTimeout(timeoutId);
         if (err.name !== "AbortError") console.error("status error:", err);
 
         setBankStatus({ connected: false });
-        await fetchCachedBalance();
+        await fetchStoredBalance(); // Fetch stored balance from Supabase
       }
     };
 
@@ -325,33 +324,35 @@ export default function WardenInsights() {
   const isBankDisconnected = bankStatus?.connected === false;
 
   const hasLiveBankNumber = Number.isFinite(displayBalance?.totalBalance);
-  const hasCachedBankNumber = Number.isFinite(cachedBalance?.totalBalance);
-  const hasAnyBankNumber = hasLiveBankNumber || hasCachedBankNumber;
+  const hasStoredBalance = Number.isFinite(storedBalance?.totalBalance);
 
-  const canShowLocalTotals = isBankDisconnected && !hasAnyBankNumber;
-
+  // Loading state - stop loading once we've checked for stored balance (even if none found)
   const balanceIsLoading =
     bankStatusLoading ||
     (isBankConnected && (liveBalanceLoading || !hasLiveBankNumber)) ||
-    (isBankDisconnected && cachedBalanceLoading && !hasCachedBankNumber);
+    (isBankDisconnected && storedBalanceLoading);
 
+  // Use live balance if connected, otherwise use stored balance from Supabase
   const balanceValue =
     hasLiveBankNumber
       ? displayBalance?.totalBalance
-      : hasCachedBankNumber
-      ? cachedBalance.totalBalance
-      : canShowLocalTotals
-      ? globalTotals?.balance ?? 0
+      : hasStoredBalance
+      ? storedBalance.totalBalance
       : null;
+
+  // Check if we have no balance data at all (disconnected and no stored balance)
+  const noBalanceAvailable = isBankDisconnected && !storedBalanceLoading && !hasStoredBalance;
 
   const isNegative = !balanceIsLoading && Number(balanceValue ?? 0) < 0;
 
   const formattedBalance = useMemo(() => {
-    if (balanceIsLoading || balanceValue === null) return "Loading…";
+    if (balanceIsLoading) return "Loading…";
+    if (noBalanceAvailable) return "—";
+    if (balanceValue === null) return "—";
     const b = Number(balanceValue ?? 0);
     const sign = b < 0 ? "-" : "";
     return `${sign}£${Math.abs(b).toFixed(2)}`;
-  }, [balanceIsLoading, balanceValue]);
+  }, [balanceIsLoading, balanceValue, noBalanceAvailable]);
 
   const handleAddTransaction = (type) => {
     const value = Number(amount);
@@ -749,9 +750,9 @@ export default function WardenInsights() {
                   <div className="text-muted small">
                     {isBankConnected
                       ? "Bank Balance"
-                      : hasCachedBankNumber
-                      ? "Last synced bank balance"
-                      : "Current Balance"}
+                      : hasStoredBalance
+                      ? "Last Synced Balance"
+                      : "Balance"}
 
                     {isBankConnected && hasLiveBankNumber && !balanceIsLoading && (
                       <span
@@ -762,19 +763,19 @@ export default function WardenInsights() {
                       </span>
                     )}
 
-                    {!isBankConnected && hasCachedBankNumber && (
+                    {!isBankConnected && hasStoredBalance && (
                       <span
                         className="badge bg-secondary ms-2"
                         style={{ fontSize: "0.65rem" }}
                       >
-                        Cached
+                        Stored
                       </span>
                     )}
                   </div>
 
                   <div
                     className={`display-6 mb-0 ${
-                      balanceIsLoading
+                      balanceIsLoading || noBalanceAvailable
                         ? "text-muted"
                         : isNegative
                         ? "text-danger"
@@ -783,6 +784,12 @@ export default function WardenInsights() {
                   >
                     {formattedBalance}
                   </div>
+
+                  {noBalanceAvailable && (
+                    <div className="text-muted small mt-1">
+                      Connect your bank to see your balance
+                    </div>
+                  )}
 
                   {isBankConnected &&
                     !balanceIsLoading &&
@@ -799,7 +806,7 @@ export default function WardenInsights() {
 
                 <span
                   className={`badge rounded-pill ${
-                    balanceIsLoading
+                    balanceIsLoading || noBalanceAvailable
                       ? "text-bg-secondary"
                       : isNegative
                       ? "text-bg-danger"
@@ -808,6 +815,8 @@ export default function WardenInsights() {
                 >
                   {balanceIsLoading
                     ? "Loading…"
+                    : noBalanceAvailable
+                    ? "No data"
                     : isNegative
                     ? "Over budget"
                     : "Looking good"}

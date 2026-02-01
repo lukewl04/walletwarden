@@ -218,7 +218,174 @@ export default function Tracker() {
     }
   }, [splitIncomes, isLoading]);
 
-  // Load from backend and auto-import unlinked transactions
+  // Normalize transactions (Warden Insights)
+  const normalizedTransactions = useMemo(() => {
+    if (!Array.isArray(globalTransactions)) return [];
+    return globalTransactions.map((t) => {
+      const rawType = (t?.type || "").toString().trim().toLowerCase();
+      const amount = Number(t?.amount) || 0;
+      const type = rawType === "income" ? "income" : "expense";
+      const description = (t?.description || "").toString().trim();
+      return { ...t, type, amount, description };
+    });
+  }, [globalTransactions]);
+
+  // Normalize a description key for matching rules
+  const normalizeDescriptionKey = (desc = "") => desc.toLowerCase().trim().replace(/\s+/g, " ");
+
+  // Auto-import from Warden Insights
+  const autoImportFromWardenInsights = async (splitId, splitData) => {
+    if (!splitId || !splitData) {
+      console.log("[Tracker] Auto-import skipped: no split selected");
+      return;
+    }
+
+    const linkedTransactionIds = new Set(purchases.map((p) => p.transaction_id).filter(Boolean));
+    const linkedIncomeIds = new Set(
+      splitIncomes.filter((i) => i.split_id === splitId).map((i) => i.transaction_id).filter(Boolean)
+    );
+
+    const unlinkedTransactions = normalizedTransactions.filter(
+      (t) => t.type === "expense" && !linkedTransactionIds.has(t.id)
+    );
+
+    const unlinkedIncomeTx = normalizedTransactions.filter(
+      (t) => t.type === "income" && (Number(t.amount) || 0) > 0 && !linkedIncomeIds.has(t.id)
+    );
+
+    if (unlinkedTransactions.length === 0 && unlinkedIncomeTx.length === 0) {
+      console.log("[Tracker] No unlinked transactions found in Warden Insights");
+      return;
+    }
+
+    const uniqueUnlinked = [];
+    const seenIds = new Set();
+    for (const tx of unlinkedTransactions) {
+      const key = tx?.id;
+      if (key && seenIds.has(key)) continue;
+      if (key) seenIds.add(key);
+      uniqueUnlinked.push(tx);
+    }
+
+    const uniqueUnlinkedIncome = [];
+    const seenIncome = new Set();
+    for (const tx of unlinkedIncomeTx) {
+      const key = tx?.id;
+      if (key && seenIncome.has(key)) continue;
+      if (key) seenIncome.add(key);
+      uniqueUnlinkedIncome.push(tx);
+    }
+
+    const matchCategory = (importedCat, description = "") => {
+      const ruleHit = categoryRules[normalizeDescriptionKey(description)];
+      if (ruleHit) return ruleHit;
+
+      const keywordsByType = {
+        food: ["tesco", "sainsbury", "asda", "morrisons", "lidl", "aldi", "waitrose", "co-op", "coop", "grocery", "supermarket", "bakery", "deli", "market", "restaurant", "cafe", "pizza", "burger", "mcdonald", "kfc", "subway", "starbucks", "costa", "pub", "bar", "meals", "food", "greggs", "pret", "leon"],
+        petrol: ["bp", "shell", "esso", "tesco fuel", "sainsbury fuel", "petrol", "diesel", "fuel", "chevron"],
+        entertainment: ["cinema", "netflix", "spotify", "game", "steam", "playstation", "xbox", "nintendo", "theatre", "concert", "ticket", "movie", "film", "music", "entertainment"],
+        utilities: ["water", "gas", "electric", "council tax", "broadband", "internet", "phone", "mobile", "virgin", "bt", "plusnet", "bills"],
+        health: ["pharmacy", "doctor", "dentist", "hospital", "medical", "gym", "fitness", "health", "optician", "boots", "nhs", "wellbeing"],
+        shopping: ["amazon", "ebay", "argos", "john lewis", "marks spencer", "h&m", "zara", "clothes", "fashion", "homeware", "furniture", "ikea", "b&q", "wickes", "screwfix", "shop"],
+        subscriptions: ["subscription", "adobe", "microsoft", "apple"],
+        bills: ["bill", "council tax", "water", "gas", "electric", "broadband", "phone", "utility", "council", "rates"],
+        savings: ["savings", "save", "transfer", "saving"],
+        investing: ["invest", "investment", "broker", "trading"],
+      };
+
+      const searchText = (importedCat + " " + description).toLowerCase();
+
+      if (importedCat) {
+        const importedLower = importedCat.toLowerCase();
+        const exactMatch = splitData?.categories.find((c) => c.name.toLowerCase() === importedLower);
+        if (exactMatch) return exactMatch.name;
+      }
+
+      for (const category of splitData?.categories || []) {
+        const categoryLower = category.name.toLowerCase();
+
+        const directKeywords = keywordsByType[categoryLower];
+        if (directKeywords && directKeywords.some((kw) => searchText.includes(kw))) return category.name;
+
+        for (const [typeKey, keywords] of Object.entries(keywordsByType)) {
+          if (categoryLower.includes(typeKey) || typeKey.includes(categoryLower)) {
+            if (keywords.some((kw) => searchText.includes(kw))) return category.name;
+          }
+        }
+      }
+
+      return splitData?.categories[0]?.name || "Other";
+    };
+
+    const newPurchases = uniqueUnlinked.map((t) => {
+      const matched = matchCategory(t.category, t.description);
+      return {
+        id: crypto.randomUUID(),
+        split_id: splitId,
+        transaction_id: t.id,
+        date: toDateOnlyString(t.date),
+        amount: Math.abs(Number(t.amount) || 0),
+        category: matched,
+        description: t.description || "",
+      };
+    });
+
+    const newIncomes = uniqueUnlinkedIncome.map((t) => ({
+      id: crypto.randomUUID(),
+      split_id: splitId,
+      transaction_id: t.id,
+      date: toDateOnlyString(t.date),
+      amount: Math.abs(Number(t.amount) || 0),
+      category: "Income",
+      description: t.description || "",
+      type: "income",
+    }));
+
+    if (newPurchases.length > 0) {
+      for (const purchase of newPurchases) {
+        try {
+          await fetch(`${API_URL}/purchases`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+            body: JSON.stringify(purchase),
+          });
+        } catch (err) {
+          console.error("Error saving purchase to backend:", err);
+        }
+      }
+      setPurchases((prev) => [...prev, ...newPurchases]);
+    }
+
+    if (newIncomes.length > 0) {
+      for (const income of newIncomes) {
+        try {
+          await fetch(`${API_URL}/purchases`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+            body: JSON.stringify({
+              id: income.id,
+              split_id: income.split_id,
+              transaction_id: income.transaction_id,
+              date: income.date,
+              amount: income.amount,
+              category: "Income",
+              description: income.description,
+            }),
+          });
+        } catch (err) {
+          console.error("Error saving income to backend:", err);
+        }
+      }
+      setSplitIncomes((prev) => [...prev, ...newIncomes.map(sanitizeIncome).filter(Boolean)]);
+    }
+
+    const importedCount = newPurchases.length + newIncomes.length;
+    if (importedCount > 0) {
+      console.log(`[Tracker] Auto-imported ${importedCount} transaction${importedCount === 1 ? "" : "s"} from Warden Insights`);
+    }
+  };
+
+  // Load from backend
   useEffect(() => {
     const loadDataFromBackend = async () => {
       try {
@@ -227,9 +394,6 @@ export default function Tracker() {
         });
 
         let loadedSplits = [];
-        let selectedSplitId = null;
-        let selectedSplitData = null;
-        
         if (splitsResponse.ok) {
           loadedSplits = await splitsResponse.json();
           console.log("[Tracker] Loaded splits from backend:", loadedSplits.length);
@@ -238,12 +402,8 @@ export default function Tracker() {
 
           const savedSplitId = localStorage.getItem("walletwardenSelectedSplit");
           if (savedSplitId && loadedSplits.some((s) => s.id === savedSplitId)) {
-            selectedSplitId = savedSplitId;
-            selectedSplitData = loadedSplits.find((s) => s.id === savedSplitId);
             setSelectedSplit(savedSplitId);
           } else if (loadedSplits.length > 0 && !selectedSplit) {
-            selectedSplitId = loadedSplits[0].id;
-            selectedSplitData = loadedSplits[0];
             setSelectedSplit(loadedSplits[0].id);
           }
         }
@@ -259,12 +419,8 @@ export default function Tracker() {
             setSavedSplits(mergedSplits);
             const savedSplitId = localStorage.getItem("walletwardenSelectedSplit");
             if (savedSplitId && mergedSplits.some((s) => s.id === savedSplitId)) {
-              selectedSplitId = savedSplitId;
-              selectedSplitData = mergedSplits.find((s) => s.id === savedSplitId);
               setSelectedSplit(savedSplitId);
             } else if (mergedSplits.length > 0 && !selectedSplit) {
-              selectedSplitId = mergedSplits[0].id;
-              selectedSplitData = mergedSplits[0];
               setSelectedSplit(mergedSplits[0].id);
             }
           }
@@ -276,7 +432,7 @@ export default function Tracker() {
 
         if (purchasesResponse.ok) {
           const allPurchases = await purchasesResponse.json();
-          console.log("[Tracker] Loaded purchases from backend:", allPurchases.length);
+          console.log("[Tracker] Loaded purchases from backend:", allPurchases.length, allPurchases);
 
           const incomePurchases = allPurchases.filter(
             (p) => p.category === "Income" || p.category?.toLowerCase() === "income"
@@ -326,12 +482,6 @@ export default function Tracker() {
         }
 
         dataLoadedFromBackend.current = true;
-        
-        // Auto-import from Warden Insights if we have a selected split
-        if (selectedSplitId && selectedSplitData) {
-          console.log("[Tracker] Starting auto-import from Warden Insights...");
-          await autoImportFromWardenInsights(selectedSplitId, selectedSplitData);
-        }
       } catch (err) {
         console.error("Error loading data from backend:", err);
 
@@ -353,19 +503,13 @@ export default function Tracker() {
     loadDataFromBackend();
   }, []);
 
+  // Auto-sync from Warden Insights when normalized transactions change
+  useEffect(() => {
+    if (!selectedSplit || !selectedSplitData || normalizedTransactions.length === 0) return;
+    if (!dataLoadedFromBackend.current) return;
 
-
-  // Normalize transactions (Warden Insights)
-  const normalizedTransactions = useMemo(() => {
-    if (!Array.isArray(globalTransactions)) return [];
-    return globalTransactions.map((t) => {
-      const rawType = (t?.type || "").toString().trim().toLowerCase();
-      const amount = Number(t?.amount) || 0;
-      const type = rawType === "income" ? "income" : "expense";
-      const description = (t?.description || "").toString().trim();
-      return { ...t, type, amount, description };
-    });
-  }, [globalTransactions]);
+    autoImportFromWardenInsights(selectedSplit, selectedSplitData);
+  }, [normalizedTransactions, selectedSplit, selectedSplitData]);
 
   // Filter purchases + incomes by split
   const filteredPurchases = useMemo(() => {
@@ -591,36 +735,31 @@ export default function Tracker() {
       selectedIncomeSettings.expected_amount > 0
     );
   }, [periodIncomeTotal, selectedIncomeSettings]);
- // ===== Hover tooltip for purchases cells =====
-const [hoverTip, setHoverTip] = useState(null);
 
-// hoverTip shape:
-// { x, y, title, items: [], pinned: boolean }
+  // ===== Hover tooltip for purchases cells =====
+  const [hoverTip, setHoverTip] = useState(null);
 
-const openHoverTip = (evt, title, items, pinned = false) => {
-  const padding = 12;
-  const x = Math.min(evt.clientX + padding, window.innerWidth - 320);
-  const y = Math.min(evt.clientY + padding, window.innerHeight - 220);
-  setHoverTip({ x, y, title, items, pinned });
-};
-
-const closeHoverTip = () => setHoverTip(null);
-
-// âœ… Close on outside click ONLY if pinned
-useEffect(() => {
-  const onDocMouseDown = () => {
-    setHoverTip((prev) => {
-      if (!prev) return prev;
-      if (!prev.pinned) return prev; // hover preview stays controlled by mouseleave
-      return null; // pinned closes on outside click
-    });
+  const openHoverTip = (evt, title, items, pinned = false) => {
+    const padding = 12;
+    const x = Math.min(evt.clientX + padding, window.innerWidth - 320);
+    const y = Math.min(evt.clientY + padding, window.innerHeight - 220);
+    setHoverTip({ x, y, title, items, pinned });
   };
 
-  document.addEventListener("mousedown", onDocMouseDown);
-  return () => document.removeEventListener("mousedown", onDocMouseDown);
-}, []);
+  const closeHoverTip = () => setHoverTip(null);
 
+  useEffect(() => {
+    const onDocMouseDown = () => {
+      setHoverTip((prev) => {
+        if (!prev) return prev;
+        if (!prev.pinned) return prev;
+        return null;
+      });
+    };
 
+    document.addEventListener("mousedown", onDocMouseDown);
+    return () => document.removeEventListener("mousedown", onDocMouseDown);
+  }, []);
 
   // Sync splits
   useEffect(() => {
@@ -715,7 +854,6 @@ useEffect(() => {
       description: "",
     });
     setShowAddModal(false);
-    console.log("[Tracker] Purchase added:", purchase);
   };
 
   const handleDeletePurchase = async (purchaseId) => {
@@ -735,9 +873,6 @@ useEffect(() => {
       alert("Failed to delete purchase");
     }
   };
-
-  // Normalize a description key for matching rules
-  const normalizeDescriptionKey = (desc = "") => desc.toLowerCase().trim().replace(/\s+/g, " ");
 
   const upsertCategoryRule = (desc, category) => {
     if (!desc || !category) return;
@@ -828,158 +963,9 @@ useEffect(() => {
       }, toLocalDate(newPurchases[0].date));
 
       setCurrentDate(mostRecentDate);
-      console.log("[Tracker] Added", newPurchases.length, "purchases from upload");
     }
 
     setShowImportModal(false);
-  };
-
-  const autoImportFromWardenInsights = async (splitId, splitData) => {
-    if (!splitId || !splitData) {
-      console.log("[Tracker] Skipping auto-import: no split or split data available");
-      return;
-    }
-
-    const linkedTransactionIds = new Set(purchases.map((p) => p.transaction_id).filter(Boolean));
-    const linkedIncomeIds = new Set(
-      splitIncomes.filter((i) => i.split_id === splitId).map((i) => i.transaction_id).filter(Boolean)
-    );
-
-    const unlinkedTransactions = normalizedTransactions.filter(
-      (t) => t.type === "expense" && !linkedTransactionIds.has(t.id)
-    );
-
-    const unlinkedIncomeTx = normalizedTransactions.filter(
-      (t) => t.type === "income" && (Number(t.amount) || 0) > 0 && !linkedIncomeIds.has(t.id)
-    );
-
-    if (unlinkedTransactions.length === 0 && unlinkedIncomeTx.length === 0) {
-      console.log("[Tracker] No unlinked transactions found in Warden Insights for auto-import");
-      return;
-    }
-
-    const uniqueUnlinked = [];
-    const seenIds = new Set();
-    for (const tx of unlinkedTransactions) {
-      const key = tx?.id;
-      if (key && seenIds.has(key)) continue;
-      if (key) seenIds.add(key);
-      uniqueUnlinked.push(tx);
-    }
-
-    const uniqueUnlinkedIncome = [];
-    const seenIncome = new Set();
-    for (const tx of unlinkedIncomeTx) {
-      const key = tx?.id;
-      if (key && seenIncome.has(key)) continue;
-      if (key) seenIncome.add(key);
-      uniqueUnlinkedIncome.push(tx);
-    }
-
-    const matchCategory = (importedCat, description = "") => {
-      const ruleHit = categoryRules[normalizeDescriptionKey(description)];
-      if (ruleHit) return ruleHit;
-
-      const keywordsByType = {
-        food: ["tesco", "sainsbury", "asda", "morrisons", "lidl", "aldi", "waitrose", "co-op", "coop", "grocery", "supermarket", "bakery", "deli", "market", "restaurant", "cafe", "pizza", "burger", "mcdonald", "kfc", "subway", "starbucks", "costa", "pub", "bar", "meals", "food", "greggs", "pret", "leon"],
-        petrol: ["bp", "shell", "esso", "tesco fuel", "sainsbury fuel", "petrol", "diesel", "fuel", "chevron"],
-        entertainment: ["cinema", "netflix", "spotify", "game", "steam", "playstation", "xbox", "nintendo", "theatre", "concert", "ticket", "movie", "film", "music", "entertainment"],
-        utilities: ["water", "gas", "electric", "council tax", "broadband", "internet", "phone", "mobile", "virgin", "bt", "plusnet", "bills"],
-        health: ["pharmacy", "doctor", "dentist", "hospital", "medical", "gym", "fitness", "health", "optician", "boots", "nhs", "wellbeing"],
-        shopping: ["amazon", "ebay", "argos", "john lewis", "marks spencer", "h&m", "zara", "clothes", "fashion", "homeware", "furniture", "ikea", "b&q", "wickes", "screwfix", "shop"],
-        subscriptions: ["subscription", "adobe", "microsoft", "apple"],
-        bills: ["bill", "council tax", "water", "gas", "electric", "broadband", "phone", "utility", "council", "rates"],
-        savings: ["savings", "save", "transfer", "saving"],
-        investing: ["invest", "investment", "broker", "trading"],
-      };
-
-      const searchText = (importedCat + " " + description).toLowerCase();
-
-      if (importedCat) {
-        const importedLower = importedCat.toLowerCase();
-        const exactMatch = splitData?.categories.find((c) => c.name.toLowerCase() === importedLower);
-        if (exactMatch) return exactMatch.name;
-      }
-
-      for (const category of splitData?.categories || []) {
-        const categoryLower = category.name.toLowerCase();
-
-        const directKeywords = keywordsByType[categoryLower];
-        if (directKeywords && directKeywords.some((kw) => searchText.includes(kw))) return category.name;
-
-        for (const [typeKey, keywords] of Object.entries(keywordsByType)) {
-          if (categoryLower.includes(typeKey) || typeKey.includes(categoryLower)) {
-            if (keywords.some((kw) => searchText.includes(kw))) return category.name;
-          }
-        }
-      }
-
-      return splitData?.categories[0]?.name || "Other";
-    };
-
-    const newPurchases = uniqueUnlinked.map((t) => {
-      const matched = matchCategory(t.category, t.description);
-      return {
-        id: crypto.randomUUID(),
-        split_id: splitId,
-        transaction_id: t.id,
-        date: toDateOnlyString(t.date),
-        amount: Math.abs(Number(t.amount) || 0),
-        category: matched,
-        description: t.description || "",
-      };
-    });
-
-    const newIncomes = uniqueUnlinkedIncome.map((t) => ({
-      id: crypto.randomUUID(),
-      split_id: splitId,
-      transaction_id: t.id,
-      date: toDateOnlyString(t.date),
-      amount: Math.abs(Number(t.amount) || 0),
-      category: "Income",
-      description: t.description || "",
-      type: "income",
-    }));
-
-    if (newPurchases.length > 0) {
-      for (const purchase of newPurchases) {
-        try {
-          await fetch(`${API_URL}/purchases`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", ...getAuthHeaders() },
-            body: JSON.stringify(purchase),
-          });
-        } catch (err) {
-          console.error("Error saving purchase to backend:", err);
-        }
-      }
-      setPurchases((prev) => [...prev, ...newPurchases]);
-      console.log("[Tracker] Auto-imported", newPurchases.length, "purchases from Warden Insights");
-    }
-
-    if (newIncomes.length > 0) {
-      for (const income of newIncomes) {
-        try {
-          await fetch(`${API_URL}/purchases`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", ...getAuthHeaders() },
-            body: JSON.stringify({
-              id: income.id,
-              split_id: income.split_id,
-              transaction_id: income.transaction_id,
-              date: income.date,
-              amount: income.amount,
-              category: "Income",
-              description: income.description,
-            }),
-          });
-        } catch (err) {
-          console.error("Error saving income to backend:", err);
-        }
-      }
-      setSplitIncomes((prev) => [...prev, ...newIncomes.map(sanitizeIncome).filter(Boolean)]);
-      console.log("[Tracker] Auto-imported", newIncomes.length, "incomes from Warden Insights");
-    }
   };
 
   // View totals (for Summary + footer)
@@ -1135,7 +1121,7 @@ useEffect(() => {
   };
 
   // =========================
-  // NEW: Pivot-table helpers
+  // Pivot-table helpers
   // =========================
   const splitCategoryNames = useMemo(() => {
     return (selectedSplitData?.categories || []).map((c) => c.name);
@@ -1178,10 +1164,8 @@ useEffect(() => {
 
   const formatMoney = (n) => `£${Number(n || 0).toFixed(2)}`;
 
-  // alias because your tooltip uses money(...)
   const money = (n) => formatMoney(n);
 
-  //  returns the purchases inside a cell (period range + category)
   const getCellItems = useCallback(
     (start, end, categoryName) => {
       const items = filteredPurchases
@@ -1192,7 +1176,7 @@ useEffect(() => {
         .sort((a, b) => toLocalDate(b.date) - toLocalDate(a.date))
         .map((p) => ({
           id: p.id,
-          description: p.description || "–",
+          description: p.description || "—",
           amount: Number(p.amount) || 0,
         }));
 
