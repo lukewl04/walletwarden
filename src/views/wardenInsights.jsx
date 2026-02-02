@@ -36,10 +36,13 @@ export default function WardenInsights() {
   const [category, setCategory] = useState("Other");
   const [description, setDescription] = useState("");
 
-  // Insights controls
-  const [monthsBack, setMonthsBack] = useState(6);
-  const [showCumulative, setShowCumulative] = useState(true);
+  // Insights controls - unified time filter: "3m" | "6m" | "12m" | "cumulative"
+  const [timeFilter, setTimeFilter] = useState("cumulative");
   const [showInsightsDetails, setShowInsightsDetails] = useState(true);
+  
+  // Derived values from unified time filter
+  const showCumulative = timeFilter === "cumulative";
+  const monthsBack = timeFilter === "cumulative" ? 12 : parseInt(timeFilter, 10);
   const [transactionFilter, setTransactionFilter] = useState(30);
 
   // Bank state
@@ -674,44 +677,59 @@ export default function WardenInsights() {
                 </button>
               )}
 
-              <div className="btn-group" role="group">
-                <button
-                  className={`btn btn-sm ${
-                    monthsBack === 3 ? "btn-primary" : "btn-outline-secondary"
-                  }`}
-                  onClick={() => setMonthsBack(3)}
-                >
-                  3m
-                </button>
-                <button
-                  className={`btn btn-sm ${
-                    monthsBack === 6 ? "btn-primary" : "btn-outline-secondary"
-                  }`}
-                  onClick={() => setMonthsBack(6)}
-                >
-                  6m
-                </button>
-                <button
-                  className={`btn btn-sm ${
-                    monthsBack === 12 ? "btn-primary" : "btn-outline-secondary"
-                  }`}
-                  onClick={() => setMonthsBack(12)}
-                >
-                  12m
-                </button>
-              </div>
-
-              <div className="form-check form-switch ms-2">
-                <input
-                  className="form-check-input"
-                  type="checkbox"
-                  id="cumSwitch"
-                  checked={showCumulative}
-                  onChange={(e) => setShowCumulative(e.target.checked)}
-                />
-                <label className="form-check-label small" htmlFor="cumSwitch">
-                  Cumulative
-                </label>
+              <div className="d-flex gap-3 align-items-center">
+                <div className="form-check form-switch">
+                  <input
+                    className="form-check-input"
+                    type="radio"
+                    name="timeFilter"
+                    id="filter3m"
+                    checked={timeFilter === "3m"}
+                    onChange={() => setTimeFilter("3m")}
+                  />
+                  <label className="form-check-label small" htmlFor="filter3m">
+                    3m
+                  </label>
+                </div>
+                <div className="form-check form-switch">
+                  <input
+                    className="form-check-input"
+                    type="radio"
+                    name="timeFilter"
+                    id="filter6m"
+                    checked={timeFilter === "6m"}
+                    onChange={() => setTimeFilter("6m")}
+                  />
+                  <label className="form-check-label small" htmlFor="filter6m">
+                    6m
+                  </label>
+                </div>
+                <div className="form-check form-switch">
+                  <input
+                    className="form-check-input"
+                    type="radio"
+                    name="timeFilter"
+                    id="filter12m"
+                    checked={timeFilter === "12m"}
+                    onChange={() => setTimeFilter("12m")}
+                  />
+                  <label className="form-check-label small" htmlFor="filter12m">
+                    12m
+                  </label>
+                </div>
+                <div className="form-check form-switch">
+                  <input
+                    className="form-check-input"
+                    type="radio"
+                    name="timeFilter"
+                    id="filterCumulative"
+                    checked={timeFilter === "cumulative"}
+                    onChange={() => setTimeFilter("cumulative")}
+                  />
+                  <label className="form-check-label small" htmlFor="filterCumulative">
+                    Cumulative
+                  </label>
+                </div>
               </div>
             </div>
           </div>
@@ -1214,6 +1232,7 @@ export default function WardenInsights() {
               ) : filteredRecentTransactions.length === 0 ? (
                 <div className="text-muted">No transactions in this time range</div>
               ) : (
+                <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
                 <ul className="list-group">
                   {filteredRecentTransactions.map((t) => (
                     <li key={t.id} className="list-group-item">
@@ -1280,6 +1299,7 @@ export default function WardenInsights() {
                     </li>
                   ))}
                 </ul>
+                </div>
               )}
             </div>
           </div>

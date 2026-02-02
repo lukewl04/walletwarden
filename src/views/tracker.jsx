@@ -1,6 +1,6 @@
 ﻿// npm i framer-motion
 import React, { useState, useMemo, useEffect, useCallback, useRef } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import Navbar from "../components/navbar.jsx";
 import CsvPdfUpload from "../components/csv-pdf-upload.jsx";
 import { useTransactions } from "../state/TransactionsContext";
@@ -82,6 +82,7 @@ export default function Tracker() {
   const { addTransaction, bulkAddTransactions, transactions: globalTransactions = [] } =
     useTransactions?.() ?? {};
 
+  const location = useLocation();
   const prefersReducedMotion = useReducedMotion();
 
   const [savedSplits, setSavedSplits] = useState([]);
@@ -117,11 +118,17 @@ export default function Tracker() {
   const purchasesLoadedFromBackend = useRef(false);
   const incomesLoadedFromBackend = useRef(false);
 
-  // Restore selected split from localStorage on mount
+  // Restore selected split from navigation state or localStorage on mount
   useEffect(() => {
+    // Priority: navigation state > localStorage
+    const fromNavigation = location.state?.selectedSplitId;
+    if (fromNavigation && !selectedSplit) {
+      setSelectedSplit(fromNavigation);
+      return;
+    }
     const saved = localStorage.getItem("walletwardenSelectedSplit");
     if (saved && !selectedSplit) setSelectedSplit(saved);
-  }, []);
+  }, [location.state]);
 
   // Persist selected split to localStorage
   useEffect(() => {

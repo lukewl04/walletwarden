@@ -192,6 +192,21 @@ a {
   opacity: 0.65;
 }
 
+/* Form switch styling for dark theme */
+.form-switch .form-check-input {
+  background-color: var(--card-border) !important;
+  border-color: var(--card-border) !important;
+}
+
+.form-switch .form-check-input:checked {
+  background-color: #0d6efd !important;
+  border-color: #0d6efd !important;
+}
+
+.form-switch .form-check-input:focus {
+  box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
+}
+
 .input-group-text {
   background-color: var(--card-bg) !important;
   color: var(--text) !important;

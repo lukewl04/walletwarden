@@ -367,13 +367,16 @@ export default function SplitMaker() {
         const savedSplits = JSON.parse(localStorage.getItem("walletwardenSplits") || "[]");
         savedSplits.push(savedSplit);
         localStorage.setItem("walletwardenSplits", JSON.stringify(savedSplits));
+        
+        // Set the newly created split as selected so tracker page shows it
+        localStorage.setItem("walletwardenSelectedSplit", savedSplit.id);
 
         setMessage({ type: "success", text: `Split saved as "${savedSplit.name}"! 💾` });
         setShowFrequencyModal(false);
         
-        // Navigate to tracker page
+        // Navigate to tracker page with the new split ID in state
         setTimeout(() => {
-          navigate("/tracker");
+          navigate("/tracker", { state: { selectedSplitId: savedSplit.id } });
         }, 500);
       } else {
         setMessage({
