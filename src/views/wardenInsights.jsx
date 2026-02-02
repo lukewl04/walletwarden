@@ -677,59 +677,31 @@ export default function WardenInsights() {
                 </button>
               )}
 
-              <div className="d-flex gap-3 align-items-center">
-                <div className="form-check form-switch">
-                  <input
-                    className="form-check-input"
-                    type="radio"
-                    name="timeFilter"
-                    id="filter3m"
-                    checked={timeFilter === "3m"}
-                    onChange={() => setTimeFilter("3m")}
-                  />
-                  <label className="form-check-label small" htmlFor="filter3m">
-                    3m
-                  </label>
-                </div>
-                <div className="form-check form-switch">
-                  <input
-                    className="form-check-input"
-                    type="radio"
-                    name="timeFilter"
-                    id="filter6m"
-                    checked={timeFilter === "6m"}
-                    onChange={() => setTimeFilter("6m")}
-                  />
-                  <label className="form-check-label small" htmlFor="filter6m">
-                    6m
-                  </label>
-                </div>
-                <div className="form-check form-switch">
-                  <input
-                    className="form-check-input"
-                    type="radio"
-                    name="timeFilter"
-                    id="filter12m"
-                    checked={timeFilter === "12m"}
-                    onChange={() => setTimeFilter("12m")}
-                  />
-                  <label className="form-check-label small" htmlFor="filter12m">
-                    12m
-                  </label>
-                </div>
-                <div className="form-check form-switch">
-                  <input
-                    className="form-check-input"
-                    type="radio"
-                    name="timeFilter"
-                    id="filterCumulative"
-                    checked={timeFilter === "cumulative"}
-                    onChange={() => setTimeFilter("cumulative")}
-                  />
-                  <label className="form-check-label small" htmlFor="filterCumulative">
-                    Cumulative
-                  </label>
-                </div>
+              <div className="segmented-control">
+                <button
+                  className={`segmented-control__segment ${timeFilter === "3m" ? "segmented-control__segment--active" : ""}`}
+                  onClick={() => setTimeFilter("3m")}
+                >
+                  3m
+                </button>
+                <button
+                  className={`segmented-control__segment ${timeFilter === "6m" ? "segmented-control__segment--active" : ""}`}
+                  onClick={() => setTimeFilter("6m")}
+                >
+                  6m
+                </button>
+                <button
+                  className={`segmented-control__segment ${timeFilter === "12m" ? "segmented-control__segment--active" : ""}`}
+                  onClick={() => setTimeFilter("12m")}
+                >
+                  12m
+                </button>
+                <button
+                  className={`segmented-control__segment ${timeFilter === "cumulative" ? "segmented-control__segment--active" : ""}`}
+                  onClick={() => setTimeFilter("cumulative")}
+                >
+                  Cumulative
+                </button>
               </div>
             </div>
           </div>
@@ -847,7 +819,8 @@ export default function WardenInsights() {
           <div className="card shadow-sm mb-3">
             <div className="card-body">
               <button
-                className="btn btn-primary w-100"
+                className="segmented-control__segment segmented-control__segment--active w-100"
+                style={{ borderRadius: '24px', padding: '10px 14px', fontSize: '1rem' }}
                 onClick={() => setShowQuickAddModal(true)}
               >
                 💬 Quick Add
@@ -869,14 +842,19 @@ export default function WardenInsights() {
 
                 <div className="d-flex flex-column gap-2">
                   <button
-                    className="btn btn-primary w-100"
+                    className="segmented-control__segment segmented-control__segment--active w-100"
+                    style={{ borderRadius: '24px', padding: '10px 14px', fontSize: '1rem' }}
                     onClick={() => setShowImportModal(true)}
                   >
                     📄 Import CSV/PDF Statement
                   </button>
 
                   {bankStatusLoading ? (
-                    <button className="btn btn-outline-secondary w-100" disabled>
+                    <button
+                      className="segmented-control__segment segmented-control__segment--active w-100"
+                      style={{ borderRadius: '24px', padding: '10px 14px', fontSize: '1rem' }}
+                      disabled
+                    >
                       <span
                         className="spinner-border spinner-border-sm me-2"
                         role="status"
@@ -886,7 +864,8 @@ export default function WardenInsights() {
                     </button>
                   ) : (
                     <button
-                      className="btn btn-outline-primary w-100"
+                      className="segmented-control__segment segmented-control__segment--active w-100"
+                      style={{ borderRadius: '24px', padding: '10px 14px', fontSize: '1rem' }}
                       onClick={handleConnectBank}
                       disabled={bankLoading}
                     >
@@ -942,7 +921,8 @@ export default function WardenInsights() {
               {/* Toggle button for insights details */}
               <div className="d-flex justify-content-center mb-3">
                 <button
-                  className="btn btn-sm btn-outline-secondary"
+                  className="segmented-control__segment segmented-control__segment--active"
+                  style={{ borderRadius: '24px', padding: '10px 14px', fontSize: '1rem' }}
                   onClick={() => setShowInsightsDetails(!showInsightsDetails)}
                   title={
                     showInsightsDetails
@@ -1184,42 +1164,42 @@ export default function WardenInsights() {
               </div>
 
               {/* Time range filter buttons */}
-              <div className="d-flex gap-2 mb-3 flex-wrap">
+              <div className="segmented-control mb-3">
                 <button
-                  className={`btn btn-sm ${
-                    transactionFilter === 7 ? "btn-primary" : "btn-outline-secondary"
+                  className={`segmented-control__segment ${
+                    transactionFilter === 7 ? "segmented-control__segment--active" : ""
                   }`}
                   onClick={() => setTransactionFilter(7)}
                 >
                   7d
                 </button>
                 <button
-                  className={`btn btn-sm ${
-                    transactionFilter === 30 ? "btn-primary" : "btn-outline-secondary"
+                  className={`segmented-control__segment ${
+                    transactionFilter === 30 ? "segmented-control__segment--active" : ""
                   }`}
                   onClick={() => setTransactionFilter(30)}
                 >
                   1m
                 </button>
                 <button
-                  className={`btn btn-sm ${
-                    transactionFilter === 180 ? "btn-primary" : "btn-outline-secondary"
+                  className={`segmented-control__segment ${
+                    transactionFilter === 180 ? "segmented-control__segment--active" : ""
                   }`}
                   onClick={() => setTransactionFilter(180)}
                 >
                   6m
                 </button>
                 <button
-                  className={`btn btn-sm ${
-                    transactionFilter === 365 ? "btn-primary" : "btn-outline-secondary"
+                  className={`segmented-control__segment ${
+                    transactionFilter === 365 ? "segmented-control__segment--active" : ""
                   }`}
                   onClick={() => setTransactionFilter(365)}
                 >
                   1y
                 </button>
                 <button
-                  className={`btn btn-sm ${
-                    transactionFilter === null ? "btn-primary" : "btn-outline-secondary"
+                  className={`segmented-control__segment ${
+                    transactionFilter === null ? "segmented-control__segment--active" : ""
                   }`}
                   onClick={() => setTransactionFilter(null)}
                 >
