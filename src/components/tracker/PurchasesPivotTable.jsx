@@ -1,7 +1,7 @@
-import React from "react";
+import React, { useMemo, useRef, useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 
-export default function PurchasesPivotTable({
+function PurchasesPivotTable({
   viewMode,
   setViewMode,
   prefersReducedMotion,
@@ -17,11 +17,118 @@ export default function PurchasesPivotTable({
   toDateOnlyString,
   formatMoney,
   money,
-  hoverTip,
-  openHoverTip,
-  closeHoverTip,
   getViewTotal,
 }) {
+  // ===== Hover tooltip state (isolated to prevent parent re-renders) =====
+  const [hoverTip, setHoverTip] = useState(null);
+  const tooltipCloseTimeoutRef = useRef(null);
+  const hoverTimeoutRef = useRef(null);
+
+  // Open hover tooltip with position calculation
+  const openHoverTip = useCallback((evt, title, items, pinned = false) => {
+    // Clear any pending close timeout
+    if (tooltipCloseTimeoutRef.current) {
+      clearTimeout(tooltipCloseTimeoutRef.current);
+      tooltipCloseTimeoutRef.current = null;
+    }
+
+    const padding = 12;
+    const tooltipWidth = 320;
+    const tooltipMaxHeight = 500;
+    
+    // Calculate position ensuring tooltip stays within viewport
+    let x = evt.clientX + padding;
+    let y = evt.clientY + padding;
+    
+    // Adjust horizontal position if too close to right edge
+    if (x + tooltipWidth > window.innerWidth) {
+      x = evt.clientX - tooltipWidth - padding;
+    }
+    
+    // Adjust vertical position if too close to bottom edge
+    if (y + tooltipMaxHeight > window.innerHeight) {
+      y = Math.max(padding, window.innerHeight - tooltipMaxHeight - padding);
+    }
+    
+    // Ensure minimum distance from edges
+    x = Math.max(padding, Math.min(x, window.innerWidth - tooltipWidth - padding));
+    y = Math.max(padding, y);
+    
+    setHoverTip({ x, y, title, items, pinned });
+  }, []);
+
+  const closeHoverTip = useCallback(() => {
+    if (tooltipCloseTimeoutRef.current) {
+      clearTimeout(tooltipCloseTimeoutRef.current);
+      tooltipCloseTimeoutRef.current = null;
+    }
+    setHoverTip(null);
+  }, []);
+
+  const scheduleCloseHoverTip = useCallback((delay = 100) => {
+    if (tooltipCloseTimeoutRef.current) {
+      clearTimeout(tooltipCloseTimeoutRef.current);
+    }
+    tooltipCloseTimeoutRef.current = setTimeout(() => {
+      setHoverTip((prev) => {
+        if (!prev || prev.pinned) return prev;
+        return null;
+      });
+    }, delay);
+  }, []);
+
+  // Close on outside click ONLY if pinned
+  useEffect(() => {
+    const onDocMouseDown = () => {
+      setHoverTip((prev) => {
+        if (!prev) return prev;
+        if (!prev.pinned) return prev;
+        return null;
+      });
+    };
+
+    document.addEventListener("mousedown", onDocMouseDown);
+    return () => document.removeEventListener("mousedown", onDocMouseDown);
+  }, []);
+
+  // Cleanup timeouts on unmount
+  useEffect(() => {
+    return () => {
+      if (tooltipCloseTimeoutRef.current) {
+        clearTimeout(tooltipCloseTimeoutRef.current);
+      }
+      if (hoverTimeoutRef.current) {
+        clearTimeout(hoverTimeoutRef.current);
+      }
+    };
+  }, []);
+  
+  const handleCellHover = useCallback((e, row, cat, value, count) => {
+    // Clear any existing hover timeout
+    if (hoverTimeoutRef.current) {
+      clearTimeout(hoverTimeoutRef.current);
+    }
+    
+    // Small delay to prevent tooltip on quick mouse movements
+    hoverTimeoutRef.current = setTimeout(() => {
+      const items = getCellItems(row.start, row.end, cat);
+      openHoverTip(
+        e,
+        `${row.label} • ${cat} • ${money(value)} (${count} item${count === 1 ? "" : "s"})`,
+        items,
+        false
+      );
+    }, 50);
+  }, [getCellItems, money, openHoverTip]);
+  
+  const handleCellLeave = useCallback(() => {
+    // Clear hover timeout if mouse leaves before delay completes
+    if (hoverTimeoutRef.current) {
+      clearTimeout(hoverTimeoutRef.current);
+    }
+    scheduleCloseHoverTip(100);
+  }, [scheduleCloseHoverTip]);
+  
   return (
     <motion.div
       className="card mb-4"
@@ -173,40 +280,13 @@ export default function PurchasesPivotTable({
                                           ? { backgroundColor: `rgba(13, 110, 253, ${heatAlpha})` }
                                           : undefined
                                       }
-                                      onMouseLeave={() => {
-                                        if (!hoverTip?.pinned) closeHoverTip();
-                                      }}
-                                      onBlur={() => {
-                                        if (!hoverTip?.pinned) closeHoverTip();
-                                      }}
                                     >
                                       {value > 0 ? (
                                         <button
                                           type="button"
                                           className="tracker-cell-btn"
-                                          onMouseEnter={(e) => {
-                                            // If tooltip is pinned, don't override it by hovering other cells
-                                            if (hoverTip?.pinned) return;
-
-                                            const items = getCellItems(row.start, row.end, cat);
-                                            openHoverTip(
-                                              e,
-                                              `${row.label} • ${cat} • ${money(value)} (${count} item${count === 1 ? "" : "s"})`,
-                                              items,
-                                              false // hover = NOT pinned
-                                            );
-                                          }}
-                                          onClick={(e) => {
-                                            e.stopPropagation(); // prevent document click from closing it
-
-                                            const items = getCellItems(row.start, row.end, cat);
-                                            openHoverTip(
-                                              e,
-                                              `${row.label} • ${cat} • ${money(value)} (${count} item${count === 1 ? "" : "s"})`,
-                                              items,
-                                              true // click = PINNED
-                                            );
-                                          }}
+                                          onMouseEnter={(e) => handleCellHover(e, row, cat, value, count)}
+                                          onMouseLeave={handleCellLeave}
                                         >
                                           <div className="fw-bold">{formatMoney(value)}</div>
                                           <div className="text-body-secondary" style={{ fontSize: "0.75rem" }}>
@@ -246,7 +326,22 @@ export default function PurchasesPivotTable({
                     style={{ left: hoverTip.x, top: hoverTip.y }}
                     role="dialog"
                     aria-label="Purchase details"
-                    onMouseDown={(e) => e.stopPropagation()} // prevents outside-click handler firing
+                    onMouseEnter={() => {
+                      // Pin tooltip when hovering over it
+                      if (hoverTip && !hoverTip.pinned) {
+                        openHoverTip(
+                          { clientX: hoverTip.x, clientY: hoverTip.y },
+                          hoverTip.title,
+                          hoverTip.items,
+                          true
+                        );
+                      }
+                    }}
+                    onMouseLeave={() => {
+                      // Schedule close with delay
+                      scheduleCloseHoverTip(150);
+                    }}
+                    onMouseDown={(e) => e.stopPropagation()}
                   >
                     <div className="tracker-hover-header">
                       <div className="tracker-hover-title">{hoverTip.title}</div>
@@ -270,11 +365,9 @@ export default function PurchasesPivotTable({
                     {!hoverTip.pinned && (
                       <div className="tracker-hover-hint">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
-                          <polyline points="10 17 15 12 10 7" />
-                          <line x1="15" y1="12" x2="3" y2="12" />
+                          <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
                         </svg>
-                        Click to pin and scroll through all items
+                        Hover over this panel to scroll through all items
                       </div>
                     )}
 
@@ -310,3 +403,5 @@ export default function PurchasesPivotTable({
         </motion.div>
   );
 }
+
+export default React.memo(PurchasesPivotTable);

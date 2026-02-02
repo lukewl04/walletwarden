@@ -137,9 +137,9 @@
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
 }
 
-/* Hover state for cell buttons */
+/* Hover state for cell buttons - optimized for performance */
 .tracker-cell-btn:hover {
-  transform: translateY(-2px);
+  transform: translateY(-2px) translateZ(0);
   background: rgba(13, 110, 253, 0.14);
   box-shadow: 0 4px 12px rgba(13, 110, 253, 0.18),
               0 2px 6px rgba(0, 0, 0, 0.08);
@@ -147,7 +147,7 @@
 
 /* Active/click state */
 .tracker-cell-btn:active {
-  transform: translateY(-1px);
+  transform: translateY(-1px) translateZ(0);
   transition-duration: 80ms;
 }
 
@@ -186,7 +186,7 @@
   position: fixed;
   z-index: 9999;
   background: rgba(20, 20, 30, 0.98);
-  backdrop-filter: blur(12px);
+  backdrop-filter: blur(4px); /* Reduced from 12px for performance */
   border: 1px solid rgba(13, 110, 253, 0.3);
   border-radius: 12px;
   padding: 0;
@@ -197,6 +197,11 @@
   color: #fff;
   font-size: 0.85rem;
   overflow: hidden;
+  /* Performance optimizations */
+  will-change: transform, opacity;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  pointer-events: auto;
 }
 
 .tracker-hover-header {
@@ -239,6 +244,9 @@
   overflow-y: auto;
   overflow-x: hidden;
   padding: 8px;
+  /* Performance optimizations */
+  contain: layout style paint;
+  will-change: scroll-position;
   /* Ensure scrollbar is visible */
   scrollbar-width: thin;
   scrollbar-color: rgba(13, 110, 253, 0.5) rgba(255, 255, 255, 0.1);

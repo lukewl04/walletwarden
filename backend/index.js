@@ -387,6 +387,50 @@ app.post('/api/purchases', async (req, res) => {
   }
 });
 
+// Batch upsert purchases (much more efficient than individual calls)
+app.post('/api/purchases/batch', async (req, res) => {
+  try {
+    const userId = req.auth?.sub;
+    if (!userId) return res.status(401).json({ error: 'unauthorized' });
+
+    const { purchases } = req.body;
+    if (!Array.isArray(purchases) || purchases.length === 0) {
+      return res.status(400).json({ error: 'invalid_payload', message: 'purchases array required' });
+    }
+
+    // Use transaction for atomicity and better performance
+    await prisma.$transaction(
+      purchases.map(p => 
+        prisma.purchase.upsert({
+          where: { id: p.id },
+          update: {
+            split_id: p.split_id,
+            transaction_id: p.transaction_id || null,
+            date: p.date ? new Date(p.date) : undefined,
+            amount: p.amount,
+            category: p.category,
+            description: p.description || null
+          },
+          create: {
+            id: p.id,
+            user_id: userId,
+            split_id: p.split_id,
+            transaction_id: p.transaction_id || null,
+            date: p.date ? new Date(p.date) : undefined,
+            amount: p.amount,
+            category: p.category,
+            description: p.description || null
+          }
+        })
+      )
+    );
+    return res.json({ ok: true, count: purchases.length });
+  } catch (err) {
+    console.error('Batch purchase error:', err);
+    return res.status(500).json({ error: 'internal_error', message: err.message });
+  }
+});
+
 app.delete('/api/purchases/:id', async (req, res) => {
   try {
     const userId = req.auth?.sub;

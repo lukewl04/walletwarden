@@ -22,7 +22,19 @@ import ExpectedIncomeModal from "../components/tracker/ExpectedIncomeModal.jsx";
 
 const API_URL = "http://localhost:4000/api";
 
-
+// Category keyword mappings (defined once outside component for performance)
+const CATEGORY_KEYWORDS = {
+  food: ["tesco", "sainsbury", "asda", "morrisons", "lidl", "aldi", "waitrose", "co-op", "coop", "grocery", "supermarket", "bakery", "deli", "market", "restaurant", "cafe", "pizza", "burger", "mcdonald", "kfc", "subway", "starbucks", "costa", "pub", "bar", "meals", "food", "greggs", "pret", "leon"],
+  petrol: ["bp", "shell", "esso", "tesco fuel", "sainsbury fuel", "petrol", "diesel", "fuel", "chevron"],
+  entertainment: ["cinema", "netflix", "spotify", "game", "steam", "playstation", "xbox", "nintendo", "theatre", "concert", "ticket", "movie", "film", "music", "entertainment"],
+  utilities: ["water", "gas", "electric", "council tax", "broadband", "internet", "phone", "mobile", "virgin", "bt", "plusnet", "bills"],
+  health: ["pharmacy", "doctor", "dentist", "hospital", "medical", "gym", "fitness", "health", "optician", "boots", "nhs", "wellbeing"],
+  shopping: ["amazon", "ebay", "argos", "john lewis", "marks spencer", "h&m", "zara", "clothes", "fashion", "homeware", "furniture", "ikea", "b&q", "wickes", "screwfix", "shop"],
+  subscriptions: ["subscription", "adobe", "microsoft", "apple"],
+  bills: ["bill", "council tax", "water", "gas", "electric", "broadband", "phone", "utility", "council", "rates"],
+  savings: ["savings", "save", "transfer", "saving"],
+  investing: ["invest", "investment", "broker", "trading"],
+};
 
 // Helper to get auth headers with unique user token
 const getAuthHeaders = () => ({ Authorization: `Bearer ${getUserToken()}` });
@@ -117,6 +129,14 @@ export default function Tracker() {
   const dataLoadedFromBackend = useRef(false);
   const purchasesLoadedFromBackend = useRef(false);
   const incomesLoadedFromBackend = useRef(false);
+  const syncSplitsTimeoutRef = useRef(null);
+  const syncPurchasesTimeoutRef = useRef(null);
+  const syncIncomesTimeoutRef = useRef(null);
+  
+  // Track dirty items to only sync what changed (not everything)
+  const dirtyPurchaseIds = useRef(new Set());
+  const dirtyIncomeIds = useRef(new Set());
+  const syncedPurchaseIds = useRef(new Set()); // Track what's already in backend
 
   // Restore selected split from navigation state or localStorage on mount
   useEffect(() => {
@@ -184,7 +204,7 @@ export default function Tracker() {
     }
   }, []);
 
-  // Persist split incomes to localStorage and sync to backend
+  // Persist split incomes to localStorage and sync to backend (debounced, batch)
   useEffect(() => {
     if (!splitIncomesLoaded.current) return;
 
@@ -194,18 +214,26 @@ export default function Tracker() {
       console.warn("Failed to save split incomes", e);
     }
 
-    if (!isLoading && incomesLoadedFromBackend.current && splitIncomes.length > 0) {
-      const syncIncomesToBackend = async () => {
+    if (!isLoading && incomesLoadedFromBackend.current) {
+      if (syncIncomesTimeoutRef.current) {
+        clearTimeout(syncIncomesTimeoutRef.current);
+      }
+      
+      syncIncomesTimeoutRef.current = setTimeout(async () => {
+        // Only sync dirty incomes
+        const toSync = splitIncomes.filter(i => 
+          i.split_id && dirtyIncomeIds.current.has(i.id)
+        );
+        
+        if (toSync.length === 0) return;
+        
         try {
-          for (const income of splitIncomes) {
-            if (!income.split_id) continue;
-            await fetch(`${API_URL}/purchases`, {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                ...getAuthHeaders(),
-              },
-              body: JSON.stringify({
+          // Use batch endpoint
+          const response = await fetch(`${API_URL}/purchases/batch`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+            body: JSON.stringify({
+              purchases: toSync.map(income => ({
                 id: income.id,
                 split_id: income.split_id,
                 transaction_id: income.transaction_id,
@@ -213,16 +241,25 @@ export default function Tracker() {
                 amount: income.amount,
                 category: income.category || "Income",
                 description: income.description,
-              }),
-            });
+              }))
+            }),
+          });
+          
+          if (response.ok) {
+            toSync.forEach(i => dirtyIncomeIds.current.delete(i.id));
+            console.log(`[Tracker] Batch synced ${toSync.length} incomes`);
           }
-          console.log("[Tracker] Synced", splitIncomes.length, "incomes to backend");
         } catch (err) {
           console.error("Error syncing incomes to backend:", err);
         }
-      };
-      syncIncomesToBackend();
+      }, 2000);
     }
+    
+    return () => {
+      if (syncIncomesTimeoutRef.current) {
+        clearTimeout(syncIncomesTimeoutRef.current);
+      }
+    };
   }, [splitIncomes, isLoading]);
 
   // Load from backend and auto-import unlinked transactions
@@ -598,60 +635,18 @@ export default function Tracker() {
       selectedIncomeSettings.expected_amount > 0
     );
   }, [periodIncomeTotal, selectedIncomeSettings]);
- // ===== Hover tooltip for purchases cells =====
-const [hoverTip, setHoverTip] = useState(null);
-
-// hoverTip shape:
-// { x, y, title, items: [], pinned: boolean }
-
-const openHoverTip = (evt, title, items, pinned = false) => {
-  const padding = 12;
-  const tooltipWidth = 320;
-  const tooltipMaxHeight = 500; // Increased to account for header + list + hint
-  
-  // Calculate position ensuring tooltip stays within viewport
-  let x = evt.clientX + padding;
-  let y = evt.clientY + padding;
-  
-  // Adjust horizontal position if too close to right edge
-  if (x + tooltipWidth > window.innerWidth) {
-    x = evt.clientX - tooltipWidth - padding;
-  }
-  
-  // Adjust vertical position if too close to bottom edge
-  if (y + tooltipMaxHeight > window.innerHeight) {
-    y = Math.max(padding, window.innerHeight - tooltipMaxHeight - padding);
-  }
-  
-  // Ensure minimum distance from edges
-  x = Math.max(padding, Math.min(x, window.innerWidth - tooltipWidth - padding));
-  y = Math.max(padding, y);
-  
-  setHoverTip({ x, y, title, items, pinned });
-};
-
-const closeHoverTip = () => setHoverTip(null);
-
-// âœ… Close on outside click ONLY if pinned
-useEffect(() => {
-  const onDocMouseDown = () => {
-    setHoverTip((prev) => {
-      if (!prev) return prev;
-      if (!prev.pinned) return prev; // hover preview stays controlled by mouseleave
-      return null; // pinned closes on outside click
-    });
-  };
-
-  document.addEventListener("mousedown", onDocMouseDown);
-  return () => document.removeEventListener("mousedown", onDocMouseDown);
-}, []);
 
 
 
-  // Sync splits
+  // Sync splits (debounced to reduce API calls)
   useEffect(() => {
-    if (isLoading) return;
-    const syncSplitsToBackend = async () => {
+    if (isLoading || !dataLoadedFromBackend.current) return;
+    
+    if (syncSplitsTimeoutRef.current) {
+      clearTimeout(syncSplitsTimeoutRef.current);
+    }
+    
+    syncSplitsTimeoutRef.current = setTimeout(async () => {
       if (savedSplits.length === 0) return;
       try {
         for (const split of savedSplits) {
@@ -669,38 +664,67 @@ useEffect(() => {
       } catch (err) {
         console.error("Error syncing splits:", err);
       }
+    }, 1000);
+    
+    return () => {
+      if (syncSplitsTimeoutRef.current) {
+        clearTimeout(syncSplitsTimeoutRef.current);
+      }
     };
-    syncSplitsToBackend();
   }, [savedSplits, isLoading]);
 
-  // Sync purchases
+  // Sync purchases (debounced, batch, only dirty items)
   useEffect(() => {
     if (isLoading || !purchasesLoadedFromBackend.current) return;
-    const syncPurchasesToBackend = async () => {
-      if (purchases.length === 0) return;
+    
+    if (syncPurchasesTimeoutRef.current) {
+      clearTimeout(syncPurchasesTimeoutRef.current);
+    }
+    
+    syncPurchasesTimeoutRef.current = setTimeout(async () => {
+      // Only sync items that are dirty (new or modified)
+      const toSync = purchases.filter(p => 
+        p.split_id && dirtyPurchaseIds.current.has(p.id)
+      );
+      
+      if (toSync.length === 0) return;
+      
       try {
-        for (const purchase of purchases) {
-          if (!purchase.split_id) continue;
-          await fetch(`${API_URL}/purchases`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", ...getAuthHeaders() },
-            body: JSON.stringify({
-              id: purchase.id,
-              split_id: purchase.split_id,
-              transaction_id: purchase.transaction_id,
-              date: purchase.date,
-              amount: purchase.amount,
-              category: purchase.category,
-              description: purchase.description,
-            }),
+        // Use batch endpoint for much better performance
+        const response = await fetch(`${API_URL}/purchases/batch`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+          body: JSON.stringify({
+            purchases: toSync.map(p => ({
+              id: p.id,
+              split_id: p.split_id,
+              transaction_id: p.transaction_id,
+              date: p.date,
+              amount: p.amount,
+              category: p.category,
+              description: p.description,
+            }))
+          }),
+        });
+        
+        if (response.ok) {
+          // Clear dirty flags for synced items
+          toSync.forEach(p => {
+            dirtyPurchaseIds.current.delete(p.id);
+            syncedPurchaseIds.current.add(p.id);
           });
+          console.log(`[Tracker] Batch synced ${toSync.length} purchases`);
         }
-        console.log("[Tracker] Synced", purchases.length, "purchases to backend");
       } catch (err) {
         console.error("Error syncing purchases:", err);
       }
+    }, 2000); // Increased debounce to 2 seconds for better batching
+    
+    return () => {
+      if (syncPurchasesTimeoutRef.current) {
+        clearTimeout(syncPurchasesTimeoutRef.current);
+      }
     };
-    syncPurchasesToBackend();
   }, [purchases, isLoading]);
 
   // Add purchase
@@ -721,6 +745,8 @@ useEffect(() => {
       amount: parseFloat(newPurchase.amount),
     };
 
+    // Mark as dirty for sync
+    dirtyPurchaseIds.current.add(purchase.id);
     setPurchases([...purchases, purchase]);
 
     if (typeof addTransaction === "function") {
@@ -774,6 +800,8 @@ useEffect(() => {
   const handleUpdatePurchaseCategory = (purchaseId, newCategory) => {
     if (!purchaseId || !newCategory) return;
 
+    // Mark as dirty for sync
+    dirtyPurchaseIds.current.add(purchaseId);
     setPurchases((prev) => prev.map((p) => (p.id === purchaseId ? { ...p, category: newCategory } : p)));
 
     const purchase = purchases.find((p) => p.id === purchaseId);
@@ -782,53 +810,41 @@ useEffect(() => {
     setEditingPurchaseId(null);
   };
 
+  // Memoized category matching function for better performance
+  const matchCategory = useCallback((importedCat, description = "") => {
+    const ruleHit = categoryRules[normalizeDescriptionKey(description)];
+    if (ruleHit) return ruleHit;
+
+    const searchText = (importedCat + " " + description).toLowerCase();
+
+    if (importedCat) {
+      const importedLower = importedCat.toLowerCase();
+      const exactMatch = selectedSplitData?.categories.find((c) => c.name.toLowerCase() === importedLower);
+      if (exactMatch) return exactMatch.name;
+    }
+
+    for (const category of selectedSplitData?.categories || []) {
+      const categoryLower = category.name.toLowerCase();
+
+      const directKeywords = CATEGORY_KEYWORDS[categoryLower];
+      if (directKeywords && directKeywords.some((kw) => searchText.includes(kw))) return category.name;
+
+      for (const [typeKey, keywords] of Object.entries(CATEGORY_KEYWORDS)) {
+        if (categoryLower.includes(typeKey) || typeKey.includes(categoryLower)) {
+          if (keywords.some((kw) => searchText.includes(kw))) return category.name;
+        }
+      }
+    }
+
+    return selectedSplitData?.categories[0]?.name || "Other";
+  }, [categoryRules, selectedSplitData]);
+
   // Bulk add via upload
-  const handleBulkAdd = (transactions) => {
+  const handleBulkAdd = useCallback((transactions) => {
     let withIds = transactions || [];
     if (Array.isArray(withIds)) withIds = withIds.map((t) => ({ ...t, id: t.id || generateId() }));
 
     if (typeof bulkAddTransactions === "function") bulkAddTransactions(withIds);
-
-    const matchCategory = (importedCat, description = "") => {
-      const ruleHit = categoryRules[normalizeDescriptionKey(description)];
-      if (ruleHit) return ruleHit;
-
-      const keywordsByType = {
-        food: ["tesco", "sainsbury", "asda", "morrisons", "lidl", "aldi", "waitrose", "co-op", "coop", "grocery", "supermarket", "bakery", "deli", "market", "restaurant", "cafe", "pizza", "burger", "mcdonald", "kfc", "subway", "starbucks", "costa", "pub", "bar", "meals", "food", "greggs", "pret", "leon"],
-        petrol: ["bp", "shell", "esso", "tesco fuel", "sainsbury fuel", "petrol", "diesel", "fuel", "chevron"],
-        entertainment: ["cinema", "netflix", "spotify", "game", "steam", "playstation", "xbox", "nintendo", "theatre", "concert", "ticket", "movie", "film", "music", "entertainment"],
-        utilities: ["water", "gas", "electric", "council tax", "broadband", "internet", "phone", "mobile", "virgin", "bt", "plusnet", "bills"],
-        health: ["pharmacy", "doctor", "dentist", "hospital", "medical", "gym", "fitness", "health", "optician", "boots", "nhs", "wellbeing"],
-        shopping: ["amazon", "ebay", "argos", "john lewis", "marks spencer", "h&m", "zara", "clothes", "fashion", "homeware", "furniture", "ikea", "b&q", "wickes", "screwfix", "shop"],
-        subscriptions: ["subscription", "adobe", "microsoft", "apple"],
-        bills: ["bill", "council tax", "water", "gas", "electric", "broadband", "phone", "utility", "council", "rates"],
-        savings: ["savings", "save", "transfer", "saving"],
-        investing: ["invest", "investment", "broker", "trading"],
-      };
-
-      const searchText = (importedCat + " " + description).toLowerCase();
-
-      if (importedCat) {
-        const importedLower = importedCat.toLowerCase();
-        const exactMatch = selectedSplitData?.categories.find((c) => c.name.toLowerCase() === importedLower);
-        if (exactMatch) return exactMatch.name;
-      }
-
-      for (const category of selectedSplitData?.categories || []) {
-        const categoryLower = category.name.toLowerCase();
-
-        const directKeywords = keywordsByType[categoryLower];
-        if (directKeywords && directKeywords.some((kw) => searchText.includes(kw))) return category.name;
-
-        for (const [typeKey, keywords] of Object.entries(keywordsByType)) {
-          if (categoryLower.includes(typeKey) || typeKey.includes(categoryLower)) {
-            if (keywords.some((kw) => searchText.includes(kw))) return category.name;
-          }
-        }
-      }
-
-      return selectedSplitData?.categories[0]?.name || "Other";
-    };
 
     const newPurchases = withIds
       .filter((t) => t.type === "expense")
@@ -846,6 +862,8 @@ useEffect(() => {
       });
 
     if (newPurchases.length > 0) {
+      // Mark all new purchases as dirty for sync
+      newPurchases.forEach(p => dirtyPurchaseIds.current.add(p.id));
       setPurchases((prev) => [...prev, ...newPurchases]);
 
       const mostRecentDate = newPurchases.reduce((latest, p) => {
@@ -854,11 +872,10 @@ useEffect(() => {
       }, toLocalDate(newPurchases[0].date));
 
       setCurrentDate(mostRecentDate);
-      console.log("[Tracker] Added", newPurchases.length, "purchases from upload");
     }
 
     setShowImportModal(false);
-  };
+  }, [matchCategory, bulkAddTransactions, selectedSplit, setShowImportModal]);
 
   const autoImportFromWardenInsights = async (splitId, splitData) => {
     if (!splitId || !splitData) {
@@ -902,22 +919,10 @@ useEffect(() => {
       uniqueUnlinkedIncome.push(tx);
     }
 
-    const matchCategory = (importedCat, description = "") => {
+    // Create a local match function that uses the same optimized logic
+    const matchCategoryForSplit = (importedCat, description = "") => {
       const ruleHit = categoryRules[normalizeDescriptionKey(description)];
       if (ruleHit) return ruleHit;
-
-      const keywordsByType = {
-        food: ["tesco", "sainsbury", "asda", "morrisons", "lidl", "aldi", "waitrose", "co-op", "coop", "grocery", "supermarket", "bakery", "deli", "market", "restaurant", "cafe", "pizza", "burger", "mcdonald", "kfc", "subway", "starbucks", "costa", "pub", "bar", "meals", "food", "greggs", "pret", "leon"],
-        petrol: ["bp", "shell", "esso", "tesco fuel", "sainsbury fuel", "petrol", "diesel", "fuel", "chevron"],
-        entertainment: ["cinema", "netflix", "spotify", "game", "steam", "playstation", "xbox", "nintendo", "theatre", "concert", "ticket", "movie", "film", "music", "entertainment"],
-        utilities: ["water", "gas", "electric", "council tax", "broadband", "internet", "phone", "mobile", "virgin", "bt", "plusnet", "bills"],
-        health: ["pharmacy", "doctor", "dentist", "hospital", "medical", "gym", "fitness", "health", "optician", "boots", "nhs", "wellbeing"],
-        shopping: ["amazon", "ebay", "argos", "john lewis", "marks spencer", "h&m", "zara", "clothes", "fashion", "homeware", "furniture", "ikea", "b&q", "wickes", "screwfix", "shop"],
-        subscriptions: ["subscription", "adobe", "microsoft", "apple"],
-        bills: ["bill", "council tax", "water", "gas", "electric", "broadband", "phone", "utility", "council", "rates"],
-        savings: ["savings", "save", "transfer", "saving"],
-        investing: ["invest", "investment", "broker", "trading"],
-      };
 
       const searchText = (importedCat + " " + description).toLowerCase();
 
@@ -930,10 +935,10 @@ useEffect(() => {
       for (const category of splitData?.categories || []) {
         const categoryLower = category.name.toLowerCase();
 
-        const directKeywords = keywordsByType[categoryLower];
+        const directKeywords = CATEGORY_KEYWORDS[categoryLower];
         if (directKeywords && directKeywords.some((kw) => searchText.includes(kw))) return category.name;
 
-        for (const [typeKey, keywords] of Object.entries(keywordsByType)) {
+        for (const [typeKey, keywords] of Object.entries(CATEGORY_KEYWORDS)) {
           if (categoryLower.includes(typeKey) || typeKey.includes(categoryLower)) {
             if (keywords.some((kw) => searchText.includes(kw))) return category.name;
           }
@@ -944,7 +949,7 @@ useEffect(() => {
     };
 
     const newPurchases = uniqueUnlinked.map((t) => {
-      const matched = matchCategory(t.category, t.description);
+      const matched = matchCategoryForSplit(t.category, t.description);
       return {
         id: crypto.randomUUID(),
         split_id: splitId,
@@ -1202,14 +1207,23 @@ useEffect(() => {
     [splitCategoryNames]
   );
 
-  const formatMoney = (n) => `£${Number(n || 0).toFixed(2)}`;
+  const formatMoney = useCallback((n) => `£${Number(n || 0).toFixed(2)}`, []);
 
   // alias because your tooltip uses money(...)
-  const money = (n) => formatMoney(n);
+  const money = useCallback((n) => `£${Number(n || 0).toFixed(2)}`, []);
 
-  //  returns the purchases inside a cell (period range + category)
+  //  returns the purchases inside a cell (period range + category) - memoized with cache
+  const cellItemsCache = useRef(new Map());
+  
   const getCellItems = useCallback(
     (start, end, categoryName) => {
+      const cacheKey = `${start.getTime()}-${end.getTime()}-${categoryName}`;
+      
+      // Check cache first
+      if (cellItemsCache.current.has(cacheKey)) {
+        return cellItemsCache.current.get(cacheKey);
+      }
+      
       const items = filteredPurchases
         .filter((p) => {
           const d = toLocalDate(p.date);
@@ -1222,10 +1236,18 @@ useEffect(() => {
           amount: Number(p.amount) || 0,
         }));
 
+      // Cache the result
+      cellItemsCache.current.set(cacheKey, items);
+      
       return items;
     },
     [filteredPurchases]
   );
+  
+  // Clear cache when filteredPurchases changes
+  useEffect(() => {
+    cellItemsCache.current.clear();
+  }, [filteredPurchases]);
 
   return (
     <div className="container-fluid py-4 mt-5" style={{ maxWidth: "100%", minHeight: "100vh" }}>
@@ -1304,9 +1326,6 @@ useEffect(() => {
                 toDateOnlyString={toDateOnlyString}
                 formatMoney={formatMoney}
                 money={money}
-                hoverTip={hoverTip}
-                openHoverTip={openHoverTip}
-                closeHoverTip={closeHoverTip}
                 getViewTotal={getViewTotal}
               />
             </div>
