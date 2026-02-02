@@ -599,8 +599,27 @@ const [hoverTip, setHoverTip] = useState(null);
 
 const openHoverTip = (evt, title, items, pinned = false) => {
   const padding = 12;
-  const x = Math.min(evt.clientX + padding, window.innerWidth - 320);
-  const y = Math.min(evt.clientY + padding, window.innerHeight - 220);
+  const tooltipWidth = 320;
+  const tooltipMaxHeight = 500; // Increased to account for header + list + hint
+  
+  // Calculate position ensuring tooltip stays within viewport
+  let x = evt.clientX + padding;
+  let y = evt.clientY + padding;
+  
+  // Adjust horizontal position if too close to right edge
+  if (x + tooltipWidth > window.innerWidth) {
+    x = evt.clientX - tooltipWidth - padding;
+  }
+  
+  // Adjust vertical position if too close to bottom edge
+  if (y + tooltipMaxHeight > window.innerHeight) {
+    y = Math.max(padding, window.innerHeight - tooltipMaxHeight - padding);
+  }
+  
+  // Ensure minimum distance from edges
+  x = Math.max(padding, Math.min(x, window.innerWidth - tooltipWidth - padding));
+  y = Math.max(padding, y);
+  
   setHoverTip({ x, y, title, items, pinned });
 };
 

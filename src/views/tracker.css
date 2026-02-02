@@ -235,9 +235,32 @@
 }
 
 .tracker-hover-list {
-  max-height: 280px;
+  max-height: 320px;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 8px;
+  /* Ensure scrollbar is visible */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(13, 110, 253, 0.5) rgba(255, 255, 255, 0.1);
+}
+
+/* Custom scrollbar for webkit browsers */
+.tracker-hover-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.tracker-hover-list::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 3px;
+}
+
+.tracker-hover-list::-webkit-scrollbar-thumb {
+  background: rgba(13, 110, 253, 0.5);
+  border-radius: 3px;
+}
+
+.tracker-hover-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(13, 110, 253, 0.7);
 }
 
 .tracker-hover-row {
@@ -283,6 +306,35 @@
   text-align: center;
   color: rgba(255, 255, 255, 0.4);
   font-size: 0.85rem;
+}
+
+.tracker-hover-hint {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 14px;
+  background: linear-gradient(135deg, rgba(13, 110, 253, 0.12) 0%, rgba(13, 110, 253, 0.06) 100%);
+  border-top: 1px solid rgba(13, 110, 253, 0.15);
+  color: rgba(13, 110, 253, 0.95);
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  animation: tracker-hint-pulse 2s ease-in-out infinite;
+}
+
+.tracker-hover-hint svg {
+  flex-shrink: 0;
+  opacity: 0.8;
+}
+
+@keyframes tracker-hint-pulse {
+  0%, 100% {
+    opacity: 0.85;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 
 /* ========================================

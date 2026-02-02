@@ -124,7 +124,7 @@ export default function PurchasesPivotTable({
 
           return (
             <>
-              <div className="table-responsive" style={{ maxHeight: "420px", overflowY: "auto" }}>
+              <div className="table-responsive" style={{ maxHeight: "650px", overflowY: "auto" }}>
                 <table className="table table-sm mb-0 tracker-pivot-table" style={{ tableLayout: "fixed" }}>
 
                   <thead className="table-light" style={{ position: "sticky", top: 0, zIndex: 1 }}>
@@ -266,10 +266,21 @@ export default function PurchasesPivotTable({
                         </button>
                       )}
                     </div>
+                    
+                    {!hoverTip.pinned && (
+                      <div className="tracker-hover-hint">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
+                          <polyline points="10 17 15 12 10 7" />
+                          <line x1="15" y1="12" x2="3" y2="12" />
+                        </svg>
+                        Click to pin and scroll through all items
+                      </div>
+                    )}
 
                     {hoverTip.items?.length ? (
                       <div className="tracker-hover-list">
-                        {hoverTip.items.slice(0, 12).map((it) => (
+                        {hoverTip.items.map((it) => (
                           <div key={it.id} className="tracker-hover-row">
                             <div className="tracker-hover-desc" title={it.description}>
                               {it.description}
@@ -277,9 +288,6 @@ export default function PurchasesPivotTable({
                             <div className="tracker-hover-amt">{money(it.amount)}</div>
                           </div>
                         ))}
-                        {hoverTip.items.length > 12 && (
-                          <div className="tracker-hover-more">+ {hoverTip.items.length - 12} more…</div>
-                        )}
                       </div>
                     ) : (
                       <div className="tracker-hover-empty">No items</div>
