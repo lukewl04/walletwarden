@@ -1,6 +1,6 @@
 // src/views/WardenInsights.jsx
 import React, { useMemo, useState, useEffect, useRef } from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import CsvPdfUpload from "../components/csv-pdf-upload.jsx";
 import Navbar from "../components/navbar.jsx";
 import HelpPanel from "../components/help-panel.jsx";
@@ -14,6 +14,7 @@ import Bars from "../components/charts/Bars.jsx";
 
 export default function WardenInsights() {
   const location = useLocation();
+  const navigate = useNavigate();
   const shouldShowHelp =
     location.state?.showHelp || localStorage.getItem("walletwarden-show-help");
 
@@ -30,6 +31,7 @@ export default function WardenInsights() {
 
   // UI state
   const [editingCategoryId, setEditingCategoryId] = useState(null);
+  const [postConnectRunning, setPostConnectRunning] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [showQuickAddModal, setShowQuickAddModal] = useState(false);
   const [amount, setAmount] = useState("");
@@ -62,6 +64,7 @@ export default function WardenInsights() {
   const [storedBalanceLoading, setStoredBalanceLoading] = useState(true);
 
   const autoSyncHasRun = useRef(false);
+  const handledCallbackRef = useRef(false);
 
   const API_URL = "http://localhost:4000/api";
   const getAuthHeaders = () => ({ Authorization: `Bearer ${getUserToken()}` });
@@ -233,32 +236,38 @@ export default function WardenInsights() {
     };
 
     // OAuth callback param handling
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("bankConnected")) {
+    const params = new URLSearchParams(location.search);
+    if (import.meta.env.DEV) console.debug("[WardenInsights] callback params", location.search);
+    
+    if ((params.has("bankConnected") || params.has("syncing")) && !handledCallbackRef.current) {
+      handledCallbackRef.current = true;
+      
+      // Clean URL immediately using React Router (no reload)
+      navigate(location.pathname, { replace: true });
+      
       (async () => {
-        autoSyncHasRun.current = true;
+        setPostConnectRunning(true);
+        try {
+          autoSyncHasRun.current = true;
 
-        setBankStatus({ connected: true });
-        setLastSyncMessage("Bank connected! Getting balance…");
+          setBankStatus({ connected: true });
+          setLastSyncMessage("Bank connected! Getting balance…");
 
-        // live first (prevents cached flash)
-        await Promise.allSettled([fetchBankBalance(), refreshTransactions()]);
+          // live first (prevents cached flash)
+          await Promise.allSettled([fetchBankBalance(), refreshTransactions()]);
 
-        setLastSyncMessage("Bank connected ✅ Syncing in background…");
+          setLastSyncMessage("Bank connected ✅ Syncing in background…");
 
-        // background sync
-        handleSyncBank(true, true).catch((err) => {
-          console.error("Post-connect sync failed:", err);
-          setLastSyncMessage(
-            "Bank connected ✅ (background sync failed — hit 🔄 to retry)"
-          );
-        });
-
-        // clean URL then refresh page
-        window.history.replaceState({}, "", window.location.pathname);
-        setTimeout(() => {
-          window.location.href = window.location.pathname;
-        }, 2000);
+          // background sync
+          handleSyncBank(true, true).catch((err) => {
+            console.error("Post-connect sync failed:", err);
+            setLastSyncMessage(
+              "Bank connected ✅ (background sync failed — hit 🔄 to retry)"
+            );
+          });
+        } finally {
+          setPostConnectRunning(false);
+        }
       })();
 
       return () => {
