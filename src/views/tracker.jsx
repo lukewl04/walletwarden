@@ -265,18 +265,50 @@ export default function Tracker() {
   // Load from backend and auto-import unlinked transactions
   useEffect(() => {
     const loadDataFromBackend = async () => {
+      // Load from localStorage first for instant UI (optimistic loading)
+      const cachedSplits = localStorage.getItem("walletwardenSplits");
+      const cachedSelectedSplit = localStorage.getItem("walletwardenSelectedSplit");
+      
+      if (cachedSplits) {
+        try {
+          const parsed = JSON.parse(cachedSplits);
+          setSavedSplits(parsed);
+          if (cachedSelectedSplit && parsed.some((s) => s.id === cachedSelectedSplit)) {
+            setSelectedSplit(cachedSelectedSplit);
+          } else if (parsed.length > 0) {
+            setSelectedSplit(parsed[0].id);
+          }
+        } catch (e) {
+          console.warn("Failed to parse cached splits", e);
+        }
+      }
+
       try {
-        const splitsResponse = await fetch(`${API_URL}/splits`, {
-          headers: { ...getAuthHeaders() },
-        });
+        // Fetch all data in PARALLEL for much faster loading
+        const [splitsResult, purchasesResult, incomeSettingsResult] = await Promise.allSettled([
+          fetch(`${API_URL}/splits`, { headers: { ...getAuthHeaders() } }),
+          fetch(`${API_URL}/purchases`, { headers: { ...getAuthHeaders() } }),
+          fetch(`${API_URL}/income-settings`, { headers: { ...getAuthHeaders() } }),
+        ]);
 
         let loadedSplits = [];
         let selectedSplitId = null;
         let selectedSplitData = null;
-        
-        if (splitsResponse.ok) {
-          loadedSplits = await splitsResponse.json();
+
+        // Process splits
+        if (splitsResult.status === "fulfilled" && splitsResult.value.ok) {
+          loadedSplits = await splitsResult.value.json();
           console.log("[Tracker] Loaded splits from backend:", loadedSplits.length);
+          
+          // Merge with local splits
+          const localSplits = localStorage.getItem("walletwardenSplits");
+          if (localSplits) {
+            const parsedLocal = JSON.parse(localSplits);
+            for (const localSplit of parsedLocal) {
+              if (!loadedSplits.some((s) => s.id === localSplit.id)) loadedSplits.push(localSplit);
+            }
+          }
+          
           setSavedSplits(loadedSplits);
           localStorage.setItem("walletwardenSplits", JSON.stringify(loadedSplits));
 
@@ -292,42 +324,22 @@ export default function Tracker() {
           }
         }
 
-        const localSplits = localStorage.getItem("walletwardenSplits");
-        if (localSplits) {
-          const parsedLocal = JSON.parse(localSplits);
-          const mergedSplits = [...loadedSplits];
-          for (const localSplit of parsedLocal) {
-            if (!mergedSplits.some((s) => s.id === localSplit.id)) mergedSplits.push(localSplit);
-          }
-          if (mergedSplits.length > loadedSplits.length) {
-            setSavedSplits(mergedSplits);
-            const savedSplitId = localStorage.getItem("walletwardenSelectedSplit");
-            if (savedSplitId && mergedSplits.some((s) => s.id === savedSplitId)) {
-              selectedSplitId = savedSplitId;
-              selectedSplitData = mergedSplits.find((s) => s.id === savedSplitId);
-              setSelectedSplit(savedSplitId);
-            } else if (mergedSplits.length > 0 && !selectedSplit) {
-              selectedSplitId = mergedSplits[0].id;
-              selectedSplitData = mergedSplits[0];
-              setSelectedSplit(mergedSplits[0].id);
-            }
-          }
-        }
-
-        const purchasesResponse = await fetch(`${API_URL}/purchases`, {
-          headers: { ...getAuthHeaders() },
-        });
-
-        if (purchasesResponse.ok) {
-          const allPurchases = await purchasesResponse.json();
+        // Process purchases
+        if (purchasesResult.status === "fulfilled" && purchasesResult.value.ok) {
+          const allPurchases = await purchasesResult.value.json();
           console.log("[Tracker] Loaded purchases from backend:", allPurchases.length);
 
-          const incomePurchases = allPurchases.filter(
-            (p) => p.category === "Income" || p.category?.toLowerCase() === "income"
-          );
-          const expensePurchases = allPurchases.filter(
-            (p) => p.category !== "Income" && p.category?.toLowerCase() !== "income"
-          );
+          // Use a single pass to separate income and expenses (more efficient)
+          const incomePurchases = [];
+          const expensePurchases = [];
+          for (const p of allPurchases) {
+            const catLower = (p.category || "").toLowerCase();
+            if (catLower === "income") {
+              incomePurchases.push(p);
+            } else {
+              expensePurchases.push(p);
+            }
+          }
 
           purchasesLoadedFromBackend.current = true;
           setPurchases(expensePurchases);
@@ -358,23 +370,29 @@ export default function Tracker() {
           incomesLoadedFromBackend.current = true;
         }
 
-        const incomeSettingsResponse = await fetch(`${API_URL}/income-settings`, {
-          headers: { ...getAuthHeaders() },
-        });
-
-        if (incomeSettingsResponse.ok) {
-          const allIncomeSettings = await incomeSettingsResponse.json();
+        // Process income settings
+        if (incomeSettingsResult.status === "fulfilled" && incomeSettingsResult.value.ok) {
+          const allIncomeSettings = await incomeSettingsResult.value.json();
           console.log("[Tracker] Loaded income settings from backend:", allIncomeSettings.length);
           setIncomeSettings(allIncomeSettings);
           incomeSettingsLoaded.current = true;
         }
 
         dataLoadedFromBackend.current = true;
+        setIsLoading(false);
         
-        // Auto-import from Warden Insights if we have a selected split
+        // Defer auto-import to next idle frame to avoid blocking UI
         if (selectedSplitId && selectedSplitData) {
-          console.log("[Tracker] Starting auto-import from Warden Insights...");
-          await autoImportFromWardenInsights(selectedSplitId, selectedSplitData);
+          const runAutoImport = () => {
+            console.log("[Tracker] Starting deferred auto-import from Warden Insights...");
+            autoImportFromWardenInsights(selectedSplitId, selectedSplitData);
+          };
+          
+          if (typeof requestIdleCallback === "function") {
+            requestIdleCallback(runAutoImport, { timeout: 3000 });
+          } else {
+            setTimeout(runAutoImport, 100);
+          }
         }
       } catch (err) {
         console.error("Error loading data from backend:", err);
@@ -389,7 +407,6 @@ export default function Tracker() {
         }
 
         dataLoadedFromBackend.current = true;
-      } finally {
         setIsLoading(false);
       }
     };
@@ -399,7 +416,7 @@ export default function Tracker() {
 
 
 
-  // Normalize transactions (Warden Insights)
+  // Normalize transactions (Warden Insights) - with stable reference
   const normalizedTransactions = useMemo(() => {
     if (!Array.isArray(globalTransactions)) return [];
     return globalTransactions.map((t) => {
@@ -411,19 +428,39 @@ export default function Tracker() {
     });
   }, [globalTransactions]);
 
-  // Filter purchases + incomes by split
+  // Pre-index purchases by split_id for O(1) lookup
+  const purchasesBySplit = useMemo(() => {
+    const map = new Map();
+    for (const p of purchases) {
+      if (!p.split_id) continue;
+      if (!map.has(p.split_id)) map.set(p.split_id, []);
+      map.get(p.split_id).push(p);
+    }
+    return map;
+  }, [purchases]);
+
+  // Pre-index incomes by split_id for O(1) lookup
+  const incomesBySplit = useMemo(() => {
+    const map = new Map();
+    for (const i of splitIncomes) {
+      const sanitized = sanitizeIncome(i);
+      if (!sanitized || !sanitized.split_id || (Number(sanitized.amount) || 0) <= 0) continue;
+      if (!map.has(sanitized.split_id)) map.set(sanitized.split_id, []);
+      map.get(sanitized.split_id).push(sanitized);
+    }
+    return map;
+  }, [splitIncomes]);
+
+  // Filter purchases + incomes by split - now O(1) lookup
   const filteredPurchases = useMemo(() => {
     if (!selectedSplit) return [];
-    return purchases.filter((p) => p.split_id === selectedSplit);
-  }, [purchases, selectedSplit]);
+    return purchasesBySplit.get(selectedSplit) || [];
+  }, [purchasesBySplit, selectedSplit]);
 
   const filteredIncomes = useMemo(() => {
     if (!selectedSplit) return [];
-    return splitIncomes
-      .map(sanitizeIncome)
-      .filter(Boolean)
-      .filter((i) => i.split_id === selectedSplit && (Number(i.amount) || 0) > 0);
-  }, [splitIncomes, selectedSplit]);
+    return incomesBySplit.get(selectedSplit) || [];
+  }, [incomesBySplit, selectedSplit]);
 
   const incomeTransactions = useMemo(() => filteredIncomes, [filteredIncomes]);
 
@@ -1013,22 +1050,129 @@ export default function Tracker() {
     }
   };
 
+  // =========================
+  // NEW: Pivot-table helpers
+  // =========================
+  const splitCategoryNames = useMemo(() => {
+    return (selectedSplitData?.categories || []).map((c) => c.name);
+  }, [selectedSplitData]);
+
+  // Pre-compute purchase dates for faster range queries
+  const purchasesWithDates = useMemo(() => {
+    return filteredPurchases.map((p) => ({
+      ...p,
+      _dateObj: toLocalDate(p.date),
+    }));
+  }, [filteredPurchases]);
+
+  const getPurchasesInRange = useCallback(
+    (start, end) => {
+      const startTime = start.getTime();
+      const endTime = end.getTime();
+      return purchasesWithDates.filter((p) => {
+        const t = p._dateObj.getTime();
+        return t >= startTime && t <= endTime;
+      });
+    },
+    [purchasesWithDates]
+  );
+
+  const buildCategoryTotals = useCallback(
+    (purchasesInRange) => {
+      const totals = {};
+      const counts = {};
+
+      for (const name of splitCategoryNames) {
+        totals[name] = 0;
+        counts[name] = 0;
+      }
+
+      for (const p of purchasesInRange) {
+        const cat = p.category || "Other";
+        if (totals[cat] == null) {
+          totals[cat] = 0;
+          counts[cat] = 0;
+        }
+        totals[cat] += Number(p.amount) || 0;
+        counts[cat] += 1;
+      }
+
+      return { totals, counts };
+    },
+    [splitCategoryNames]
+  );
+
+  const formatMoney = useCallback((n) => `£${Number(n || 0).toFixed(2)}`, []);
+
+  // alias because your tooltip uses money(...)
+  const money = useCallback((n) => `£${Number(n || 0).toFixed(2)}`, []);
+
+  //  returns the purchases inside a cell (period range + category) - memoized with cache
+  const cellItemsCache = useRef(new Map());
+  const lastPurchasesRef = useRef(null);
+  
+  // Clear cache only when purchases actually change (reference check)
+  if (lastPurchasesRef.current !== purchasesWithDates) {
+    cellItemsCache.current.clear();
+    lastPurchasesRef.current = purchasesWithDates;
+  }
+  
+  const getCellItems = useCallback(
+    (start, end, categoryName) => {
+      const startTime = start.getTime();
+      const endTime = end.getTime();
+      const cacheKey = `${startTime}-${endTime}-${categoryName}`;
+      
+      // Check cache first
+      if (cellItemsCache.current.has(cacheKey)) {
+        return cellItemsCache.current.get(cacheKey);
+      }
+      
+      // Use precomputed dates for faster filtering
+      const items = purchasesWithDates
+        .filter((p) => {
+          const t = p._dateObj.getTime();
+          return t >= startTime && t <= endTime && (p.category || "Other") === categoryName;
+        })
+        .sort((a, b) => b._dateObj.getTime() - a._dateObj.getTime())
+        .map((p) => ({
+          id: p.id,
+          description: p.description || "–",
+          amount: Number(p.amount) || 0,
+        }));
+
+      // Cache the result (limit cache size to prevent memory issues)
+      if (cellItemsCache.current.size > 500) {
+        cellItemsCache.current.clear();
+      }
+      cellItemsCache.current.set(cacheKey, items);
+      
+      return items;
+    },
+    [purchasesWithDates]
+  );
+
   // View totals (for Summary + footer)
+  // Use precomputed dates for faster filtering
   const getWeekPurchases = useCallback(() => {
-    return filteredPurchases.filter((p) => {
-      const pDate = toLocalDate(p.date);
-      return pDate >= weekStart && pDate <= weekEnd;
+    const startTime = weekStart.getTime();
+    const endTime = weekEnd.getTime();
+    return purchasesWithDates.filter((p) => {
+      const t = p._dateObj.getTime();
+      return t >= startTime && t <= endTime;
     });
-  }, [filteredPurchases, weekStart, weekEnd]);
+  }, [purchasesWithDates, weekStart, weekEnd]);
 
   const getWeekTotal = useMemo(() => getWeekPurchases().reduce((sum, p) => sum + p.amount, 0), [getWeekPurchases]);
 
   const getMonthPurchases = useCallback(() => {
-    return filteredPurchases.filter((p) => {
-      const pDate = toLocalDate(p.date);
-      return pDate >= monthStart && pDate <= monthEnd;
+    const startTime = monthStart.getTime();
+    const endTime = monthEnd.getTime();
+    return purchasesWithDates.filter((p) => {
+      const t = p._dateObj.getTime();
+      return t >= startTime && t <= endTime;
     });
-  }, [filteredPurchases, monthStart, monthEnd]);
+  }, [purchasesWithDates, monthStart, monthEnd]);
 
   const getMonthTotal = useMemo(
     () => getMonthPurchases().reduce((sum, p) => sum + p.amount, 0),
@@ -1036,11 +1180,13 @@ export default function Tracker() {
   );
 
   const getYearPurchases = useCallback(() => {
-    return filteredPurchases.filter((p) => {
-      const pDate = toLocalDate(p.date);
-      return pDate >= yearStart && pDate <= yearEnd;
+    const startTime = yearStart.getTime();
+    const endTime = yearEnd.getTime();
+    return purchasesWithDates.filter((p) => {
+      const t = p._dateObj.getTime();
+      return t >= startTime && t <= endTime;
     });
-  }, [filteredPurchases, yearStart, yearEnd]);
+  }, [purchasesWithDates, yearStart, yearEnd]);
 
   const getYearTotal = useMemo(() => getYearPurchases().reduce((sum, p) => sum + p.amount, 0), [getYearPurchases]);
 
@@ -1165,90 +1311,6 @@ export default function Tracker() {
     }
   };
 
-  // =========================
-  // NEW: Pivot-table helpers
-  // =========================
-  const splitCategoryNames = useMemo(() => {
-    return (selectedSplitData?.categories || []).map((c) => c.name);
-  }, [selectedSplitData]);
-
-  const getPurchasesInRange = useCallback(
-    (start, end) => {
-      return filteredPurchases.filter((p) => {
-        const d = toLocalDate(p.date);
-        return d >= start && d <= end;
-      });
-    },
-    [filteredPurchases]
-  );
-
-  const buildCategoryTotals = useCallback(
-    (purchasesInRange) => {
-      const totals = {};
-      const counts = {};
-
-      for (const name of splitCategoryNames) {
-        totals[name] = 0;
-        counts[name] = 0;
-      }
-
-      for (const p of purchasesInRange) {
-        const cat = p.category || "Other";
-        if (totals[cat] == null) {
-          totals[cat] = 0;
-          counts[cat] = 0;
-        }
-        totals[cat] += Number(p.amount) || 0;
-        counts[cat] += 1;
-      }
-
-      return { totals, counts };
-    },
-    [splitCategoryNames]
-  );
-
-  const formatMoney = useCallback((n) => `£${Number(n || 0).toFixed(2)}`, []);
-
-  // alias because your tooltip uses money(...)
-  const money = useCallback((n) => `£${Number(n || 0).toFixed(2)}`, []);
-
-  //  returns the purchases inside a cell (period range + category) - memoized with cache
-  const cellItemsCache = useRef(new Map());
-  
-  const getCellItems = useCallback(
-    (start, end, categoryName) => {
-      const cacheKey = `${start.getTime()}-${end.getTime()}-${categoryName}`;
-      
-      // Check cache first
-      if (cellItemsCache.current.has(cacheKey)) {
-        return cellItemsCache.current.get(cacheKey);
-      }
-      
-      const items = filteredPurchases
-        .filter((p) => {
-          const d = toLocalDate(p.date);
-          return d >= start && d <= end && (p.category || "Other") === categoryName;
-        })
-        .sort((a, b) => toLocalDate(b.date) - toLocalDate(a.date))
-        .map((p) => ({
-          id: p.id,
-          description: p.description || "–",
-          amount: Number(p.amount) || 0,
-        }));
-
-      // Cache the result
-      cellItemsCache.current.set(cacheKey, items);
-      
-      return items;
-    },
-    [filteredPurchases]
-  );
-  
-  // Clear cache when filteredPurchases changes
-  useEffect(() => {
-    cellItemsCache.current.clear();
-  }, [filteredPurchases]);
-
   return (
     <div className="container-fluid py-4 mt-5" style={{ maxWidth: "100%", minHeight: "100vh" }}>
 
@@ -1294,18 +1356,23 @@ export default function Tracker() {
           <div className="row g-3">
             {/* Sidebar */}
             <div className="col-12 col-lg-3">
-              <SidebarAddOrImportCard prefersReducedMotion={prefersReducedMotion} />
-
-              <IncomeCard
-                prefersReducedMotion={prefersReducedMotion}
-                openExpectedIncomeModal={openExpectedIncomeModal}
-                isUsingExpectedIncome={isUsingExpectedIncome}
-                selectedIncomeSettings={selectedIncomeSettings}
-                viewIncomeTransactions={viewIncomeTransactions}
-                viewMode={viewMode}
-                toLocalDate={toLocalDate}
-                formatDisplayDate={formatDisplayDate}
-              />
+              <div className="tracker-sidebar-stack">
+                <div className="tracker-sidebar-item">
+                  <SidebarAddOrImportCard prefersReducedMotion={prefersReducedMotion} />
+                </div>
+                <div className="tracker-sidebar-item">
+                  <IncomeCard
+                    prefersReducedMotion={prefersReducedMotion}
+                    openExpectedIncomeModal={openExpectedIncomeModal}
+                    isUsingExpectedIncome={isUsingExpectedIncome}
+                    selectedIncomeSettings={selectedIncomeSettings}
+                    viewIncomeTransactions={viewIncomeTransactions}
+                    viewMode={viewMode}
+                    toLocalDate={toLocalDate}
+                    formatDisplayDate={formatDisplayDate}
+                  />
+                </div>
+              </div>
             </div>
 
             {/* Main */}

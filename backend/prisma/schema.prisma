@@ -51,6 +51,9 @@ model Purchase {
 
   @@index([user_id])
   @@index([split_id])
+  @@index([user_id, split_id])
+  @@index([user_id, date])
+  @@index([user_id, split_id, date])
   @@map("purchases")
 }
 

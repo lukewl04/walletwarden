@@ -22,7 +22,12 @@ if (!connectionString) {
 
 const pool = new Pool({
   connectionString,
-  ssl: { rejectUnauthorized: false } // Required for Supabase
+  ssl: { rejectUnauthorized: false }, // Required for Supabase
+  // Connection pool optimizations
+  max: 10, // Maximum connections
+  min: 2,  // Minimum connections to keep alive
+  idleTimeoutMillis: 30000, // Close idle connections after 30s
+  connectionTimeoutMillis: 10000, // Timeout waiting for connection
 });
 
 // Initialize Prisma with PostgreSQL adapter
@@ -31,6 +36,30 @@ const prisma = new PrismaClient({ adapter });
 
 console.log('[Prisma] Initialized Prisma client with PostgreSQL adapter');
 console.log('[Prisma] Database URL:', connectionString.split('@')[1] || 'configured');
+
+// Simple in-memory cache for frequently accessed data
+const cache = new Map();
+const CACHE_TTL = 5000; // 5 seconds
+
+function getCached(key) {
+  const item = cache.get(key);
+  if (!item) return null;
+  if (Date.now() > item.expires) {
+    cache.delete(key);
+    return null;
+  }
+  return item.data;
+}
+
+function setCache(key, data, ttl = CACHE_TTL) {
+  cache.set(key, { data, expires: Date.now() + ttl });
+}
+
+function invalidateCache(keyPrefix) {
+  for (const key of cache.keys()) {
+    if (key.startsWith(keyPrefix)) cache.delete(key);
+  }
+}
 
 // Allow both dev ports for CORS
 const corsOrigins = [
@@ -253,6 +282,13 @@ app.get('/api/splits', async (req, res) => {
     const userId = req.auth?.sub;
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
 
+    // Check cache first
+    const cacheKey = `splits:${userId}`;
+    const cached = getCached(cacheKey);
+    if (cached) {
+      return res.json(cached);
+    }
+
     const rows = await prisma.split.findMany({
       where: { user_id: userId },
       orderBy: { created_at: 'desc' },
@@ -266,6 +302,10 @@ app.get('/api/splits', async (req, res) => {
     });
     // Parse JSON categories
     const parsed = rows.map(r => ({ ...r, categories: JSON.parse(r.categories) }));
+    
+    // Cache the result
+    setCache(cacheKey, parsed);
+    
     return res.json(parsed);
   } catch (err) {
     console.error(err);
@@ -299,6 +339,10 @@ app.post('/api/splits', async (req, res) => {
         categories: JSON.stringify(categories)
       }
     });
+    
+    // Invalidate cache
+    invalidateCache(`splits:${userId}`);
+    
     return res.json({ ok: true });
   } catch (err) {
     console.error(err);
@@ -328,21 +372,32 @@ app.get('/api/purchases', async (req, res) => {
     const userId = req.auth?.sub;
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
 
-    const rows = await prisma.purchase.findMany({
-      where: { user_id: userId },
-      orderBy: { date: 'desc' },
-      select: {
-        id: true,
-        split_id: true,
-        transaction_id: true,
-        date: true,
-        amount: true,
-        category: true,
-        description: true
-      }
-    });
+    // Check cache first
+    const cacheKey = `purchases:${userId}`;
+    const cached = getCached(cacheKey);
+    if (cached) {
+      return res.json(cached);
+    }
+
+    // Use raw SQL for maximum performance
+    const rows = await prisma.$queryRaw`
+      SELECT id, split_id, transaction_id, date, amount, category, description
+      FROM purchases
+      WHERE user_id = ${userId}
+      ORDER BY date DESC
+    `;
+    
     // Convert date fields to ISO string for frontend compatibility
-    return res.json(rows.map(r => ({ ...r, date: r.date ? new Date(r.date).toISOString() : null })));
+    const result = rows.map(r => ({ 
+      ...r, 
+      date: r.date ? new Date(r.date).toISOString() : null,
+      amount: Number(r.amount) // Ensure number type
+    }));
+    
+    // Cache the result
+    setCache(cacheKey, result);
+    
+    return res.json(result);
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'internal_error', message: err.message });
@@ -380,6 +435,10 @@ app.post('/api/purchases', async (req, res) => {
         description: description || null
       }
     });
+    
+    // Invalidate cache
+    invalidateCache(`purchases:${userId}`);
+    
     return res.json({ ok: true });
   } catch (err) {
     console.error(err);
@@ -424,6 +483,10 @@ app.post('/api/purchases/batch', async (req, res) => {
         })
       )
     );
+    
+    // Invalidate cache
+    invalidateCache(`purchases:${userId}`);
+    
     return res.json({ ok: true, count: purchases.length });
   } catch (err) {
     console.error('Batch purchase error:', err);
@@ -453,6 +516,13 @@ app.get('/api/income-settings', async (req, res) => {
     const userId = req.auth?.sub;
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
 
+    // Check cache first
+    const cacheKey = `income:${userId}`;
+    const cached = getCached(cacheKey);
+    if (cached) {
+      return res.json(cached);
+    }
+
     const rows = await prisma.incomeSetting.findMany({
       where: { user_id: userId },
       select: {
@@ -466,6 +536,10 @@ app.get('/api/income-settings', async (req, res) => {
         updated_at: true
       }
     });
+    
+    // Cache the result
+    setCache(cacheKey, rows);
+    
     return res.json(rows);
   } catch (err) {
     console.error(err);
@@ -506,6 +580,9 @@ app.post('/api/income-settings', async (req, res) => {
       }
     });
     
+    // Invalidate cache
+    invalidateCache(`income:${userId}`);
+    
     return res.json(saved);
   } catch (err) {
     console.error(err);
@@ -522,6 +599,10 @@ app.delete('/api/income-settings/:id', async (req, res) => {
     await prisma.incomeSetting.deleteMany({
       where: { id, user_id: userId }
     });
+    
+    // Invalidate cache
+    invalidateCache(`income:${userId}`);
+    
     return res.json({ ok: true });
   } catch (err) {
     console.error(err);

@@ -1,4 +1,5 @@
 import React from "react";
+import { Link } from "react-router-dom";
 
 export default function TrackerHeader({
   savedSplits,
@@ -29,6 +30,9 @@ export default function TrackerHeader({
               ))}
             </select>
           </div>
+          <Link className="btn btn-sm btn-primary rounded-3" to="/splitmaker">
+            Split Maker
+          </Link>
           <h1 className="h4 mb-0 ms-auto">
             Warden <span className="text-primary">Tracker</span>
           </h1>

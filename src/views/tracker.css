@@ -110,56 +110,65 @@
    CELL CARDS: Soft Interactive Elements
    ======================================== */
 
-/* Cell container */
+/* Cell container - soft pill/card stack appearance */
 .tracker-cell {
   padding: 4px !important;
   position: relative;
+  border-radius: 12px;
 }
 
-/* The clickable button inside non-zero cells */
+/* The clickable button inside non-zero cells - soft rounded appearance */
 .tracker-cell-btn {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 2px;
+  gap: 3px;
   width: 100%;
-  padding: 10px 12px;
+  padding: 12px 14px;
   border: none;
-  border-radius: 12px;
-  background: rgba(13, 110, 253, 0.08);
-  backdrop-filter: blur(8px);
+  border-radius: 16px;
+  background: rgba(13, 110, 253, 0.06);
+  backdrop-filter: blur(4px);
   cursor: pointer;
-  transition: all 180ms cubic-bezier(0.4, 0, 0.2, 1);
+  transition: all 140ms cubic-bezier(0.4, 0, 0.2, 1);
   font-family: inherit;
   color: inherit;
   text-align: center;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+  /* Soft shadow for depth without hard edges */
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1),
+              0 2px 6px rgba(0, 0, 0, 0.06);
+  position: relative;
 }
 
-/* Hover state for cell buttons - optimized for performance */
+/* Hover state for cell buttons - lift and brighten */
 .tracker-cell-btn:hover {
-  transform: translateY(-2px) translateZ(0);
-  background: rgba(13, 110, 253, 0.14);
-  box-shadow: 0 4px 12px rgba(13, 110, 253, 0.18),
-              0 2px 6px rgba(0, 0, 0, 0.08);
+  transform: translateY(-3px) translateZ(0);
+  background: rgba(13, 110, 253, 0.11);
+  /* Layered shadows for floating effect */
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15),
+              0 1px 3px rgba(0, 0, 0, 0.05),
+              0 6px 16px rgba(13, 110, 253, 0.12),
+              0 10px 20px rgba(0, 0, 0, 0.05);
 }
 
-/* Active/click state */
+/* Active/click state - subtle press effect */
 .tracker-cell-btn:active {
   transform: translateY(-1px) translateZ(0);
-  transition-duration: 80ms;
+  transition-duration: 70ms;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1),
+              0 1px 2px rgba(0, 0, 0, 0.04);
 }
 
-/* Focus state (accessibility) */
+/* Focus state (accessibility) - soft glow */
 .tracker-cell-btn:focus-visible {
-  outline: 2px solid rgba(13, 110, 253, 0.5);
-  outline-offset: 2px;
+  outline: 2px solid rgba(13, 110, 253, 0.6);
+  outline-offset: 3px;
 }
 
 /* Zero-value cells - muted appearance */
 .tracker-cell:not(.tracker-cell--has) {
-  opacity: 0.4;
+  opacity: 0.35;
 }
 
 .tracker-cell:not(.tracker-cell--has) .text-body-secondary {
@@ -276,13 +285,17 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 8px 10px;
-  border-radius: 6px;
-  transition: background 0.15s ease;
+  padding: 10px 12px;
+  border-radius: 10px;
+  transition: background 0.15s ease, box-shadow 0.15s ease;
+  background: rgba(13, 110, 253, 0.02);
+  border: 1px solid rgba(13, 110, 253, 0.08);
 }
 
 .tracker-hover-row:hover {
-  background: rgba(13, 110, 253, 0.08);
+  background: rgba(13, 110, 253, 0.06);
+  border-color: rgba(13, 110, 253, 0.15);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 
 .tracker-hover-desc {
@@ -349,6 +362,17 @@
    RESPONSIVE & ACCESSIBILITY
    ======================================== */
 
+/* Sidebar layout styling */
+.tracker-sidebar-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.tracker-sidebar-item {
+  width: 100%;
+}
+
 @media (max-width: 768px) {
   .tracker-cell-btn {
     padding: 8px 10px;
@@ -373,5 +397,9 @@
 
   .tracker-cell-btn:hover {
     transform: none !important;
+  }
+  
+  .tracker-hover-row:hover {
+    box-shadow: none !important;
   }
 }

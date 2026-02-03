@@ -1,5 +1,101 @@
-import React, { useMemo, useRef, useState, useEffect, useCallback } from "react";
+import React, { useMemo, useRef, useState, useEffect, useCallback, useDeferredValue, useTransition } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+
+// Memoized table row component to prevent unnecessary re-renders
+const TableRow = React.memo(function TableRow({ 
+  row, 
+  totals, 
+  counts, 
+  rowTotal, 
+  maxCellValue, 
+  splitCategoryNames, 
+  formatMoney, 
+  handleCellHover, 
+  handleCellLeave 
+}) {
+  return (
+    <tr style={row.isCurrent ? { backgroundColor: "rgba(13, 110, 253, 0.06)" } : undefined}>
+      <td className="fw-semibold">{row.label}</td>
+      {splitCategoryNames.map((cat) => {
+        const value = totals[cat] || 0;
+        const count = counts[cat] || 0;
+        const intensity = maxCellValue > 0 ? Math.min(value / maxCellValue, 1) : 0;
+        const heatAlpha = value > 0 ? 0.08 + 0.35 * intensity : 0;
+
+        return (
+          <td
+            key={cat}
+            className={`text-center tracker-cell tracker-heat-cell ${value > 0 ? "tracker-cell--has" : ""}`}
+            style={value > 0 ? { backgroundColor: `rgba(13, 110, 253, ${heatAlpha})` } : undefined}
+          >
+            {value > 0 ? (
+              <button
+                type="button"
+                className="tracker-cell-btn"
+                onMouseEnter={(e) => handleCellHover(e, row, cat, value, count)}
+                onMouseLeave={handleCellLeave}
+              >
+                <div className="fw-bold">{formatMoney(value)}</div>
+                <div className="text-body-secondary" style={{ fontSize: "0.75rem" }}>
+                  {count} item{count === 1 ? "" : "s"}
+                </div>
+              </button>
+            ) : (
+              <span className="text-body-secondary">—</span>
+            )}
+          </td>
+        );
+      })}
+      <td className="text-end fw-bold">{formatMoney(rowTotal)}</td>
+    </tr>
+  );
+});
+
+// Loading skeleton for the table
+const TableSkeleton = React.memo(function TableSkeleton({ rowCount = 7, colCount = 5 }) {
+  return (
+    <div className="table-responsive" style={{ maxHeight: "650px", overflowY: "auto" }}>
+      <table className="table table-sm mb-0 tracker-pivot-table" style={{ tableLayout: "fixed" }}>
+        <thead className="table-light" style={{ position: "sticky", top: 0, zIndex: 1 }}>
+          <tr>
+            <th style={{ width: "220px" }}>Period</th>
+            {Array.from({ length: colCount }).map((_, i) => (
+              <th key={i} className="text-center">
+                <div className="placeholder-glow">
+                  <span className="placeholder col-8"></span>
+                </div>
+              </th>
+            ))}
+            <th className="text-end" style={{ width: "120px" }}>Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {Array.from({ length: rowCount }).map((_, rowIdx) => (
+            <tr key={rowIdx}>
+              <td>
+                <div className="placeholder-glow">
+                  <span className="placeholder col-10"></span>
+                </div>
+              </td>
+              {Array.from({ length: colCount }).map((_, colIdx) => (
+                <td key={colIdx} className="text-center">
+                  <div className="placeholder-glow">
+                    <span className="placeholder col-6"></span>
+                  </div>
+                </td>
+              ))}
+              <td className="text-end">
+                <div className="placeholder-glow">
+                  <span className="placeholder col-8"></span>
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+});
 
 function PurchasesPivotTable({
   viewMode,
@@ -129,6 +225,96 @@ function PurchasesPivotTable({
     scheduleCloseHoverTip(100);
   }, [scheduleCloseHoverTip]);
   
+  // Use deferred value for smoother UI - data can lag behind while UI stays responsive
+  const deferredSplitCategoryNames = useDeferredValue(splitCategoryNames);
+  const [isPending, startTransition] = useTransition();
+  
+  // Track if we have initial data loaded
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
+  
+  // Memoize rows computation to avoid recalculating on every render
+  const rows = useMemo(() => {
+    if (viewMode === "weekly") {
+      return weekDays.map((day, idx) => {
+        const start = new Date(day.getFullYear(), day.getMonth(), day.getDate());
+        const end = new Date(day.getFullYear(), day.getMonth(), day.getDate(), 23, 59, 59, 999);
+        return {
+          key: `day-${idx}-${toDateOnlyString(day)}`,
+          label: `${dayNames[idx]} ${day.toLocaleDateString("en-GB", { day: "2-digit", month: "short" })}`,
+          start,
+          end,
+          isCurrent: toDateOnlyString(day) === toDateOnlyString(new Date()),
+        };
+      });
+    } else if (viewMode === "monthly") {
+      const now = new Date();
+      return monthWeeks.map((w) => ({
+        key: `week-${w.num}-${toDateOnlyString(w.start)}`,
+        label: `${w.label} (${w.start.toLocaleDateString("en-GB", { day: "numeric", month: "short" })}–${w.end.toLocaleDateString(
+          "en-GB",
+          { day: "numeric", month: "short" }
+        )})`,
+        start: w.start,
+        end: new Date(w.end.getFullYear(), w.end.getMonth(), w.end.getDate(), 23, 59, 59, 999),
+        isCurrent: now >= w.start && now <= w.end,
+      }));
+    } else {
+      const now = new Date();
+      return monthNames.map((mName, idx) => {
+        const start = new Date(yearStart.getFullYear(), idx, 1);
+        const end = new Date(yearStart.getFullYear(), idx + 1, 0, 23, 59, 59, 999);
+        return {
+          key: `month-${idx}-${yearStart.getFullYear()}`,
+          label: `${mName} ${yearStart.getFullYear()}`,
+          start,
+          end,
+          isCurrent: now.getFullYear() === yearStart.getFullYear() && now.getMonth() === idx,
+        };
+      });
+    }
+  }, [viewMode, weekDays, dayNames, monthWeeks, monthNames, yearStart, toDateOnlyString]);
+
+  // Memoize all row data calculations to avoid recomputing on every render
+  const { rowData, maxCellValue, grandTotals, grandRowTotal } = useMemo(() => {
+    const grandTotals = {};
+    for (const c of deferredSplitCategoryNames) grandTotals[c] = 0;
+    let grandRowTotal = 0;
+
+    const rowData = rows.map((row) => {
+      const rangePurchases = getPurchasesInRange(row.start, row.end);
+      const { totals, counts } = buildCategoryTotals(rangePurchases);
+      const rowTotal = Object.values(totals).reduce((s, v) => s + (Number(v) || 0), 0);
+      
+      // Accumulate grand totals
+      for (const [cat, val] of Object.entries(totals)) {
+        grandTotals[cat] = (grandTotals[cat] || 0) + (Number(val) || 0);
+      }
+      grandRowTotal += rowTotal;
+      
+      return { row, totals, counts, rowTotal };
+    });
+
+    const maxCellValue = rowData.reduce((max, r) => {
+      const rowMax = Math.max(0, ...Object.values(r.totals).map((v) => Number(v) || 0));
+      return Math.max(max, rowMax);
+    }, 0);
+
+    return { rowData, maxCellValue, grandTotals, grandRowTotal };
+  }, [rows, deferredSplitCategoryNames, getPurchasesInRange, buildCategoryTotals]);
+
+  // Mark initial load complete once we have data
+  useEffect(() => {
+    if (rowData.length > 0 && isInitialLoad) {
+      startTransition(() => {
+        setIsInitialLoad(false);
+      });
+    }
+  }, [rowData, isInitialLoad]);
+  
+  // Determine row count for skeleton based on view mode
+  const skeletonRowCount = viewMode === "weekly" ? 7 : viewMode === "monthly" ? 5 : 12;
+  const showSkeleton = isInitialLoad && rowData.length === 0;
+
   return (
     <motion.div
       className="card mb-4"
@@ -169,75 +355,17 @@ function PurchasesPivotTable({
             exit={prefersReducedMotion ? { opacity: 1 } : { opacity: 0 }}
             transition={{ duration: prefersReducedMotion ? 0 : 0.2 }}
           >
-          {(() => {
-          let rows = [];
-
-          if (viewMode === "weekly") {
-            rows = weekDays.map((day, idx) => {
-              const start = new Date(day.getFullYear(), day.getMonth(), day.getDate());
-              const end = new Date(day.getFullYear(), day.getMonth(), day.getDate(), 23, 59, 59, 999);
-              return {
-                key: `day-${idx}-${toDateOnlyString(day)}`,
-                label: `${dayNames[idx]} ${day.toLocaleDateString("en-GB", { day: "2-digit", month: "short" })}`,
-                start,
-                end,
-                isCurrent: toDateOnlyString(day) === toDateOnlyString(new Date()),
-              };
-            });
-          } else if (viewMode === "monthly") {
-            rows = monthWeeks.map((w) => {
-              const now = new Date();
-              return {
-                key: `week-${w.num}-${toDateOnlyString(w.start)}`,
-                label: `${w.label} (${w.start.toLocaleDateString("en-GB", { day: "numeric", month: "short" })}–${w.end.toLocaleDateString(
-                  "en-GB",
-                  { day: "numeric", month: "short" }
-                )})`,
-                start: w.start,
-                end: new Date(w.end.getFullYear(), w.end.getMonth(), w.end.getDate(), 23, 59, 59, 999),
-                isCurrent: now >= w.start && now <= w.end,
-              };
-            });
-          } else {
-            rows = monthNames.map((mName, idx) => {
-              const start = new Date(yearStart.getFullYear(), idx, 1);
-              const end = new Date(yearStart.getFullYear(), idx + 1, 0, 23, 59, 59, 999);
-              const now = new Date();
-              return {
-                key: `month-${idx}-${yearStart.getFullYear()}`,
-                label: `${mName} ${yearStart.getFullYear()}`,
-                start,
-                end,
-                isCurrent: now.getFullYear() === yearStart.getFullYear() && now.getMonth() === idx,
-              };
-            });
-          }
-
-          const grandTotals = {};
-          for (const c of splitCategoryNames) grandTotals[c] = 0;
-          let grandRowTotal = 0;
-
-          const rowData = rows.map((row) => {
-            const rangePurchases = getPurchasesInRange(row.start, row.end);
-            const { totals, counts } = buildCategoryTotals(rangePurchases);
-            const rowTotal = Object.values(totals).reduce((s, v) => s + (Number(v) || 0), 0);
-            return { row, totals, counts, rowTotal };
-          });
-
-          const maxCellValue = rowData.reduce((max, r) => {
-            const rowMax = Math.max(0, ...Object.values(r.totals).map((v) => Number(v) || 0));
-            return Math.max(max, rowMax);
-          }, 0);
-
-          return (
-            <>
+              {showSkeleton ? (
+                <TableSkeleton rowCount={skeletonRowCount} colCount={deferredSplitCategoryNames.length || 5} />
+              ) : (
+              <>
               <div className="table-responsive" style={{ maxHeight: "650px", overflowY: "auto" }}>
                 <table className="table table-sm mb-0 tracker-pivot-table" style={{ tableLayout: "fixed" }}>
 
                   <thead className="table-light" style={{ position: "sticky", top: 0, zIndex: 1 }}>
                     <tr>
                       <th style={{ width: "220px" }}>Period</th>
-                          {splitCategoryNames.map((cat) => (
+                          {deferredSplitCategoryNames.map((cat) => (
                             <th
                               key={cat}
                               className="text-center tracker-cat-th"
@@ -254,63 +382,26 @@ function PurchasesPivotTable({
                   </thead>
 
                   <tbody>
-                    {rowData.map(({ row, totals, counts, rowTotal }) => {
-
-                      for (const [cat, val] of Object.entries(totals)) {
-                        grandTotals[cat] = (grandTotals[cat] || 0) + (Number(val) || 0);
-                      }
-                      grandRowTotal += rowTotal;
-
-                      return (
-                        <tr key={row.key} style={row.isCurrent ? { backgroundColor: "rgba(13, 110, 253, 0.06)" } : undefined}>
-                          <td className="fw-semibold">{row.label}</td>
-
-                          {splitCategoryNames.map((cat) => {
-                            const value = totals[cat] || 0;
-                            const count = counts[cat] || 0;
-                            const intensity = maxCellValue > 0 ? Math.min(value / maxCellValue, 1) : 0;
-                            const heatAlpha = value > 0 ? 0.08 + 0.35 * intensity : 0;
-
-                            return (
-                                    <td
-                                      key={cat}
-                                      className={`text-center tracker-cell tracker-heat-cell ${value > 0 ? "tracker-cell--has" : ""}`}
-                                      style={
-                                        value > 0
-                                          ? { backgroundColor: `rgba(13, 110, 253, ${heatAlpha})` }
-                                          : undefined
-                                      }
-                                    >
-                                      {value > 0 ? (
-                                        <button
-                                          type="button"
-                                          className="tracker-cell-btn"
-                                          onMouseEnter={(e) => handleCellHover(e, row, cat, value, count)}
-                                          onMouseLeave={handleCellLeave}
-                                        >
-                                          <div className="fw-bold">{formatMoney(value)}</div>
-                                          <div className="text-body-secondary" style={{ fontSize: "0.75rem" }}>
-                                            {count} item{count === 1 ? "" : "s"}
-                                          </div>
-                                        </button>
-                                      ) : (
-                                        <span className="text-body-secondary">—</span>
-                                      )}
-                                    </td>
-                                  );
-
-                          })}
-
-                          <td className="text-end fw-bold">{formatMoney(rowTotal)}</td>
-                        </tr>
-                      );
-                    })}
+                    {rowData.map(({ row, totals, counts, rowTotal }) => (
+                        <TableRow
+                          key={row.key}
+                          row={row}
+                          totals={totals}
+                          counts={counts}
+                          rowTotal={rowTotal}
+                          maxCellValue={maxCellValue}
+                          splitCategoryNames={deferredSplitCategoryNames}
+                          formatMoney={formatMoney}
+                          handleCellHover={handleCellHover}
+                          handleCellLeave={handleCellLeave}
+                        />
+                      ))}
                   </tbody>
 
                   <tfoot className="table-light" style={{ position: "sticky", bottom: 0, zIndex: 1 }}>
                     <tr>
                       <th>Totals</th>
-                      {splitCategoryNames.map((cat) => (
+                      {deferredSplitCategoryNames.map((cat) => (
                         <th key={cat} className="text-center">
                           {grandTotals[cat] > 0 ? formatMoney(grandTotals[cat]) : "—"}
                         </th>
@@ -395,8 +486,7 @@ function PurchasesPivotTable({
                 {getViewTotal.toFixed(2)}
                   </div>
                 </>
-              );
-            })()}
+              )}
             </motion.div>
             </AnimatePresence>
           </div>
