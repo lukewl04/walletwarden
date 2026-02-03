@@ -13,7 +13,6 @@ import "./tracker.css";
 import TrackerHeader from "../components/tracker/TrackerHeader.jsx";
 import PeriodNavigation from "../components/tracker/PeriodNavigation.jsx";
 import SummaryCard from "../components/tracker/SummaryCard.jsx";
-import SidebarAddOrImportCard from "../components/tracker/SidebarAddOrImportCard.jsx";
 import IncomeCard from "../components/tracker/IncomeCard.jsx";
 import PurchasesPivotTable from "../components/tracker/PurchasesPivotTable.jsx";
 import AddPurchaseModal from "../components/tracker/AddPurchaseModal.jsx";
@@ -1328,7 +1327,7 @@ export default function Tracker() {
   };
 
   return (
-    <div className="container-fluid py-4 mt-5" style={{ maxWidth: "100%", minHeight: "100vh" }}>
+    <div className="container-fluid py-4" style={{ maxWidth: "100%", minHeight: "100vh", marginTop: "80px" }}>
 
       <Navbar />
 
@@ -1373,9 +1372,6 @@ export default function Tracker() {
             {/* Sidebar */}
             <div className="col-12 col-lg-3">
               <div className="tracker-sidebar-stack">
-                <div className="tracker-sidebar-item">
-                  <SidebarAddOrImportCard prefersReducedMotion={prefersReducedMotion} />
-                </div>
                 <div className="tracker-sidebar-item">
                   <IncomeCard
                     prefersReducedMotion={prefersReducedMotion}

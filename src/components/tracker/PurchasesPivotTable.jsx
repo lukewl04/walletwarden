@@ -325,21 +325,21 @@ function PurchasesPivotTable({
       <div className="card-body">
         <div className="d-flex align-items-center justify-content-between mb-3">
           <h5 className="mb-0">Purchases</h5>
-          <div className="btn-group" role="group">
+          <div className="segmented-control">
             <button
-              className={`btn btn-sm ${viewMode === "weekly" ? "btn-primary" : "btn-outline-secondary"}`}
+              className={`segmented-control__segment ${viewMode === "weekly" ? "segmented-control__segment--active" : ""}`}
               onClick={() => setViewMode("weekly")}
             >
               Weekly
             </button>
             <button
-              className={`btn btn-sm ${viewMode === "monthly" ? "btn-primary" : "btn-outline-secondary"}`}
+              className={`segmented-control__segment ${viewMode === "monthly" ? "segmented-control__segment--active" : ""}`}
               onClick={() => setViewMode("monthly")}
             >
               Monthly
             </button>
             <button
-              className={`btn btn-sm ${viewMode === "yearly" ? "btn-primary" : "btn-outline-secondary"}`}
+              className={`segmented-control__segment ${viewMode === "yearly" ? "segmented-control__segment--active" : ""}`}
               onClick={() => setViewMode("yearly")}
             >
               Yearly

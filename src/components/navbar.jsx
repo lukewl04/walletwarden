@@ -129,9 +129,9 @@ const Navbar = () => {
 
   return (
     <nav className="navbar navbar-expand-lg shadow-sm fixed-top">
-      <div className="container">
-        {/* Brand */}
-        <Link className="navbar-brand fw-bold d-flex align-items-center gap-1" to="/">
+      <div className="container-fluid px-4">
+        {/* Brand - Far Left */}
+        <Link className="navbar-brand fw-bold d-flex align-items-center gap-1 me-auto" to="/">
           <img 
             src="/walletwardenlogo.png"   
             alt="WalletWarden Logo" 
@@ -155,7 +155,7 @@ const Navbar = () => {
 
         {/* Links */}
         <div className="collapse navbar-collapse" id="navbarNav">
-          <ul className="navbar-nav ms-auto align-items-lg-center gap-lg-3">
+          <ul className="navbar-nav align-items-lg-center gap-lg-3 ms-auto">
             {/* Segmented Nav Pill */}
             <li className="nav-item">
               <div style={segmentedNavStyles.container}>
