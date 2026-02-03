@@ -401,19 +401,20 @@ export default function Tracker() {
         dataLoadedFromBackend.current = true;
         setIsLoading(false);
         
-        // Defer auto-import to next idle frame to avoid blocking UI
-        if (selectedSplitId && selectedSplitData) {
-          const runAutoImport = () => {
-            console.log("[Tracker] Starting deferred auto-import from Warden Insights...");
-            autoImportFromWardenInsights(selectedSplitId, selectedSplitData);
-          };
-          
-          if (typeof requestIdleCallback === "function") {
-            requestIdleCallback(runAutoImport, { timeout: 3000 });
-          } else {
-            setTimeout(runAutoImport, 100);
-          }
-        }
+        // DISABLED: Auto-import was causing massive duplication issues (415k+ duplicates)
+        // Transactions from Warden Insights should be imported manually via the Import button
+        // if (selectedSplitId && selectedSplitData) {
+        //   const runAutoImport = () => {
+        //     console.log("[Tracker] Starting deferred auto-import from Warden Insights...");
+        //     autoImportFromWardenInsights(selectedSplitId, selectedSplitData);
+        //   };
+        //   
+        //   if (typeof requestIdleCallback === "function") {
+        //     requestIdleCallback(runAutoImport, { timeout: 3000 });
+        //   } else {
+        //     setTimeout(runAutoImport, 100);
+        //   }
+        // }
       } catch (err) {
         console.error("Error loading data from backend:", err);
 
@@ -471,16 +472,15 @@ export default function Tracker() {
     return map;
   }, [splitIncomes]);
 
-  // Filter purchases + incomes by split - now O(1) lookup
+  // All purchases (no longer filtered by split - splits only define categories/budgets)
   const filteredPurchases = useMemo(() => {
-    if (!selectedSplit) return [];
-    return purchasesBySplit.get(selectedSplit) || [];
-  }, [purchasesBySplit, selectedSplit]);
+    return purchases;
+  }, [purchases]);
 
+  // All incomes (no longer filtered by split)
   const filteredIncomes = useMemo(() => {
-    if (!selectedSplit) return [];
-    return incomesBySplit.get(selectedSplit) || [];
-  }, [incomesBySplit, selectedSplit]);
+    return splitIncomes.map(sanitizeIncome).filter(Boolean);
+  }, [splitIncomes]);
 
   const incomeTransactions = useMemo(() => filteredIncomes, [filteredIncomes]);
 
