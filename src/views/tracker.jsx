@@ -22,20 +22,6 @@ import ExpectedIncomeModal from "../components/tracker/ExpectedIncomeModal.jsx";
 
 const API_URL = "http://localhost:4000/api";
 
-// Category keyword mappings (defined once outside component for performance)
-const CATEGORY_KEYWORDS = {
-  food: ["tesco", "sainsbury", "asda", "morrisons", "lidl", "aldi", "waitrose", "co-op", "coop", "grocery", "supermarket", "bakery", "deli", "market", "restaurant", "cafe", "pizza", "burger", "mcdonald", "kfc", "subway", "starbucks", "costa", "pub", "bar", "meals", "food", "greggs", "pret", "leon"],
-  petrol: ["bp", "shell", "esso", "tesco fuel", "sainsbury fuel", "petrol", "diesel", "fuel", "chevron"],
-  entertainment: ["cinema", "netflix", "spotify", "game", "steam", "playstation", "xbox", "nintendo", "theatre", "concert", "ticket", "movie", "film", "music", "entertainment"],
-  utilities: ["water", "gas", "electric", "council tax", "broadband", "internet", "phone", "mobile", "virgin", "bt", "plusnet", "bills"],
-  health: ["pharmacy", "doctor", "dentist", "hospital", "medical", "gym", "fitness", "health", "optician", "boots", "nhs", "wellbeing"],
-  shopping: ["amazon", "ebay", "argos", "john lewis", "marks spencer", "h&m", "zara", "clothes", "fashion", "homeware", "furniture", "ikea", "b&q", "wickes", "screwfix", "shop"],
-  subscriptions: ["subscription", "adobe", "microsoft", "apple"],
-  bills: ["bill", "council tax", "water", "gas", "electric", "broadband", "phone", "utility", "council", "rates"],
-  savings: ["savings", "save", "transfer", "saving"],
-  investing: ["invest", "investment", "broker", "trading"],
-};
-
 // Helper to get auth headers with unique user token
 const getAuthHeaders = () => ({ Authorization: `Bearer ${getUserToken()}` });
 
@@ -329,10 +315,45 @@ export default function Tracker() {
           const allPurchases = await purchasesResult.value.json();
           console.log("[Tracker] Loaded purchases from backend:", allPurchases.length);
 
+          // Deduplicate purchases by ID AND by transaction_id (in case of sync issues)
+          const seenIds = new Set();
+          const seenTransactionIds = new Set();
+          const uniquePurchases = [];
+          let duplicateCount = 0;
+          for (const p of allPurchases) {
+            // Skip if we've seen this purchase ID
+            if (seenIds.has(p.id)) {
+              duplicateCount++;
+              continue;
+            }
+            // Skip if we've seen this transaction_id (prevents duplicates from multiple imports)
+            if (p.transaction_id && seenTransactionIds.has(p.transaction_id)) {
+              duplicateCount++;
+              continue;
+            }
+            
+            seenIds.add(p.id);
+            if (p.transaction_id) seenTransactionIds.add(p.transaction_id);
+            uniquePurchases.push(p);
+          }
+          
+          console.log(`[Tracker] Deduplicated ${allPurchases.length} -> ${uniquePurchases.length} purchases (${duplicateCount} duplicates filtered)`);
+          
+          // If we found duplicates, clean them up in the backend too
+          if (duplicateCount > 0) {
+            console.log("[Tracker] Cleaning up duplicates in backend...");
+            fetch(`${API_URL}/purchases/deduplicate`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+            }).then(res => res.json())
+              .then(data => console.log("[Tracker] Backend dedup result:", data))
+              .catch(err => console.error("[Tracker] Backend dedup error:", err));
+          }
+
           // Use a single pass to separate income and expenses (more efficient)
           const incomePurchases = [];
           const expensePurchases = [];
-          for (const p of allPurchases) {
+          for (const p of uniquePurchases) {
             const catLower = (p.category || "").toLowerCase();
             if (catLower === "income") {
               incomePurchases.push(p);
@@ -847,32 +868,20 @@ export default function Tracker() {
     setEditingPurchaseId(null);
   };
 
-  // Memoized category matching function for better performance
+  // Category matching - uses Insights category if it matches a split category
   const matchCategory = useCallback((importedCat, description = "") => {
+    // First check for user-defined category rules (highest priority)
     const ruleHit = categoryRules[normalizeDescriptionKey(description)];
     if (ruleHit) return ruleHit;
 
-    const searchText = (importedCat + " " + description).toLowerCase();
-
+    // Use the category from Insights if it matches a split category (case-insensitive)
     if (importedCat) {
       const importedLower = importedCat.toLowerCase();
       const exactMatch = selectedSplitData?.categories.find((c) => c.name.toLowerCase() === importedLower);
       if (exactMatch) return exactMatch.name;
     }
 
-    for (const category of selectedSplitData?.categories || []) {
-      const categoryLower = category.name.toLowerCase();
-
-      const directKeywords = CATEGORY_KEYWORDS[categoryLower];
-      if (directKeywords && directKeywords.some((kw) => searchText.includes(kw))) return category.name;
-
-      for (const [typeKey, keywords] of Object.entries(CATEGORY_KEYWORDS)) {
-        if (categoryLower.includes(typeKey) || typeKey.includes(categoryLower)) {
-          if (keywords.some((kw) => searchText.includes(kw))) return category.name;
-        }
-      }
-    }
-
+    // Fallback: use the first split category as default
     return selectedSplitData?.categories[0]?.name || "Other";
   }, [categoryRules, selectedSplitData]);
 
@@ -920,7 +929,26 @@ export default function Tracker() {
       return;
     }
 
-    const linkedTransactionIds = new Set(purchases.map((p) => p.transaction_id).filter(Boolean));
+    // Fetch the latest purchases from backend to get accurate linked transaction IDs
+    // This prevents creating duplicates when the local state is out of sync
+    let backendTransactionIds = new Set();
+    try {
+      const res = await fetch(`${API_URL}/purchases`, { headers: { ...getAuthHeaders() } });
+      if (res.ok) {
+        const backendPurchases = await res.json();
+        backendTransactionIds = new Set(backendPurchases.map((p) => p.transaction_id).filter(Boolean));
+        console.log(`[Tracker] Auto-import: Found ${backendTransactionIds.size} existing transaction IDs in backend`);
+      }
+    } catch (err) {
+      console.warn("[Tracker] Auto-import: Could not fetch backend purchases, using local state", err);
+    }
+
+    // Combine backend IDs with local state IDs for complete coverage
+    const linkedTransactionIds = new Set([
+      ...backendTransactionIds,
+      ...purchases.map((p) => p.transaction_id).filter(Boolean)
+    ]);
+    
     const linkedIncomeIds = new Set(
       splitIncomes.filter((i) => i.split_id === splitId).map((i) => i.transaction_id).filter(Boolean)
     );
@@ -956,44 +984,32 @@ export default function Tracker() {
       uniqueUnlinkedIncome.push(tx);
     }
 
-    // Create a local match function that uses the same optimized logic
-    const matchCategoryForSplit = (importedCat, description = "") => {
+    // Use category from Insights if it matches a split category, otherwise fallback to matching
+    const getCategoryForSplit = (importedCat, description = "") => {
+      // First check for user-defined category rules (highest priority)
       const ruleHit = categoryRules[normalizeDescriptionKey(description)];
       if (ruleHit) return ruleHit;
 
-      const searchText = (importedCat + " " + description).toLowerCase();
-
+      // Use the category from Insights if it matches a split category (case-insensitive)
       if (importedCat) {
         const importedLower = importedCat.toLowerCase();
         const exactMatch = splitData?.categories.find((c) => c.name.toLowerCase() === importedLower);
         if (exactMatch) return exactMatch.name;
       }
 
-      for (const category of splitData?.categories || []) {
-        const categoryLower = category.name.toLowerCase();
-
-        const directKeywords = CATEGORY_KEYWORDS[categoryLower];
-        if (directKeywords && directKeywords.some((kw) => searchText.includes(kw))) return category.name;
-
-        for (const [typeKey, keywords] of Object.entries(CATEGORY_KEYWORDS)) {
-          if (categoryLower.includes(typeKey) || typeKey.includes(categoryLower)) {
-            if (keywords.some((kw) => searchText.includes(kw))) return category.name;
-          }
-        }
-      }
-
+      // Fallback: use the first split category as default
       return splitData?.categories[0]?.name || "Other";
     };
 
     const newPurchases = uniqueUnlinked.map((t) => {
-      const matched = matchCategoryForSplit(t.category, t.description);
+      const category = getCategoryForSplit(t.category, t.description);
       return {
         id: crypto.randomUUID(),
         split_id: splitId,
         transaction_id: t.id,
         date: toDateOnlyString(t.date),
         amount: Math.abs(Number(t.amount) || 0),
-        category: matched,
+        category: category,
         description: t.description || "",
       };
     });

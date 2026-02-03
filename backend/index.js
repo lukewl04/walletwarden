@@ -23,11 +23,11 @@ if (!connectionString) {
 const pool = new Pool({
   connectionString,
   ssl: { rejectUnauthorized: false }, // Required for Supabase
-  // Connection pool optimizations
-  max: 10, // Maximum connections
-  min: 2,  // Minimum connections to keep alive
-  idleTimeoutMillis: 30000, // Close idle connections after 30s
-  connectionTimeoutMillis: 10000, // Timeout waiting for connection
+  // Connection pool optimizations - reduced for Supabase Session mode limit
+  max: 5, // Maximum connections (Supabase Session mode default is 10 total)
+  min: 1,  // Minimum connections to keep alive
+  idleTimeoutMillis: 20000, // Close idle connections after 20s
+  connectionTimeoutMillis: 8000, // Timeout waiting for connection
 });
 
 // Initialize Prisma with PostgreSQL adapter
@@ -506,6 +506,53 @@ app.delete('/api/purchases/:id', async (req, res) => {
     return res.json({ ok: true });
   } catch (err) {
     console.error(err);
+    return res.status(500).json({ error: 'internal_error', message: err.message });
+  }
+});
+
+// Deduplicate purchases by transaction_id (keeps the oldest entry)
+app.post('/api/purchases/deduplicate', async (req, res) => {
+  try {
+    const userId = req.auth?.sub;
+    if (!userId) return res.status(401).json({ error: 'unauthorized' });
+
+    // Find all purchases with duplicate transaction_ids
+    const duplicates = await prisma.$queryRaw`
+      WITH duplicates AS (
+        SELECT transaction_id, MIN(created_at) as keep_date, COUNT(*) as cnt
+        FROM purchases
+        WHERE user_id = ${userId} AND transaction_id IS NOT NULL
+        GROUP BY transaction_id
+        HAVING COUNT(*) > 1
+      )
+      SELECT p.id, p.transaction_id, p.created_at
+      FROM purchases p
+      INNER JOIN duplicates d ON p.transaction_id = d.transaction_id
+      WHERE p.user_id = ${userId} AND p.created_at > d.keep_date
+    `;
+
+    if (duplicates.length === 0) {
+      return res.json({ ok: true, deleted: 0, message: 'No duplicates found' });
+    }
+
+    const idsToDelete = duplicates.map(d => d.id);
+    console.log(`[Dedup] Found ${idsToDelete.length} duplicate purchases to delete for user ${userId}`);
+
+    // Delete the duplicates
+    const result = await prisma.purchase.deleteMany({
+      where: {
+        id: { in: idsToDelete },
+        user_id: userId
+      }
+    });
+
+    // Invalidate cache
+    invalidateCache(`purchases:${userId}`);
+
+    console.log(`[Dedup] Deleted ${result.count} duplicate purchases for user ${userId}`);
+    return res.json({ ok: true, deleted: result.count });
+  } catch (err) {
+    console.error('Error deduplicating purchases:', err);
     return res.status(500).json({ error: 'internal_error', message: err.message });
   }
 });
