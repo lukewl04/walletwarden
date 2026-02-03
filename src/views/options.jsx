@@ -232,20 +232,44 @@ export default function Options() {
   const confirmReset = async () => {
     try {
       setIsResetting(true);
-      setResetMessage("Clearing transactions...");
+      setResetMessage("Deleting all data...");
 
-      // Clear all transactions via context (single bulk delete API call)
+      // Call the comprehensive reset endpoint that deletes everything
+      const res = await fetch(`${API_URL}/reset`, {
+        method: 'POST',
+        headers: { ...getAuthHeaders() },
+      });
+
+      if (!res.ok) {
+        throw new Error('Failed to reset data');
+      }
+
+      const result = await res.json();
+      console.log('[Reset] Server response:', result);
+
+      // Clear all localStorage data
+      localStorage.removeItem("walletwarden:transactions:v1");
+      localStorage.removeItem("walletwarden:splits");
+      localStorage.removeItem("walletwarden:customCategories");
+      
+      // Clear the transactions in context
       await clearTransactions();
 
-      // Clear localStorage data related to transactions
-      localStorage.removeItem("walletwarden:transactions:v1");
+      // Reset local state
+      setBankStatus({ connected: false });
+      setSavedSplits([]);
+      setIncomeSettings([]);
+      setSelectedSplitForIncome(null);
 
-      setResetMessage("All transactions have been cleared successfully!");
       setShowConfirmModal(false);
+      setResetMessage(`All data cleared! Transactions: ${result.cleared?.transactions || 0}, Splits: ${result.cleared?.splits || 0}, Bank accounts: ${result.cleared?.bankAccounts || 0}, Bank connections: ${result.cleared?.bankConnections || 0}`);
+      
+      // Force a full page reload to clear all cached state
       setTimeout(() => {
         setResetMessage("");
         setIsResetting(false);
-      }, 2000);
+        window.location.replace('/wardeninsights');
+      }, 2500);
     } catch (error) {
       console.error("Error clearing data:", error);
       setResetMessage("Error clearing data. Please try again.");
@@ -836,7 +860,7 @@ export default function Options() {
           <div className="card-body">
             <h5 className="card-title mb-4">Data Management</h5>
             <p className="text-muted mb-4">
-              Use these options to manage your transaction data.
+              Reset your account to start fresh. This will delete all your data.
             </p>
 
             <div className="d-flex gap-2">
@@ -846,11 +870,11 @@ export default function Options() {
                 onClick={handleResetClick}
                 disabled={isResetting}
               >
-                {isResetting ? "Clearing..." : "Clear All Transactions"}
+                {isResetting ? "Deleting..." : "Delete All Data"}
               </button>
             </div>
             <p className="text-muted small mt-3 mb-0">
-              This will permanently delete all your transactions from both local storage and the server. This action cannot be undone.
+              This will permanently delete: all transactions (manual and imported), budget splits, bank connections, balance data, and income settings. Your account will be reset to a fresh state. This cannot be undone.
             </p>
           </div>
         </div>
@@ -874,8 +898,17 @@ export default function Options() {
                 />
               </div>
               <div className="modal-body">
-                <p className="mb-0">
-                  Are you sure you want to delete <strong>all transactions</strong>? This action is permanent and cannot be undone.
+                <p className="mb-2">
+                  Are you sure you want to <strong>delete all your data</strong>? This will remove:
+                </p>
+                <ul className="small text-muted mb-3">
+                  <li>All transactions (manual and bank-imported)</li>
+                  <li>All budget splits and purchases</li>
+                  <li>Bank connections and balance data</li>
+                  <li>Income settings</li>
+                </ul>
+                <p className="mb-0 text-danger small">
+                  <strong>This action is permanent and cannot be undone.</strong>
                 </p>
               </div>
               <div className="modal-footer">

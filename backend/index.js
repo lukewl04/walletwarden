@@ -529,18 +529,50 @@ app.delete('/api/income-settings/:id', async (req, res) => {
   }
 });
 
-// Reset everything for the current user (transactions, splits, purchases)
+// Reset everything for the current user (transactions, splits, purchases, bank connections)
 app.post('/api/reset', async (req, res) => {
   try {
     const userId = req.auth?.sub;
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
 
-    const [txResult, purchaseResult, splitResult, incomeSettingsResult] = await Promise.all([
-      prisma.transaction.deleteMany({ where: { user_id: userId } }),
-      prisma.purchase.deleteMany({ where: { user_id: userId } }),
-      prisma.split.deleteMany({ where: { user_id: userId } }),
-      prisma.incomeSetting.deleteMany({ where: { user_id: userId } })
-    ]);
+    console.log(`[Reset] Starting full data reset for user: ${userId}`);
+
+    // Delete in correct order to avoid FK issues
+    // 1. First delete purchases (depends on splits)
+    const purchaseResult = await prisma.purchase.deleteMany({ where: { user_id: userId } });
+    console.log(`[Reset] Deleted ${purchaseResult.count} purchases`);
+
+    // 2. Delete income settings (depends on splits)
+    const incomeSettingsResult = await prisma.incomeSetting.deleteMany({ where: { user_id: userId } });
+    console.log(`[Reset] Deleted ${incomeSettingsResult.count} income settings`);
+
+    // 3. Delete splits
+    const splitResult = await prisma.split.deleteMany({ where: { user_id: userId } });
+    console.log(`[Reset] Deleted ${splitResult.count} splits`);
+
+    // 4. Delete all transactions (manual + bank)
+    const txResult = await prisma.transaction.deleteMany({ where: { user_id: userId } });
+    console.log(`[Reset] Deleted ${txResult.count} transactions`);
+
+    // 5. Delete bank balance snapshots (all providers)
+    const balanceSnapshotResult = await prisma.bankBalanceSnapshot.deleteMany({ 
+      where: { user_id: userId } 
+    });
+    console.log(`[Reset] Deleted ${balanceSnapshotResult.count} balance snapshots`);
+
+    // 6. Delete bank accounts (all providers)
+    const bankAccountResult = await prisma.bankAccount.deleteMany({ 
+      where: { user_id: userId } 
+    });
+    console.log(`[Reset] Deleted ${bankAccountResult.count} bank accounts`);
+
+    // 7. Delete bank connections (all providers, removes TrueLayer tokens)
+    const bankConnectionResult = await prisma.bankConnection.deleteMany({ 
+      where: { user_id: userId } 
+    });
+    console.log(`[Reset] Deleted ${bankConnectionResult.count} bank connections`);
+
+    console.log(`[Reset] Full data reset complete for user: ${userId}`);
 
     return res.json({
       ok: true,
@@ -549,6 +581,9 @@ app.post('/api/reset', async (req, res) => {
         purchases: purchaseResult.count,
         splits: splitResult.count,
         incomeSettings: incomeSettingsResult.count,
+        bankConnections: bankConnectionResult.count,
+        bankAccounts: bankAccountResult.count,
+        balanceSnapshots: balanceSnapshotResult.count,
       },
     });
   } catch (err) {
