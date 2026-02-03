@@ -9,7 +9,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
 // NOTE: The pdf.worker.min.mjs file is a Web Worker that runs in a separate
 // thread to handle heavy PDF parsing without blocking the main UI thread.
 
-export default function CsvPdfUpload({ onSave, onClose }) {
+export default function CsvPdfUpload({ onSave, onClose, compact = false }) {
   const [loading, setLoading] = useState(false);
   const [uploadedTransactions, setUploadedTransactions] = useState([]);
   const [categoryEdits, setCategoryEdits] = useState({}); // Track category changes
@@ -186,9 +186,118 @@ export default function CsvPdfUpload({ onSave, onClose }) {
     }, 0);
   };
 
+  // Compact minimalist layout for modal
+  if (compact) {
+    return (
+      <div>
+        {/* Inline upload inputs */}
+        <div className="d-flex gap-2 align-items-center" style={{ fontSize: '0.75rem' }}>
+          <div style={{ flex: 1 }}>
+            <label className="text-muted d-block mb-1">CSV</label>
+            <input 
+              ref={csvInputRef}
+              className="form-control form-control-sm"
+              style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem' }}
+              type="file" 
+              accept=".csv" 
+              onChange={handleCSVUpload} 
+              disabled={loading}
+            />
+          </div>
+          <div style={{ flex: 1 }}>
+            <label className="text-muted d-block mb-1">PDF</label>
+            <input 
+              ref={pdfInputRef}
+              className="form-control form-control-sm"
+              style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem' }}
+              type="file" 
+              accept=".pdf" 
+              onChange={handlePDFUpload}
+              disabled={loading}
+            />
+          </div>
+          {loading && (
+            <div className="spinner-border spinner-border-sm text-secondary" style={{ width: '1rem', height: '1rem' }} role="status">
+              <span className="visually-hidden">Loading...</span>
+            </div>
+          )}
+        </div>
+
+        {/* Compact preview */}
+        {uploadedTransactions.length > 0 && (
+          <div className="mt-2">
+            <div className="d-flex align-items-center justify-content-between mb-1">
+              <span className="text-muted" style={{ fontSize: '0.75rem' }}>{uploadedTransactions.length} transactions</span>
+              <span className={`${calculateBalance() < 0 ? "text-danger" : "text-success"}`} style={{ fontSize: '0.8rem' }}>
+                {calculateBalance() < 0 ? "−" : "+"}£{Math.abs(calculateBalance()).toFixed(2)}
+              </span>
+            </div>
+            <div style={{ maxHeight: 150, overflowY: 'auto', fontSize: '0.75rem' }}>
+              {uploadedTransactions.map((t) => {
+                const currentCategory = categoryEdits[t.id] || t.category || 'Other';
+                return (
+                  <div key={t.id} className="d-flex align-items-center gap-1 py-1" style={{ borderBottom: '1px solid rgba(0,0,0,0.05)' }}>
+                    <span className={t.type === "income" ? "text-success" : "text-danger"} style={{ minWidth: '60px' }}>
+                      {t.type === "income" ? "+" : "−"}£{t.amount.toFixed(2)}
+                    </span>
+                    <select
+                      className="form-select form-select-sm"
+                      style={{ width: '90px', fontSize: '0.7rem', padding: '0.15rem 0.3rem' }}
+                      value={currentCategory}
+                      onChange={(e) => setCategoryEdits({ ...categoryEdits, [t.id]: e.target.value })}
+                    >
+                      {TRANSACTION_CATEGORIES.map((cat) => (
+                        <option key={cat} value={cat}>{cat}</option>
+                      ))}
+                    </select>
+                    <span className="text-muted text-truncate" style={{ flex: 1 }}>{t.description}</span>
+                    <span className="text-muted">{t.date}</span>
+                  </div>
+                );
+              })}
+            </div>
+            <button 
+              className="btn btn-primary btn-sm w-100 mt-2"
+              style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem' }}
+              disabled={loading || isSaving}
+              onClick={async () => {
+                if (isSaving) return;
+                setIsSaving(true);
+                try {
+                  const transactionsWithUpdatedCategories = uploadedTransactions.map(t => ({
+                    ...t,
+                    category: categoryEdits[t.id] || t.category || 'Other'
+                  }));
+                  const deduped = dedupeById(transactionsWithUpdatedCategories);
+                  if (onSave) {
+                    await Promise.resolve(onSave(deduped));
+                    if (onClose) onClose();
+                  } else {
+                    await bulkAddTransactions(deduped);
+                    if (onClose) onClose();
+                  }
+                  setUploadedTransactions([]);
+                  setCategoryEdits({});
+                } catch (e) {
+                  console.error('Error uploading transactions', e);
+                  alert('Failed to upload. Please try again.');
+                } finally {
+                  setIsSaving(false);
+                }
+              }}
+            >
+              {isSaving ? "Uploading..." : "Upload"}
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Full layout for standalone page
   return (
     <div className="container py-4" style={{ maxWidth: 900 }}>
-      {/* Header with Back Button */}
+      {/* Header */}
       <div className="d-flex align-items-center mb-4">
         <div>
           <h1 className="h3 mb-1">Import Statements</h1>
@@ -215,7 +324,6 @@ export default function CsvPdfUpload({ onSave, onClose }) {
                 onChange={handleCSVUpload} 
                 disabled={loading}
               />
-
             </div>
           </div>
         </div>
@@ -227,8 +335,7 @@ export default function CsvPdfUpload({ onSave, onClose }) {
               <p className="text-muted small mb-3">
                 <strong>Bank statement PDF</strong><br/>
                 Smart format detection - supports:<br/>
-                Santander, Monzo, tables, and more<br/>
-                Automatically extracts transactions
+                Santander, Monzo, tables, and more
               </p>
               <input 
                 ref={pdfInputRef}
@@ -238,7 +345,6 @@ export default function CsvPdfUpload({ onSave, onClose }) {
                 onChange={handlePDFUpload}
                 disabled={loading}
               />
-              
               {loading && (
                 <div className="text-center mt-3">
                   <div className="spinner-border spinner-border-sm text-primary" role="status">
@@ -271,10 +377,7 @@ export default function CsvPdfUpload({ onSave, onClose }) {
                 {uploadedTransactions.map((t) => {
                   const currentCategory = categoryEdits[t.id] || t.category || 'Other';
                   return (
-                    <li
-                      key={t.id}
-                      className="list-group-item"
-                    >
+                    <li key={t.id} className="list-group-item">
                       <div className="d-flex align-items-start justify-content-between gap-2">
                         <div style={{ flex: 1 }}>
                           <div className="d-flex align-items-center gap-2 mb-2">
@@ -285,12 +388,7 @@ export default function CsvPdfUpload({ onSave, onClose }) {
                               className="form-select form-select-sm"
                               style={{ width: '150px', fontSize: '0.85rem' }}
                               value={currentCategory}
-                              onChange={(e) => {
-                                setCategoryEdits({
-                                  ...categoryEdits,
-                                  [t.id]: e.target.value
-                                });
-                              }}
+                              onChange={(e) => setCategoryEdits({ ...categoryEdits, [t.id]: e.target.value })}
                             >
                               {TRANSACTION_CATEGORIES.map((cat) => (
                                 <option key={cat} value={cat}>{cat}</option>

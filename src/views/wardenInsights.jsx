@@ -840,55 +840,54 @@ export default function WardenInsights() {
           {/* Import / Bank connect - Only show if bank is NOT connected */}
           {!bankStatus?.connected && (
             <div className="card shadow-sm mb-3">
-              <div className="card-body">
-                <div className="d-flex align-items-center justify-content-between">
-                  <h2 className="h6 mb-0">Import Transactions</h2>
-                </div>
-                <p className="text-muted small mt-2 mb-3">
-                  Upload your bank statements in CSV or PDF format, or connect
-                  your bank directly
+              <div className="card-body py-2 px-3">
+                <h2 className="h6 mb-1" style={{ fontSize: '0.9rem' }}>Import Transactions</h2>
+                <p className="text-muted mb-2" style={{ fontSize: '0.75rem' }}>
+                  Upload your bank statements in CSV or PDF format, or connect your bank directly
                 </p>
 
-                <div className="d-flex flex-column gap-2">
+                <div className="d-flex gap-2">
                   <button
-                    className="segmented-control__segment segmented-control__segment--active w-100"
-                    style={{ borderRadius: '24px', padding: '10px 14px', fontSize: '1rem' }}
+                    className="segmented-control__segment segmented-control__segment--active flex-fill"
+                    style={{ borderRadius: '20px', padding: '6px 12px', fontSize: '0.8rem' }}
                     onClick={() => setShowImportModal(true)}
                   >
-                    📄 Import CSV/PDF Statement
+                    📄 CSV/PDF
                   </button>
 
                   {bankStatusLoading ? (
                     <button
-                      className="segmented-control__segment segmented-control__segment--active w-100"
-                      style={{ borderRadius: '24px', padding: '10px 14px', fontSize: '1rem' }}
+                      className="segmented-control__segment segmented-control__segment--active flex-fill"
+                      style={{ borderRadius: '20px', padding: '6px 12px', fontSize: '0.8rem' }}
                       disabled
                     >
                       <span
-                        className="spinner-border spinner-border-sm me-2"
+                        className="spinner-border spinner-border-sm me-1"
+                        style={{ width: '0.7rem', height: '0.7rem' }}
                         role="status"
                         aria-hidden="true"
                       ></span>
-                      Checking bank connection...
+                      Checking...
                     </button>
                   ) : (
                     <button
-                      className="segmented-control__segment segmented-control__segment--active w-100"
-                      style={{ borderRadius: '24px', padding: '10px 14px', fontSize: '1rem' }}
+                      className="segmented-control__segment segmented-control__segment--active flex-fill"
+                      style={{ borderRadius: '20px', padding: '6px 12px', fontSize: '0.8rem' }}
                       onClick={handleConnectBank}
                       disabled={bankLoading}
                     >
                       {bankLoading ? (
                         <>
                           <span
-                            className="spinner-border spinner-border-sm me-2"
+                            className="spinner-border spinner-border-sm me-1"
+                            style={{ width: '0.7rem', height: '0.7rem' }}
                             role="status"
                             aria-hidden="true"
                           ></span>
                           Connecting...
                         </>
                       ) : (
-                        "🏦 Connect Bank (Open Banking)"
+                        "🏦 Open Banking"
                       )}
                     </button>
                   )}
@@ -1085,75 +1084,48 @@ export default function WardenInsights() {
                   )}
 
                   {potentialSavings.length > 0 && (
-                    <div className="card p-3 mb-3">
-                      <div className="mb-3">
-                        <strong>💰 Where You Could Save</strong>
-                        <div className="text-muted small">
-                          Potential annual savings if you cut discretionary spending
+                    <div className="card p-2 mb-3">
+                      <div className="d-flex align-items-center justify-content-between mb-2">
+                        <div>
+                          <strong style={{ fontSize: '0.9rem' }}>💰 Where You Could Save</strong>
+                          <span className="text-muted ms-2" style={{ fontSize: '0.7rem' }}>
+                            Annual savings potential
+                          </span>
+                        </div>
+                        <div className="text-success" style={{ fontSize: '0.85rem', fontWeight: 600 }}>
+                          £{potentialSavings.reduce((sum, item) => sum + item.yearlyPotential, 0).toFixed(0)}/yr
                         </div>
                       </div>
 
-                      <div style={{ maxHeight: 400, overflowY: "auto" }}>
+                      <div style={{ maxHeight: 200, overflowY: "auto" }}>
                         {potentialSavings.map((item, idx) => (
                           <div
                             key={idx}
-                            className="p-3 mb-2 rounded"
+                            className="d-flex align-items-center justify-content-between py-1 px-2"
                             style={{
-                              backgroundColor: "rgba(220, 53, 69, 0.08)",
-                              borderLeft: "4px solid #dc3545",
+                              backgroundColor: idx % 2 === 0 ? "rgba(220, 53, 69, 0.04)" : "transparent",
+                              borderLeft: "2px solid #dc3545",
+                              marginBottom: '2px',
                             }}
                           >
-                            <div className="d-flex align-items-start justify-content-between mb-2">
-                              <div>
-                                <strong>{item.category}</strong>
-                                <div className="text-muted small">{item.description}</div>
-                              </div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <span style={{ fontSize: '0.8rem', fontWeight: 500 }}>{item.category}</span>
+                              <span className="text-muted ms-2" style={{ fontSize: '0.65rem' }}>{item.description}</span>
                             </div>
-
-                            <div className="row g-2 small">
-                              <div className="col-6">
-                                <div className="text-muted">Monthly spend</div>
-                                <div className="h6 mb-0 text-warning">
-                                  £{item.monthlyAvg.toFixed(2)}
-                                </div>
+                            <div className="d-flex align-items-center gap-3 text-end" style={{ fontSize: '0.75rem' }}>
+                              <div>
+                                <span className="text-muted">£</span>
+                                <span className="text-warning">{item.monthlyAvg.toFixed(0)}</span>
+                                <span className="text-muted">/mo</span>
                               </div>
-                              <div className="col-6">
-                                <div className="text-muted">Annual potential</div>
-                                <div className="h6 mb-0 text-danger">
-                                  £{item.yearlyPotential.toFixed(2)}
-                                </div>
-                              </div>
-                              <div className="col-12">
-                                <div className="text-muted">Transactions</div>
-                                <div className="text-secondary small">
-                                  {item.count} transaction{item.count !== 1 ? "s" : ""} in last{" "}
-                                  {monthsBack} months
-                                </div>
+                              <div style={{ minWidth: '55px' }}>
+                                <span className="text-muted">£</span>
+                                <span className="text-danger fw-semibold">{item.yearlyPotential.toFixed(0)}</span>
+                                <span className="text-muted">/yr</span>
                               </div>
                             </div>
                           </div>
                         ))}
-                      </div>
-
-                      <div
-                        className="mt-3 p-3 rounded"
-                        style={{
-                          backgroundColor: "rgba(40, 167, 69, 0.08)",
-                          borderLeft: "4px solid #28a745",
-                        }}
-                      >
-                        <div className="text-muted small mb-1">
-                          Total potential savings (yearly)
-                        </div>
-                        <div className="h5 mb-0 text-success">
-                          £
-                          {potentialSavings
-                            .reduce((sum, item) => sum + item.yearlyPotential, 0)
-                            .toFixed(2)}
-                        </div>
-                        <small className="text-muted d-block">
-                          If you eliminated these discretionary categories
-                        </small>
                       </div>
                     </div>
                   )}

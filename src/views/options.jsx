@@ -413,7 +413,7 @@ export default function Options() {
             className={`nav-link ${activeTab === "account" ? "active" : ""}`}
             onClick={() => setActiveTab("account")}
           >
-            👤 Account
+            Account
           </button>
         </li>
         <li className="nav-item">
@@ -421,7 +421,7 @@ export default function Options() {
             className={`nav-link ${activeTab === "categories" ? "active" : ""}`}
             onClick={() => setActiveTab("categories")}
           >
-            🏷️ Categories
+            Categories
           </button>
         </li>
         <li className="nav-item">
@@ -429,7 +429,7 @@ export default function Options() {
             className={`nav-link ${activeTab === "income" ? "active" : ""}`}
             onClick={() => setActiveTab("income")}
           >
-            💰 Income
+            Income
           </button>
         </li>
         <li className="nav-item">
@@ -437,7 +437,7 @@ export default function Options() {
             className={`nav-link ${activeTab === "banking" ? "active" : ""}`}
             onClick={() => setActiveTab("banking")}
           >
-            🏦 Banking
+            Banking
           </button>
         </li>
         <li className="nav-item">
@@ -445,7 +445,7 @@ export default function Options() {
             className={`nav-link ${activeTab === "data" ? "active" : ""}`}
             onClick={() => setActiveTab("data")}
           >
-            📊 Data
+            Data
           </button>
         </li>
       </ul>
@@ -480,8 +480,11 @@ export default function Options() {
                     />
                     <div className="d-flex flex-column gap-2">
                       <div className="d-flex gap-2">
-                        <label className="btn btn-primary" style={{ opacity: isUploadButtonDisabled ? 0.5 : 1, cursor: isUploadButtonDisabled ? 'not-allowed' : 'pointer' }}>
-                          📤 Upload
+                        <label 
+                          className="segmented-control__segment segmented-control__segment--active" 
+                          style={{ borderRadius: '20px', padding: '6px 14px', fontSize: '0.85rem', cursor: isUploadButtonDisabled ? 'not-allowed' : 'pointer', opacity: isUploadButtonDisabled ? 0.5 : 1 }}
+                        >
+                          Upload
                           <input
                             type="file"
                             accept="image/*"
@@ -492,10 +495,11 @@ export default function Options() {
                         </label>
                         {uploadedProfilePicture && (
                           <button
-                            className="btn btn-secondary"
+                            className="segmented-control__segment"
+                            style={{ borderRadius: '20px', padding: '6px 14px', fontSize: '0.85rem' }}
                             onClick={handleRemoveProfilePicture}
                           >
-                            🗑️ Remove
+                            Remove
                           </button>
                         )}
                       </div>
@@ -518,13 +522,14 @@ export default function Options() {
             <div>
               <h6 className="mb-3">Sign Out</h6>
               <button
-                className="btn btn-secondary"
+                className="segmented-control__segment"
+                style={{ borderRadius: '20px', padding: '6px 14px', fontSize: '0.85rem', border: '1px solid #6c757d', backgroundColor: 'rgba(108, 117, 125, 0.1)' }}
                 onClick={() => {
                   clearAuth0User(); // Clear stored Auth0 user ID
                   logout({ logoutParams: { returnTo: window.location.origin } });
                 }}
               >
-                🚪 Sign Out
+                Sign Out
               </button>
               <p className="text-muted small mt-3 mb-0">
                 You will be signed out from your account.
@@ -557,7 +562,8 @@ export default function Options() {
                   }}
                 />
                 <button
-                  className="btn btn-primary"
+                  className="segmented-control__segment segmented-control__segment--active"
+                  style={{ borderRadius: '0 20px 20px 0', padding: '6px 14px', fontSize: '0.85rem' }}
                   type="button"
                   onClick={handleAddCategory}
                 >
@@ -724,11 +730,12 @@ export default function Options() {
                 )}
 
                 <button
-                  className="btn btn-primary"
+                  className="segmented-control__segment segmented-control__segment--active"
+                  style={{ borderRadius: '20px', padding: '6px 14px', fontSize: '0.85rem' }}
                   onClick={handleSaveExpectedIncome}
                   disabled={!expectedIncomeForm.expected_amount || Number(expectedIncomeForm.expected_amount) <= 0}
                 >
-                  💾 Save Expected Income
+                  Save Expected Income
                 </button>
               </>
             )}
@@ -774,19 +781,21 @@ export default function Options() {
                   </small>
                 </div>
 
-                <div className="d-grid gap-2">
+                <div className="d-flex gap-2 flex-wrap">
                   <button
-                    className="btn btn-primary"
+                    className="segmented-control__segment segmented-control__segment--active"
+                    style={{ borderRadius: '20px', padding: '6px 14px', fontSize: '0.85rem' }}
                     onClick={() => setShowImportModal(true)}
                   >
-                    📄 Import CSV/PDF Statement
+                    Import CSV/PDF
                   </button>
                   <button
-                    className="btn btn-outline-danger"
+                    className="segmented-control__segment"
+                    style={{ borderRadius: '20px', padding: '6px 14px', fontSize: '0.85rem', color: '#dc3545' }}
                     onClick={handleDisconnectBank}
                     disabled={bankLoading}
                   >
-                    {bankLoading ? "⏳ Disconnecting..." : "🔌 Disconnect Bank"}
+                    {bankLoading ? "Disconnecting..." : "Disconnect Bank"}
                   </button>
                 </div>
                 <p className="text-muted small mt-3 mb-0">
@@ -802,13 +811,14 @@ export default function Options() {
                   <small>Connect a bank to automatically sync transactions.</small>
                 </div>
 
-                <div className="d-grid gap-2">
+                <div className="d-flex gap-2">
                   <button
-                    className="btn btn-primary"
+                    className="segmented-control__segment segmented-control__segment--active"
+                    style={{ borderRadius: '20px', padding: '6px 14px', fontSize: '0.85rem' }}
                     onClick={handleConnectBank}
                     disabled={bankLoading}
                   >
-                    {bankLoading ? "⏳ Connecting..." : "🏦 Connect Bank"}
+                    {bankLoading ? "Connecting..." : "Connect Bank"}
                   </button>
                 </div>
                 <p className="text-muted small mt-3 mb-0">
@@ -829,14 +839,14 @@ export default function Options() {
               Use these options to manage your transaction data.
             </p>
 
-            <div className="d-grid gap-2">
+            <div className="d-flex gap-2">
               <button
-                className="btn btn-secondary"
+                className="segmented-control__segment"
+                style={{ borderRadius: '20px', padding: '6px 14px', fontSize: '0.85rem', color: '#dc3545' }}
                 onClick={handleResetClick}
                 disabled={isResetting}
-                style={{ opacity: isResetting ? 0.6 : 1, cursor: isResetting ? 'not-allowed' : 'pointer' }}
               >
-                {isResetting ? "⏳ Clearing..." : "🗑️ Clear All Transactions"}
+                {isResetting ? "Clearing..." : "Clear All Transactions"}
               </button>
             </div>
             <p className="text-muted small mt-3 mb-0">
@@ -871,7 +881,8 @@ export default function Options() {
               <div className="modal-footer">
                 <button
                   type="button"
-                  className="btn btn-secondary"
+                  className="segmented-control__segment"
+                  style={{ borderRadius: '20px', padding: '6px 14px', fontSize: '0.85rem' }}
                   onClick={() => setShowConfirmModal(false)}
                   disabled={isResetting}
                 >
@@ -879,10 +890,10 @@ export default function Options() {
                 </button>
                 <button
                   type="button"
-                  className="btn btn-danger"
+                  className="segmented-control__segment segmented-control__segment--active"
+                  style={{ borderRadius: '20px', padding: '6px 14px', fontSize: '0.85rem', backgroundColor: '#dc3545', borderColor: '#dc3545' }}
                   onClick={confirmReset}
                   disabled={isResetting}
-                  style={{ opacity: isResetting ? 0.6 : 1, cursor: isResetting ? 'not-allowed' : 'pointer' }}
                 >
                   {isResetting ? "Deleting..." : "Delete All"}
                 </button>
