@@ -100,7 +100,7 @@ const Navbar = () => {
         {/* Brand */}
         <Link className="navbar-brand fw-bold d-flex align-items-center gap-1" to="/">
           <img 
-            src="/logonoback.png" 
+            src="/walletwardenlogo.png"   
             alt="WalletWarden Logo" 
             style={{ width: '50px', height: '50px', objectFit: 'contain' }} 
           />

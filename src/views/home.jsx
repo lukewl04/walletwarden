@@ -64,70 +64,130 @@ export default function Home() {
   };
 
   return (
-    <div className="container-fluid py-5 mt-5" style={{ minHeight: "100vh" }}>
+    <div className="container-fluid" style={{ minHeight: "100vh", background: "linear-gradient(135deg, #0f172a 0%, #1e293b 100%)" }}>
       <WelcomePopup />
       <Navbar />
 
-      <div className="container text-center" style={{ maxWidth: 900 }}>
-        {/* Hero */}
-        <div className="mb-5">
-          <img 
-            src="/walletwardenfull.png" 
-            alt="Wallet Warden" 
-            style={{ maxWidth: 500, marginBottom: '1.5rem' }}
-          />
-          <h1 className="display-5 fw-bold mb-3">
-            Control your money,<br className="d-none d-md-block" />
-            before it controls you.
-          </h1>
+      <div className="container" style={{ maxWidth: "1200px", paddingTop: "5rem", paddingBottom: "2rem" }}>
+        {/* Hero Section - Compact */}
+        <div className="row align-items-center mb-4">
+          <div className="col-12 col-md-5 text-center text-md-start">
+            <img 
+              src="/walletwardenlogo.png" 
+              alt="Wallet Warden" 
+              style={{ maxWidth: 200, marginBottom: '0' }}
+            />
+            <h1 className="display-6 fw-bold mb-3" style={{ color: "#fff" }}>
+              Control your money,<br />
+              before it controls you.
+            </h1>
+            <p className="lead mb-0" style={{ color: "#cbd5e1", fontSize: "1rem" }}>
+              Track spending, split costs, and build better money habits — all in one place.
+            </p>
+          </div>
 
-          <p className="lead text-muted mb-4">
-            Track spending, split costs, and build better money habits — all in one place.
-          </p>
-        </div>
-
-        {/* Split Presets Container */}
-        <div className="card shadow-sm mt-5 mb-5">
-          <div className="card-body">
-            <h2 className="h4 mb-2">Get Started with Split Presets</h2>
-            <p className="text-muted mb-4">Choose a preset to allocate your income by percentage. You can customize it later.</p>
-            <div className="row g-3">
-              {presets.map((preset) => (
-                <div className="col-12 col-md-4" key={preset.label}>
-                  <div className="card h-100 border-0 shadow-sm">
-                    <div className="card-body d-flex flex-column">
-                      <h5 className="card-title mb-1">{preset.label}</h5>
-                      <p className="text-muted small mb-3">{preset.desc}</p>
-                      <ul className="mb-3 small text-muted">
-                        {preset.details.map((d, i) => (
-                          <li key={i}>{d}</li>
-                        ))}
-                      </ul>
-                      <button
-                        className="btn btn-primary mt-auto"
-                        onClick={() => handlePresetClick(preset)}
-                      >
-                        Use this preset
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="mt-4 d-flex justify-content-end">
-              <button
-                className="btn btn-outline-secondary"
-                onClick={() => navigate("/splitmaker", { state: { skipPresetSelection: true } })}
-              >
-                Start with Custom Preset
-              </button>
+          {/* Quick Stats or Visual */}
+          <div className="col-12 col-md-7 d-none d-md-block">
+            <div style={{
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr",
+              gap: "1rem",
+              padding: "1rem"
+            }}>
+              <div className="p-3 rounded-3" style={{ background: "rgba(59, 130, 246, 0.1)", border: "1px solid rgba(59, 130, 246, 0.3)" }}>
+                <div className="h6 mb-2" style={{ color: "#3b82f6" }}>💰 Track Spending</div>
+                <p className="small text-muted mb-0">Monitor every transaction</p>
+              </div>
+              <div className="p-3 rounded-3" style={{ background: "rgba(168, 85, 247, 0.1)", border: "1px solid rgba(168, 85, 247, 0.3)" }}>
+                <div className="h6 mb-2" style={{ color: "#a855f7" }}>📊 Smart Splits</div>
+                <p className="small text-muted mb-0">Allocate with presets</p>
+              </div>
+              <div className="p-3 rounded-3" style={{ background: "rgba(34, 197, 94, 0.1)", border: "1px solid rgba(34, 197, 94, 0.3)" }}>
+                <div className="h6 mb-2" style={{ color: "#22c55e" }}>📈 Build Wealth</div>
+                <p className="small text-muted mb-0">Grow your savings</p>
+              </div>
+              <div className="p-3 rounded-3" style={{ background: "rgba(244, 114, 182, 0.1)", border: "1px solid rgba(244, 114, 182, 0.3)" }}>
+                <div className="h6 mb-2" style={{ color: "#f472b6" }}>🎯 Stay on Track</div>
+                <p className="small text-muted mb-0">Meet your goals</p>
+              </div>
             </div>
           </div>
         </div>
 
-        {/* Optional tagline */}
-        <div className="text-muted small">
-          Wallet Warden • Simple finance, done right
+        {/* Split Presets Container - Horizontal Cards */}
+        <div style={{ background: "rgba(15, 23, 42, 0.5)", border: "1px solid rgba(71, 85, 105, 0.3)", borderRadius: "1rem", padding: "2rem", backdropFilter: "blur(10px)" }}>
+          <h2 className="h5 fw-bold mb-1" style={{ color: "#fff" }}>Get Started with Split Presets</h2>
+          <p className="text-muted small mb-3">Choose a preset to allocate your income. Customize later if needed.</p>
+          
+          <div className="row g-3">
+            {presets.map((preset) => (
+              <div className="col-12 col-md-6 col-lg-4" key={preset.label}>
+                <div 
+                  className="h-100 p-4 rounded-3 cursor-pointer transition-all"
+                  style={{
+                    background: "rgba(30, 41, 59, 0.8)",
+                    border: "1px solid rgba(71, 85, 105, 0.3)",
+                    display: "flex",
+                    flexDirection: "column",
+                    cursor: "pointer",
+                    transition: "all 0.3s ease"
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.borderColor = "rgba(59, 130, 246, 0.6)";
+                    e.currentTarget.style.background = "rgba(30, 41, 59, 1)";
+                    e.currentTarget.style.boxShadow = "0 8px 32px rgba(59, 130, 246, 0.2)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.borderColor = "rgba(71, 85, 105, 0.3)";
+                    e.currentTarget.style.background = "rgba(30, 41, 59, 0.8)";
+                    e.currentTarget.style.boxShadow = "none";
+                  }}
+                >
+                  <h6 className="fw-bold mb-1" style={{ color: "#fff" }}>{preset.label}</h6>
+                  <p className="text-muted small mb-2">{preset.desc}</p>
+                  <div className="mb-3">
+                    {preset.details.map((d, i) => (
+                      <div key={i} className="small text-muted mb-1">{d}</div>
+                    ))}
+                  </div>
+                  <button
+                    className="btn btn-sm mt-auto"
+                    style={{
+                      background: "linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)",
+                      color: "#fff",
+                      border: "none",
+                      borderRadius: "0.5rem",
+                      fontWeight: "600"
+                    }}
+                    onClick={() => handlePresetClick(preset)}
+                  >
+                    Use this preset
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+          
+          <div className="mt-3 d-flex justify-content-center justify-content-md-end">
+            <button
+              className="btn btn-sm"
+              style={{
+                background: "transparent",
+                color: "#94a3b8",
+                border: "1px solid #475569",
+                borderRadius: "0.5rem",
+                padding: "0.5rem 1rem"
+              }}
+              onClick={() => navigate("/splitmaker", { state: { skipPresetSelection: true } })}
+            >
+              Custom Preset
+            </button>
+          </div>
+        </div>
+
+        {/* Footer tagline */}
+        <div className="text-center mt-4">
+          <p className="text-muted small">Wallet Warden • Simple finance, done right</p>
         </div>
       </div>
     </div>
