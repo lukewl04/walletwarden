@@ -1,12 +1,45 @@
 import React, { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { useAuth0 } from "@auth0/auth0-react";
+
+/* Segmented nav pill styles */
+const segmentedNavStyles = {
+  container: {
+    display: 'flex',
+    alignItems: 'center',
+    backgroundColor: 'rgba(30, 41, 59, 0.8)',
+    borderRadius: '9999px',
+    padding: '4px',
+    gap: '2px',
+  },
+  segment: {
+    padding: '6px 16px',
+    borderRadius: '9999px',
+    fontSize: '0.875rem',
+    fontWeight: 500,
+    textDecoration: 'none',
+    cursor: 'pointer',
+    transition: 'background-color 180ms ease, color 180ms ease, box-shadow 180ms ease',
+    border: 'none',
+    outline: 'none',
+  },
+  active: {
+    backgroundColor: '#3b82f6',
+    color: '#ffffff',
+    boxShadow: '0 0 8px rgba(59, 130, 246, 0.4)',
+  },
+  inactive: {
+    backgroundColor: 'transparent',
+    color: 'rgba(148, 163, 184, 0.9)',
+  },
+};
 
 const THEME_KEY = "walletwarden:theme";
 const PROFILE_PICTURE_KEY = "walletwarden:profilePicture";
 
 const Navbar = () => {
   const { user } = useAuth0();
+  const location = useLocation();
   const [theme, setTheme] = useState(() => {
     if (typeof window === "undefined") return "dark";
     return localStorage.getItem(THEME_KEY) || "dark";
@@ -123,24 +156,68 @@ const Navbar = () => {
         {/* Links */}
         <div className="collapse navbar-collapse" id="navbarNav">
           <ul className="navbar-nav ms-auto align-items-lg-center gap-lg-3">
+            {/* Segmented Nav Pill */}
             <li className="nav-item">
-              <Link className="nav-link active" to="/wardeninsights">
-                Insights
-              </Link>
-            </li>
-            
-            {hasSplits && (
-              <li className="nav-item">
-                <Link className="nav-link active" to="/tracker">
-                  Tracker
+              <div style={segmentedNavStyles.container}>
+                <Link
+                  to="/wardeninsights"
+                  style={{
+                    ...segmentedNavStyles.segment,
+                    ...(location.pathname === '/wardeninsights' ? segmentedNavStyles.active : segmentedNavStyles.inactive),
+                  }}
+                  onMouseEnter={(e) => {
+                    if (location.pathname !== '/wardeninsights') {
+                      e.currentTarget.style.backgroundColor = 'rgba(59, 130, 246, 0.15)';
+                      e.currentTarget.style.color = 'rgba(203, 213, 225, 1)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (location.pathname !== '/wardeninsights') {
+                      e.currentTarget.style.backgroundColor = 'transparent';
+                      e.currentTarget.style.color = 'rgba(148, 163, 184, 0.9)';
+                    }
+                  }}
+                  onFocus={(e) => {
+                    e.currentTarget.style.outline = '2px solid rgba(59, 130, 246, 0.5)';
+                    e.currentTarget.style.outlineOffset = '2px';
+                  }}
+                  onBlur={(e) => {
+                    e.currentTarget.style.outline = 'none';
+                  }}
+                >
+                  Insights
                 </Link>
-              </li>
-            )}
-            {/* Call to Action */}
-            <li className="nav-item">
-              <Link className="btn btn-primary px-4 rounded-pill" to="/splitmaker">
-                Split Maker
-              </Link>
+                {hasSplits && (
+                  <Link
+                    to="/tracker"
+                    style={{
+                      ...segmentedNavStyles.segment,
+                      ...(location.pathname === '/tracker' ? segmentedNavStyles.active : segmentedNavStyles.inactive),
+                    }}
+                    onMouseEnter={(e) => {
+                      if (location.pathname !== '/tracker') {
+                        e.currentTarget.style.backgroundColor = 'rgba(59, 130, 246, 0.15)';
+                        e.currentTarget.style.color = 'rgba(203, 213, 225, 1)';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (location.pathname !== '/tracker') {
+                        e.currentTarget.style.backgroundColor = 'transparent';
+                        e.currentTarget.style.color = 'rgba(148, 163, 184, 0.9)';
+                      }
+                    }}
+                    onFocus={(e) => {
+                      e.currentTarget.style.outline = '2px solid rgba(59, 130, 246, 0.5)';
+                      e.currentTarget.style.outlineOffset = '2px';
+                    }}
+                    onBlur={(e) => {
+                      e.currentTarget.style.outline = 'none';
+                    }}
+                  >
+                    Tracker
+                  </Link>
+                )}
+              </div>
             </li>
 
             {user && (

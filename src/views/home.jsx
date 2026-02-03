@@ -64,7 +64,7 @@ export default function Home() {
   };
 
   return (
-    <div className="container-fluid" style={{ minHeight: "100vh", background: "linear-gradient(135deg, #0f172a 0%, #1e293b 100%)" }}>
+    <div className="container-fluid" style={{ minHeight: "100vh", backgroundColor: "var(--bg)" }}>
       <WelcomePopup />
       <Navbar />
 
@@ -123,7 +123,7 @@ export default function Home() {
             {presets.map((preset) => (
               <div className="col-12 col-md-6 col-lg-4" key={preset.label}>
                 <div 
-                  className="h-100 p-4 rounded-3 cursor-pointer transition-all"
+                  className="h-100 p-4 rounded-3"
                   style={{
                     background: "rgba(30, 41, 59, 0.8)",
                     border: "1px solid rgba(71, 85, 105, 0.3)",
@@ -132,15 +132,18 @@ export default function Home() {
                     cursor: "pointer",
                     transition: "all 0.3s ease"
                   }}
+                  onClick={() => handlePresetClick(preset)}
                   onMouseEnter={(e) => {
                     e.currentTarget.style.borderColor = "rgba(59, 130, 246, 0.6)";
                     e.currentTarget.style.background = "rgba(30, 41, 59, 1)";
                     e.currentTarget.style.boxShadow = "0 8px 32px rgba(59, 130, 246, 0.2)";
+                    e.currentTarget.style.transform = "translateY(-2px)";
                   }}
                   onMouseLeave={(e) => {
                     e.currentTarget.style.borderColor = "rgba(71, 85, 105, 0.3)";
                     e.currentTarget.style.background = "rgba(30, 41, 59, 0.8)";
                     e.currentTarget.style.boxShadow = "none";
+                    e.currentTarget.style.transform = "translateY(0)";
                   }}
                 >
                   <h6 className="fw-bold mb-1" style={{ color: "#fff" }}>{preset.label}</h6>
@@ -150,19 +153,18 @@ export default function Home() {
                       <div key={i} className="small text-muted mb-1">{d}</div>
                     ))}
                   </div>
-                  <button
-                    className="btn btn-sm mt-auto"
+                  <div 
+                    className="mt-auto text-center py-2 rounded"
                     style={{
                       background: "linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)",
                       color: "#fff",
-                      border: "none",
                       borderRadius: "0.5rem",
-                      fontWeight: "600"
+                      fontWeight: "600",
+                      fontSize: "0.875rem"
                     }}
-                    onClick={() => handlePresetClick(preset)}
                   >
                     Use this preset
-                  </button>
+                  </div>
                 </div>
               </div>
             ))}
