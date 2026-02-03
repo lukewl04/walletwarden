@@ -71,6 +71,11 @@ export default function Home() {
       <div className="container text-center" style={{ maxWidth: 900 }}>
         {/* Hero */}
         <div className="mb-5">
+          <img 
+            src="/walletwardenfull.png" 
+            alt="Wallet Warden" 
+            style={{ maxWidth: 500, marginBottom: '1.5rem' }}
+          />
           <h1 className="display-5 fw-bold mb-3">
             Control your money,<br className="d-none d-md-block" />
             before it controls you.
