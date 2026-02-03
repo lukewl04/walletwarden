@@ -538,19 +538,28 @@ app.post('/api/purchases/deduplicate', async (req, res) => {
     const idsToDelete = duplicates.map(d => d.id);
     console.log(`[Dedup] Found ${idsToDelete.length} duplicate purchases to delete for user ${userId}`);
 
-    // Delete the duplicates
-    const result = await prisma.purchase.deleteMany({
-      where: {
-        id: { in: idsToDelete },
-        user_id: userId
-      }
-    });
+    // Delete in batches to avoid query parameter limit (max ~32k params)
+    const BATCH_SIZE = 5000;
+    let totalDeleted = 0;
+    
+    for (let i = 0; i < idsToDelete.length; i += BATCH_SIZE) {
+      const batch = idsToDelete.slice(i, i + BATCH_SIZE);
+      console.log(`[Dedup] Deleting batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(idsToDelete.length / BATCH_SIZE)} (${batch.length} items)`);
+      
+      const result = await prisma.purchase.deleteMany({
+        where: {
+          id: { in: batch },
+          user_id: userId
+        }
+      });
+      totalDeleted += result.count;
+    }
 
     // Invalidate cache
     invalidateCache(`purchases:${userId}`);
 
-    console.log(`[Dedup] Deleted ${result.count} duplicate purchases for user ${userId}`);
-    return res.json({ ok: true, deleted: result.count });
+    console.log(`[Dedup] Deleted ${totalDeleted} duplicate purchases for user ${userId}`);
+    return res.json({ ok: true, deleted: totalDeleted });
   } catch (err) {
     console.error('Error deduplicating purchases:', err);
     return res.status(500).json({ error: 'internal_error', message: err.message });
