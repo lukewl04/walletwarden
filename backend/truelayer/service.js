@@ -6,6 +6,51 @@
 const crypto = require('crypto');
 const client = require('./client');
 
+// ── Helpers: pot / internal-transfer detection ─────────────────────────
+
+/**
+ * Returns true when the account name looks like a savings pot, jar, or
+ * sub-account rather than a real current / personal account.
+ *
+ * Positive main-account indicators ("current", "personal", "main") take
+ * priority so they are never accidentally excluded.
+ */
+function isPotOrSavingsAccount(name) {
+  if (!name) return false;
+  const lower = name.toLowerCase();
+  // Definitely a main account
+  if (/\b(current|personal|main)\b/i.test(lower)) return false;
+  // Strong pot / savings indicators
+  if (/\b(saving|savings|pot|vault|jar|challenge|rainy|round.?up|transfer|emergency)\b/i.test(lower)) return true;
+  return false; // Unknown – assume main (safer)
+}
+
+/**
+ * Build a Set of lower-cased account display-names from a TrueLayer
+ * accounts array.  Used to detect internal transfers whose description
+ * exactly matches another account name.
+ */
+function buildAccountNameSet(accounts) {
+  const names = new Set();
+  for (const acc of accounts) {
+    const n = (acc.display_name || '').trim().toLowerCase();
+    if (n) names.add(n);
+  }
+  return names;
+}
+
+/**
+ * Returns true when the transaction looks like an internal transfer
+ * between the user's own accounts (description exactly matches an
+ * account / pot name).
+ */
+function isInternalTransfer(tx, accountNameSet) {
+  const desc = (tx.merchant_name || tx.description || '').trim().toLowerCase();
+  return desc !== '' && accountNameSet.has(desc);
+}
+
+// ── OAuth state store ──────────────────────────────────────────────────
+
 // In-memory state store with TTL (15 minutes for OAuth flow + bank auth)
 // In production, use Redis or DB-backed store
 const stateStore = new Map();
@@ -334,11 +379,20 @@ async function syncAccountsAndTransactions(prisma, userId, { fromDate, toDate } 
     });
   }
 
+  // ── Filter: skip pot/savings accounts, detect internal transfers ─────
+  const mainAccounts = accounts.filter(a => {
+    const dominated = isPotOrSavingsAccount(a.display_name);
+    if (dominated) console.log(`[TrueLayer] Skipping pot account: "${a.display_name}"`);
+    return !dominated;
+  });
+  const accountNameSet = buildAccountNameSet(accounts);
+
   let totalInserted = 0;
   let totalSkipped = 0;
+  let totalInternal = 0;
 
-  // Fetch and sync transactions for each account
-  for (const acc of accounts) {
+  // Fetch and sync transactions for main accounts only
+  for (const acc of mainAccounts) {
     try {
       const transactions = await client.getTransactions({
         access_token: accessToken,
@@ -350,6 +404,12 @@ async function syncAccountsAndTransactions(prisma, userId, { fromDate, toDate } 
       console.log(`[TrueLayer] Processing ${transactions.length} transactions for account ${acc.display_name || acc.account_id}`);
 
       for (const tx of transactions) {
+        // Skip internal transfers (description matches another account name)
+        if (isInternalTransfer(tx, accountNameSet)) {
+          totalInternal++;
+          continue;
+        }
+
         const normalized = normalizeTransaction(tx, userId);
         
         // Check if transaction already exists
@@ -385,12 +445,14 @@ async function syncAccountsAndTransactions(prisma, userId, { fromDate, toDate } 
     }
   }
 
-  console.log(`[TrueLayer] Sync complete: ${totalInserted} new, ${totalSkipped} existing`);
+  console.log(`[TrueLayer] Sync complete: ${totalInserted} new, ${totalSkipped} existing, ${totalInternal} internal transfers skipped`);
 
   return {
     accounts: accounts.length,
+    mainAccounts: mainAccounts.length,
     inserted: totalInserted,
     skipped: totalSkipped,
+    internalTransfersSkipped: totalInternal,
     dateRange: { from, to },
   };
 }
@@ -458,7 +520,11 @@ async function quickSyncLatest(prisma, userId, { limit = 30, daysBack = 60 } = {
   // Fetch transactions for each account (short window), then take top N overall
   const allTx = [];
 
-  for (const acc of accounts) {
+  // ── Filter: skip pot/savings accounts, detect internal transfers ─────
+  const mainAccounts = accounts.filter(a => !isPotOrSavingsAccount(a.display_name));
+  const accountNameSet = buildAccountNameSet(accounts);
+
+  for (const acc of mainAccounts) {
     try {
       const txs = await client.getTransactions({
         access_token: accessToken,
@@ -486,7 +552,11 @@ async function quickSyncLatest(prisma, userId, { limit = 30, daysBack = 60 } = {
     return db - da;
   });
 
-  const latest = allTx.slice(0, limit);
+  // Filter out internal transfers before selecting latest
+  const externalTx = allTx.filter(tx => !isInternalTransfer(tx, accountNameSet));
+  console.log(`[TrueLayer] QUICK: ${allTx.length} raw → ${externalTx.length} after removing internal transfers`);
+
+  const latest = externalTx.slice(0, limit);
   const normalized = latest.map((tx) => normalizeTransaction(tx, userId));
 
   // Bulk insert (FAST) — relies on id being stable (tl_${transaction_id})
@@ -581,4 +651,5 @@ module.exports = {
   syncAccountsAndTransactions,
   quickSyncLatest,
   disconnectBank,
+  isPotOrSavingsAccount,
 };

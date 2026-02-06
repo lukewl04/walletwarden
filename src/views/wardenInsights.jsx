@@ -1,5 +1,5 @@
 // src/views/WardenInsights.jsx
-import React, { useMemo, useState, useEffect, useRef } from "react";
+import React, { useMemo, useState, useCallback } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import CsvPdfUpload from "../components/csv-pdf-upload.jsx";
 import Navbar from "../components/navbar.jsx";
@@ -11,6 +11,8 @@ import { getUserToken } from "../utils/userToken";
 import Donut from "../components/charts/Donut.jsx";
 import LineChart from "../components/charts/LineChart.jsx";
 import Bars from "../components/charts/Bars.jsx";
+
+import useTrueLayerBanking from "../hooks/useTrueLayerBanking.js";
 
 export default function WardenInsights() {
   const location = useLocation();
@@ -29,9 +31,24 @@ export default function WardenInsights() {
 
   const categories = TRANSACTION_CATEGORIES;
 
+  const API_URL = "http://localhost:4000/api";
+  const getAuthHeaders = useCallback(
+    () => ({ Authorization: `Bearer ${getUserToken()}` }),
+    []
+  );
+
+  // ── TrueLayer / banking hook ─────────────────────────────────────────
+  const banking = useTrueLayerBanking({
+    API_URL,
+    getAuthHeaders,
+    location,
+    navigate,
+    refreshTransactions,
+    debug: import.meta.env.DEV,
+  });
+
   // UI state
   const [editingCategoryId, setEditingCategoryId] = useState(null);
-  const [postConnectRunning, setPostConnectRunning] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [showQuickAddModal, setShowQuickAddModal] = useState(false);
   const [amount, setAmount] = useState("");
@@ -47,324 +64,28 @@ export default function WardenInsights() {
   const monthsBack = timeFilter === "cumulative" ? 12 : parseInt(timeFilter, 10);
   const [transactionFilter, setTransactionFilter] = useState(30);
 
-  // Bank state
-  const [bankStatus, setBankStatus] = useState(null); // null = unknown/loading
-  const bankStatusLoading = bankStatus === null;
+  // Running net effect of manual Quick Add transactions this session
+  const [manualBalanceDelta, setManualBalanceDelta] = useState(0);
 
-  const [bankLoading, setBankLoading] = useState(false);
-  const [bankSyncing, setBankSyncing] = useState(false);
-  const [lastSyncMessage, setLastSyncMessage] = useState("");
+  // ── balance derivation (view-level, includes manual delta) ───────────
 
-  // Balance state
-  const [displayBalance, setDisplayBalance] = useState(null);
-  const [bankBalance, setBankBalance] = useState(null);
+  // Effective balance includes manual Quick Add delta
+  const effectiveBalanceValue =
+    banking.baseBalanceValue !== null && Number.isFinite(banking.baseBalanceValue)
+      ? banking.baseBalanceValue + manualBalanceDelta
+      : banking.baseBalanceValue;
 
-  // Stored balance from Supabase (used when TrueLayer is disconnected)
-  const [storedBalance, setStoredBalance] = useState(null);
-  const [storedBalanceLoading, setStoredBalanceLoading] = useState(true);
-
-  const autoSyncHasRun = useRef(false);
-  const handledCallbackRef = useRef(false);
-
-  const API_URL = "http://localhost:4000/api";
-  const getAuthHeaders = () => ({ Authorization: `Bearer ${getUserToken()}` });
-
-  // Live balance loading flag
-  const [liveBalanceLoading, setLiveBalanceLoading] = useState(false);
-
-  // Fetch LIVE bank balance
-  const fetchBankBalance = async () => {
-    setLiveBalanceLoading(true);
-    try {
-      const res = await fetch(`${API_URL}/banks/truelayer/balance`, {
-        headers: getAuthHeaders(),
-        cache: "no-store",
-      });
-      if (!res.ok) return;
-
-      const data = await res.json();
-      const tb = data?.totalBalance;
-      if (typeof tb !== "number" || !Number.isFinite(tb)) return;
-
-      setDisplayBalance(data);
-      setBankBalance(data);
-    } catch (err) {
-      console.error("Failed to fetch bank balance:", err);
-    } finally {
-      setLiveBalanceLoading(false);
-    }
-  };
-
-  // Fetch stored balance from Supabase (used when TrueLayer is disconnected)
-  const fetchStoredBalance = async () => {
-    setStoredBalanceLoading(true);
-    try {
-      const res = await fetch(`${API_URL}/banks/truelayer/balance-cached`, {
-        headers: getAuthHeaders(),
-        cache: "no-store",
-      });
-      if (!res.ok) {
-        setStoredBalanceLoading(false);
-        return;
-      }
-
-      const data = await res.json();
-      const tb = data?.totalBalance;
-
-      if (typeof tb === "number" && Number.isFinite(tb)) {
-        setStoredBalance({
-          totalBalance: data.totalBalance,
-          availableBalance: data.availableBalance,
-          currency: data.currency,
-          lastSyncedAt: data.lastSyncedAt,
-        });
-      }
-    } catch (e) {
-      console.error("Failed to fetch stored balance:", e);
-    } finally {
-      setStoredBalanceLoading(false);
-    }
-  };
-
-
-
-  // Sync bank transactions
-  const handleSyncBank = async (silent = false, force = false) => {
-    if ((!bankStatus?.connected && !force) || bankSyncing) return;
-
-    setBankSyncing(true);
-    if (!silent) setLastSyncMessage("");
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 60000);
-
-    try {
-      const res = await fetch(`${API_URL}/banks/truelayer/sync`, {
-        method: "POST",
-        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        if (err.requiresReconnect || res.status === 401) {
-          setBankStatus({ connected: false });
-          if (!silent)
-            setLastSyncMessage("Bank connection expired. Please reconnect.");
-          return;
-        }
-        throw new Error(err.message || "Sync failed");
-      }
-
-      const result = await res.json();
-
-      if (result.inserted > 0) {
-        setLastSyncMessage(
-          `Synced ${result.accounts} account(s): ${result.inserted} new, ${
-            result.skipped || 0
-          } existing`
-        );
-      } else if (result.accounts > 0) {
-        setLastSyncMessage(
-          `Updated ${result.accounts} account balance(s). To sync new transactions, reconnect your bank.`
-        );
-      } else {
-        setLastSyncMessage("No updates available.");
-      }
-
-      await refreshTransactions();
-      await fetchBankBalance();
-    } catch (err) {
-      clearTimeout(timeoutId);
-      console.error("Sync error:", err);
-      if (err.name === "AbortError") {
-        if (!silent) setLastSyncMessage("Sync timed out. Try again later.");
-      } else {
-        if (!silent) setLastSyncMessage(`Sync failed: ${err.message}`);
-      }
-    } finally {
-      setBankSyncing(false);
-    }
-  };
-
-  // Mount: resolve bank connection + handle callback
-  useEffect(() => {
-    setBankLoading(false);
-    setBankStatus(null);
-
-    // start blank (prevents cached flash)
-    setDisplayBalance(null);
-    setBankBalance(null);
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
-
-    const checkBankStatus = async () => {
-      try {
-        const res = await fetch(`${API_URL}/banks/truelayer/status`, {
-          headers: getAuthHeaders(),
-          signal: controller.signal,
-        });
-
-        clearTimeout(timeoutId);
-
-        if (!res.ok) {
-          setBankStatus({ connected: false });
-          await fetchStoredBalance(); // Fetch stored balance from Supabase
-          return;
-        }
-
-        const data = await res.json();
-        const connected = !!data.connected;
-        setBankStatus({ connected });
-
-        if (connected) {
-          await fetchBankBalance(); // LIVE only
-        } else {
-          await fetchStoredBalance(); // Stored balance from Supabase
-        }
-      } catch (err) {
-        clearTimeout(timeoutId);
-        if (err.name !== "AbortError") console.error("status error:", err);
-
-        setBankStatus({ connected: false });
-        await fetchStoredBalance(); // Fetch stored balance from Supabase
-      }
-    };
-
-    // OAuth callback param handling
-    const params = new URLSearchParams(location.search);
-    if (import.meta.env.DEV) console.debug("[WardenInsights] callback params", location.search);
-    
-    if ((params.has("bankConnected") || params.has("syncing")) && !handledCallbackRef.current) {
-      handledCallbackRef.current = true;
-      
-      // Clean URL immediately using React Router (no reload)
-      navigate(location.pathname, { replace: true });
-      
-      (async () => {
-        setPostConnectRunning(true);
-        try {
-          autoSyncHasRun.current = true;
-
-          setBankStatus({ connected: true });
-          setLastSyncMessage("Bank connected! Getting balance…");
-
-          // live first (prevents cached flash)
-          await Promise.allSettled([fetchBankBalance(), refreshTransactions()]);
-
-          setLastSyncMessage("Bank connected ✅ Syncing in background…");
-
-          // background sync
-          handleSyncBank(true, true).catch((err) => {
-            console.error("Post-connect sync failed:", err);
-            setLastSyncMessage(
-              "Bank connected ✅ (background sync failed — hit 🔄 to retry)"
-            );
-          });
-        } finally {
-          setPostConnectRunning(false);
-        }
-      })();
-
-      return () => {
-        clearTimeout(timeoutId);
-        controller.abort();
-      };
-    }
-
-    // normal load
-    checkBankStatus();
-
-    return () => {
-      clearTimeout(timeoutId);
-      controller.abort();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Auto-sync when bank is connected (runs once)
-  useEffect(() => {
-    if (bankStatus?.connected && !bankStatusLoading && !autoSyncHasRun.current) {
-      autoSyncHasRun.current = true;
-      handleSyncBank(true);
-    }
-  }, [bankStatus?.connected, bankStatusLoading]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const handleConnectBank = async () => {
-    setBankLoading(true);
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000);
-
-    try {
-      const res = await fetch(`${API_URL}/banks/truelayer/connect`, {
-        headers: getAuthHeaders(),
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
-
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
-        throw new Error(errorData.message || `Server error: ${res.status}`);
-      }
-
-      const data = await res.json();
-      if (!data.url) throw new Error("No redirect URL received from server");
-
-      window.location.href = data.url;
-    } catch (err) {
-      clearTimeout(timeoutId);
-      console.error("Connect bank error:", err);
-
-      if (err.name === "AbortError") {
-        alert(
-          "Connection timed out. Please check your internet connection and try again."
-        );
-      } else {
-        alert(err.message || "Failed to connect bank. Please try again.");
-      }
-      setBankLoading(false);
-    }
-  };
-
-  const isBankConnected = bankStatus?.connected === true;
-  const isBankDisconnected = bankStatus?.connected === false;
-
-  const hasLiveBankNumber = Number.isFinite(displayBalance?.totalBalance);
-  const hasStoredBalance = Number.isFinite(storedBalance?.totalBalance);
-
-  // Loading state - stop loading once we've checked for stored balance (even if none found)
-  const balanceIsLoading =
-    bankStatusLoading ||
-    (isBankConnected && (liveBalanceLoading || !hasLiveBankNumber)) ||
-    (isBankDisconnected && storedBalanceLoading);
-
-  // Use live balance if connected, otherwise use stored balance from Supabase
-  const balanceValue =
-    hasLiveBankNumber
-      ? displayBalance?.totalBalance
-      : hasStoredBalance
-      ? storedBalance.totalBalance
-      : null;
-
-  // Check if we have no balance data at all (disconnected and no stored balance)
-  const noBalanceAvailable = isBankDisconnected && !storedBalanceLoading && !hasStoredBalance;
-
-  const isNegative = !balanceIsLoading && Number(balanceValue ?? 0) < 0;
+  const isNegative =
+    !banking.balanceIsLoading && Number(effectiveBalanceValue ?? 0) < 0;
 
   const formattedBalance = useMemo(() => {
-    if (balanceIsLoading) return "Loading…";
-    if (noBalanceAvailable) return "—";
-    if (balanceValue === null) return "—";
-    const b = Number(balanceValue ?? 0);
+    if (banking.balanceIsLoading) return "Loading…";
+    if (banking.noBalanceAvailable) return "—";
+    if (effectiveBalanceValue === null) return "—";
+    const b = Number(effectiveBalanceValue ?? 0);
     const sign = b < 0 ? "-" : "";
     return `${sign}£${Math.abs(b).toFixed(2)}`;
-  }, [balanceIsLoading, balanceValue, noBalanceAvailable]);
+  }, [banking.balanceIsLoading, effectiveBalanceValue, banking.noBalanceAvailable]);
 
   const handleAddTransaction = (type) => {
     const value = Number(amount);
@@ -383,6 +104,11 @@ export default function WardenInsights() {
       category: category || "Other",
       description: description || "",
     });
+
+    // Immediately adjust displayed balance
+    setManualBalanceDelta((prev) =>
+      normalizedType === "income" ? prev + value : prev - value
+    );
 
     setAmount("");
     setCategory("Other");
@@ -418,12 +144,12 @@ export default function WardenInsights() {
 
   // When bank is connected, only use bank transactions for charts (to avoid double-counting old CSV imports)
   const chartTransactions = useMemo(() => {
-    if (isBankConnected && parsed.length > 0) {
+    if (banking.isBankConnected && parsed.length > 0) {
       const bankTxs = parsed.filter((t) => t.source === "bank");
       return bankTxs.length > 0 ? bankTxs : parsed;
     }
     return parsed;
-  }, [parsed, isBankConnected]);
+  }, [parsed, banking.isBankConnected]);
 
   const recentSorted = useMemo(() => {
     return [...parsed].sort((a, b) => {
@@ -449,14 +175,19 @@ export default function WardenInsights() {
   }, [recentSorted, transactionFilter]);
 
   const totals = useMemo(() => {
+    // Respect the same time window used by the line chart
+    const now = new Date();
+    const cutoff = new Date(now.getFullYear(), now.getMonth() - monthsBack, 1);
+
     let income = 0;
     let expense = 0;
     chartTransactions.forEach((t) => {
+      if (t.date < cutoff) return;           // outside selected window
       if (t.type === "income") income += t.amount;
       else expense += t.amount;
     });
     return { income, expense };
-  }, [chartTransactions]);
+  }, [chartTransactions, monthsBack]);
 
   const monthly = useMemo(() => {
     const now = new Date();
@@ -497,6 +228,9 @@ export default function WardenInsights() {
   }, [chartTransactions, monthsBack, showCumulative]);
 
   const topExpenses = useMemo(() => {
+    const now = new Date();
+    const cutoff = new Date(now.getFullYear(), now.getMonth() - monthsBack, 1);
+
     const buckets = [
       {
         key: "Food",
@@ -524,6 +258,7 @@ export default function WardenInsights() {
     const map = {};
     chartTransactions.forEach((t) => {
       if (t.type !== "expense") return;
+      if (t.date < cutoff) return;           // outside selected window
 
       let key = null;
 
@@ -547,12 +282,16 @@ export default function WardenInsights() {
       .map(([category, amount]) => ({ category, amount }))
       .sort((a, b) => b.amount - a.amount)
       .slice(0, 6);
-  }, [chartTransactions]);
+  }, [chartTransactions, monthsBack]);
 
   const topMerchants = useMemo(() => {
+    const now = new Date();
+    const cutoff = new Date(now.getFullYear(), now.getMonth() - monthsBack, 1);
+
     const map = {};
     chartTransactions.forEach((t) => {
       if (t.type !== "expense" || !t.description) return;
+      if (t.date < cutoff) return;           // outside selected window
       const vendor = t.description
         .split(/[\s-]/)
         .slice(0, 2)
@@ -565,7 +304,7 @@ export default function WardenInsights() {
       .map(([vendor, amount]) => ({ vendor, amount }))
       .sort((a, b) => b.amount - a.amount)
       .slice(0, 8);
-  }, [chartTransactions]);
+  }, [chartTransactions, monthsBack]);
 
   const spendingForecast = useMemo(() => {
     if (monthly.length === 0) return null;
@@ -666,15 +405,15 @@ export default function WardenInsights() {
             </div>
 
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              {bankStatus?.connected && (
+              {banking.bankStatus?.connected && (
                 <button
                   className="btn btn-sm btn-outline-secondary"
-                  onClick={() => handleSyncBank(false)}
-                  disabled={bankSyncing}
+                  onClick={() => banking.handleSyncBank(false)}
+                  disabled={banking.bankSyncing}
                   title="Refresh bank transactions"
                   style={{ fontSize: "1.1rem", padding: "0.25rem 0.5rem" }}
                 >
-                  {bankSyncing ? (
+                  {banking.bankSyncing ? (
                     <span
                       className="spinner-border spinner-border-sm"
                       role="status"
@@ -715,17 +454,17 @@ export default function WardenInsights() {
             </div>
           </div>
 
-          {(bankSyncing || lastSyncMessage) && (
+          {(banking.bankSyncing || banking.lastSyncMessage) && (
             <div
               className={`alert ${
-                lastSyncMessage.includes("failed") ||
-                lastSyncMessage.includes("expired")
+                banking.lastSyncMessage.includes("failed") ||
+                banking.lastSyncMessage.includes("expired")
                   ? "alert-warning"
                   : "alert-info"
               } py-2 mb-3`}
             >
               <small>
-                {bankSyncing ? (
+                {banking.bankSyncing ? (
                   <>
                     <span
                       className="spinner-border spinner-border-sm me-2"
@@ -735,7 +474,7 @@ export default function WardenInsights() {
                     Syncing bank transactions...
                   </>
                 ) : (
-                  lastSyncMessage
+                  banking.lastSyncMessage
                 )}
               </small>
             </div>
@@ -747,13 +486,13 @@ export default function WardenInsights() {
               <div className="d-flex align-items-center justify-content-between gap-3">
                 <div>
                   <div className="text-muted small">
-                    {isBankConnected
+                    {banking.isBankConnected
                       ? "Bank Balance"
-                      : hasStoredBalance
+                      : banking.hasStoredBalance
                       ? "Last Synced Balance"
                       : "Balance"}
 
-                    {isBankConnected && hasLiveBankNumber && !balanceIsLoading && (
+                    {banking.isBankConnected && banking.hasLiveBankNumber && !banking.balanceIsLoading && (
                       <span
                         className="badge bg-info ms-2"
                         style={{ fontSize: "0.65rem" }}
@@ -762,7 +501,7 @@ export default function WardenInsights() {
                       </span>
                     )}
 
-                    {!isBankConnected && hasStoredBalance && (
+                    {!banking.isBankConnected && banking.hasStoredBalance && (
                       <span
                         className="badge bg-secondary ms-2"
                         style={{ fontSize: "0.65rem" }}
@@ -770,11 +509,20 @@ export default function WardenInsights() {
                         Stored
                       </span>
                     )}
+
+                    {manualBalanceDelta !== 0 && (
+                      <span
+                        className="badge bg-warning text-dark ms-2"
+                        style={{ fontSize: "0.65rem" }}
+                      >
+                        Adjusted
+                      </span>
+                    )}
                   </div>
 
                   <div
                     className={`display-6 mb-0 ${
-                      balanceIsLoading || noBalanceAvailable
+                      banking.balanceIsLoading || banking.noBalanceAvailable
                         ? "text-muted"
                         : isNegative
                         ? "text-danger"
@@ -784,37 +532,37 @@ export default function WardenInsights() {
                     {formattedBalance}
                   </div>
 
-                  {noBalanceAvailable && (
+                  {banking.noBalanceAvailable && (
                     <div className="text-muted small mt-1">
                       Connect your bank to see your balance
                     </div>
                   )}
 
-                  {isBankConnected &&
-                    !balanceIsLoading &&
-                    Number.isFinite(bankBalance?.availableBalance) &&
-                    Number.isFinite(bankBalance?.totalBalance) &&
+                  {banking.isBankConnected &&
+                    !banking.balanceIsLoading &&
+                    Number.isFinite(banking.bankBalance?.availableBalance) &&
+                    Number.isFinite(banking.bankBalance?.totalBalance) &&
                     Math.abs(
-                      bankBalance.availableBalance - bankBalance.totalBalance
+                      banking.bankBalance.availableBalance - banking.bankBalance.totalBalance
                     ) > 0.01 && (
                       <div className="text-muted small mt-1">
-                        Available: £{bankBalance.availableBalance.toFixed(2)}
+                        Available: £{banking.bankBalance.availableBalance.toFixed(2)}
                       </div>
                     )}
                 </div>
 
                 <span
                   className={`badge rounded-pill ${
-                    balanceIsLoading || noBalanceAvailable
+                    banking.balanceIsLoading || banking.noBalanceAvailable
                       ? "text-bg-secondary"
                       : isNegative
                       ? "text-bg-danger"
                       : "text-bg-success"
                   }`}
                 >
-                  {balanceIsLoading
+                  {banking.balanceIsLoading
                     ? "Loading…"
-                    : noBalanceAvailable
+                    : banking.noBalanceAvailable
                     ? "No data"
                     : isNegative
                     ? "Over budget"
@@ -838,7 +586,7 @@ export default function WardenInsights() {
           </div>
 
           {/* Import / Bank connect - Only show if bank is NOT connected */}
-          {!bankStatus?.connected && (
+          {!banking.bankStatus?.connected && (
             <div className="card shadow-sm mb-3">
               <div className="card-body py-2 px-3">
                 <h2 className="h6 mb-1" style={{ fontSize: '0.9rem' }}>Import Transactions</h2>
@@ -855,7 +603,7 @@ export default function WardenInsights() {
                     📄 CSV/PDF
                   </button>
 
-                  {bankStatusLoading ? (
+                  {banking.bankStatusLoading ? (
                     <button
                       className="segmented-control__segment segmented-control__segment--active flex-fill"
                       style={{ borderRadius: '20px', padding: '6px 12px', fontSize: '0.8rem' }}
@@ -873,10 +621,10 @@ export default function WardenInsights() {
                     <button
                       className="segmented-control__segment segmented-control__segment--active flex-fill"
                       style={{ borderRadius: '20px', padding: '6px 12px', fontSize: '0.8rem' }}
-                      onClick={handleConnectBank}
-                      disabled={bankLoading}
+                      onClick={banking.handleConnectBank}
+                      disabled={banking.bankLoading}
                     >
-                      {bankLoading ? (
+                      {banking.bankLoading ? (
                         <>
                           <span
                             className="spinner-border spinner-border-sm me-1"

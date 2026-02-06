@@ -60,9 +60,9 @@ router.get("/connect", requireConfig, (req, res) => {
  * Flow:
  * 1) Exchange code -> tokens
  * 2) Store tokens
- * 3) QUICK sync (balances + latest 30) so UI feels instant
- * 4) Redirect user back to frontend
- * 5) Full sync runs in background (don’t await)
+ * 3) Redirect user back to frontend IMMEDIATELY
+ * 4) Quick sync + full sync run entirely in background
+ * 5) Frontend polls /balance + /transactions in real-time
  */
 router.get("/callback", requireConfig, async (req, res) => {
   try {
@@ -107,23 +107,21 @@ router.get("/callback", requireConfig, async (req, res) => {
     // Store connection tokens (encrypted refresh token etc.)
     await service.storeConnection(prisma, userId, tokenResponse);
 
-    // Quick sync so cached DB has balance + latest 30 before redirect
-    try {
-      console.log("[TrueLayer] Quick sync (latest 30) starting...");
-      await service.quickSyncLatest(prisma, userId, { limit: 30, daysBack: 60 });
-      console.log("[TrueLayer] Quick sync complete.");
-    } catch (e) {
-      console.error("[TrueLayer] Quick sync failed:", e);
-      // still redirect; user can retry via 🔄
-    }
-
-    // Redirect immediately so the browser doesn't sit on /callback
+    // Redirect IMMEDIATELY — syncs run in the background;
+    // the frontend polls for results in real-time.
     res.redirect(`${config.FRONTEND_URL}/wardeninsights?bankConnected=1&syncing=1`);
 
-    // Full sync in background (don’t await)
+    // Background: quick sync (balance + recent txns) then full history
     (async () => {
-      console.log("[TrueLayer] Background full sync starting...");
       try {
+        console.log("[TrueLayer] Background quick sync starting...");
+        await service.quickSyncLatest(prisma, userId, { limit: 30, daysBack: 60 });
+        console.log("[TrueLayer] Background quick sync complete.");
+      } catch (e) {
+        console.error("[TrueLayer] Background quick sync failed:", e);
+      }
+      try {
+        console.log("[TrueLayer] Background full sync starting...");
         const syncResult = await service.syncAccountsAndTransactions(prisma, userId, {});
         console.log(
           `[TrueLayer] Background full sync complete: ${syncResult.inserted} transactions`

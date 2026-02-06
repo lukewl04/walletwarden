@@ -53,8 +53,9 @@ export function normalizeTransaction(t) {
   const category = t.category || t.type || 'Other';
   const description = (t.description || '').toString().trim();
   const id = (t.id !== undefined && t.id !== null) ? String(t.id) : generateId();
+  const source = t.source || 'manual';
 
-  return { id, type, amount, date, category, description };
+  return { id, type, amount, date, category, description, source };
 }
 
 export function validateTransaction(t) {
