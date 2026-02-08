@@ -1,5 +1,26 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Link } from "react-router-dom";
+import SplitEditorModal from "./SplitEditorModal";
+
+// Pencil/Edit icon for Split Editor button
+const EditIcon = () => (
+  <svg
+    width="14"
+    height="14"
+    viewBox="0 0 14 14"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    style={{ marginRight: '4px' }}
+  >
+    <path
+      d="M10.5 1.5L12.5 3.5L4 12H2V10L10.5 1.5Z"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
 
 // Chevron SVG icon
 const ChevronDown = ({ isOpen }) => (
@@ -116,11 +137,14 @@ export default function TrackerHeader({
   savedSplits,
   selectedSplit,
   setSelectedSplit,
+  onUpdateSplit,
+  onDeleteSplit,
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [hoveredItem, setHoveredItem] = useState(null);
   const [isHovered, setIsHovered] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
+  const [showSplitEditor, setShowSplitEditor] = useState(false);
   const containerRef = useRef(null);
   const triggerRef = useRef(null);
 
@@ -246,11 +270,44 @@ export default function TrackerHeader({
           >
             Split Maker
           </Link>
+
+          {/* Split Editor button - only show when a split is selected */}
+          {selectedSplitData && (
+            <button
+              className="segmented-control__segment segmented-control__segment--active"
+              onClick={() => setShowSplitEditor(true)}
+              style={{ 
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <EditIcon />
+              Split Editor
+            </button>
+          )}
+
           <h1 className="h4 mb-0 ms-auto">
             Warden <span className="text-primary">Tracker</span>
           </h1>
         </div>
       )}
+
+      {/* Split Editor Modal */}
+      <SplitEditorModal
+        isOpen={showSplitEditor}
+        onClose={() => setShowSplitEditor(false)}
+        split={selectedSplitData}
+        allSplits={savedSplits}
+        onSave={(updatedSplit) => {
+          onUpdateSplit?.(updatedSplit);
+          setShowSplitEditor(false);
+        }}
+        onDelete={(splitId) => {
+          onDeleteSplit?.(splitId);
+          setShowSplitEditor(false);
+        }}
+      />
     </div>
   );
 }

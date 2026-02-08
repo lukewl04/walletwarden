@@ -436,6 +436,83 @@ export default function Tracker() {
     loadDataFromBackend();
   }, []);
 
+  // Handler to update a split (name and categories)
+  const handleUpdateSplit = useCallback(async (updatedSplit) => {
+    if (!updatedSplit?.id) return;
+    
+    try {
+      // Update in backend
+      const response = await fetch(`${API_URL}/splits`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify({
+          id: updatedSplit.id,
+          name: updatedSplit.name,
+          frequency: updatedSplit.frequency || "custom",
+          categories: updatedSplit.categories,
+        }),
+      });
+
+      if (response.ok) {
+        // Update local state
+        setSavedSplits((prev) =>
+          prev.map((s) => (s.id === updatedSplit.id ? updatedSplit : s))
+        );
+        // Update localStorage
+        const current = JSON.parse(localStorage.getItem("walletwardenSplits") || "[]");
+        const updated = current.map((s) => (s.id === updatedSplit.id ? updatedSplit : s));
+        localStorage.setItem("walletwardenSplits", JSON.stringify(updated));
+        console.log("[Tracker] Split updated:", updatedSplit.name);
+      } else {
+        console.error("[Tracker] Failed to update split:", response.status);
+      }
+    } catch (err) {
+      console.error("[Tracker] Error updating split:", err);
+    }
+  }, []);
+
+  // Handler to delete a split
+  const handleDeleteSplit = useCallback(async (splitId) => {
+    if (!splitId) return;
+    
+    // Prevent deleting the only split
+    if (savedSplits.length <= 1) {
+      console.warn("[Tracker] Cannot delete the only split");
+      return;
+    }
+
+    try {
+      // Delete from backend
+      const response = await fetch(`${API_URL}/splits/${encodeURIComponent(splitId)}`, {
+        method: "DELETE",
+        headers: getAuthHeaders(),
+      });
+
+      if (response.ok) {
+        // Find a new split to select
+        const remainingSplits = savedSplits.filter((s) => s.id !== splitId);
+        const newSelectedId = remainingSplits.length > 0 ? remainingSplits[0].id : null;
+
+        // Update local state
+        setSavedSplits(remainingSplits);
+        if (newSelectedId) {
+          setSelectedSplit(newSelectedId);
+          localStorage.setItem("walletwardenSelectedSplit", newSelectedId);
+        }
+
+        // Update localStorage
+        localStorage.setItem("walletwardenSplits", JSON.stringify(remainingSplits));
+        console.log("[Tracker] Split deleted, switched to:", newSelectedId);
+      } else {
+        console.error("[Tracker] Failed to delete split:", response.status);
+      }
+    } catch (err) {
+      console.error("[Tracker] Error deleting split:", err);
+    }
+  }, [savedSplits]);
 
 
   // Normalize transactions (Warden Insights) - with stable reference
@@ -1363,6 +1440,8 @@ export default function Tracker() {
         savedSplits={savedSplits}
         selectedSplit={selectedSplit}
         setSelectedSplit={setSelectedSplit}
+        onUpdateSplit={handleUpdateSplit}
+        onDeleteSplit={handleDeleteSplit}
       />
 
       {selectedSplit && (
