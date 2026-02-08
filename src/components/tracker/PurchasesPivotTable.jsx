@@ -33,7 +33,7 @@ const TableRow = React.memo(function TableRow({
                 type="button"
                 className="tracker-cell-btn"
                 onMouseEnter={(e) => handleCellHover(e, row, cat, value, count)}
-                onMouseLeave={handleCellLeave}
+                onMouseLeave={(e) => handleCellLeave(e)}
               >
                 <div className="fw-bold">{formatMoney(value)}</div>
                 <div className="text-body-secondary" style={{ fontSize: "0.75rem" }}>
@@ -123,13 +123,27 @@ function PurchasesPivotTable({
   const [hoverTip, setHoverTip] = useState(null);
   const tooltipCloseTimeoutRef = useRef(null);
   const hoverTimeoutRef = useRef(null);
+  const tooltipRef = useRef(null);
+  const isMouseOverTooltipRef = useRef(false);
+  const currentCellRef = useRef(null); // Track which cell triggered the tooltip
 
-  // Open hover tooltip with position calculation
-  const openHoverTip = useCallback((evt, title, items, pinned = false) => {
+  // Open hover tooltip with position calculation (only repositions on new cell)
+  const openHoverTip = useCallback((evt, title, items, pinned = false, cellKey = null) => {
     // Clear any pending close timeout
     if (tooltipCloseTimeoutRef.current) {
       clearTimeout(tooltipCloseTimeoutRef.current);
       tooltipCloseTimeoutRef.current = null;
+    }
+
+    // If just pinning an existing tooltip (same cell), don't recalculate position
+    if (pinned && hoverTip && cellKey && cellKey === currentCellRef.current) {
+      setHoverTip((prev) => prev ? { ...prev, pinned: true } : null);
+      return;
+    }
+
+    // Track which cell this tooltip is for
+    if (cellKey) {
+      currentCellRef.current = cellKey;
     }
 
     const padding = 12;
@@ -155,27 +169,55 @@ function PurchasesPivotTable({
     y = Math.max(padding, y);
     
     setHoverTip({ x, y, title, items, pinned });
-  }, []);
+  }, [hoverTip]);
 
   const closeHoverTip = useCallback(() => {
     if (tooltipCloseTimeoutRef.current) {
       clearTimeout(tooltipCloseTimeoutRef.current);
       tooltipCloseTimeoutRef.current = null;
     }
+    currentCellRef.current = null;
+    isMouseOverTooltipRef.current = false;
     setHoverTip(null);
   }, []);
 
-  const scheduleCloseHoverTip = useCallback((delay = 100) => {
+  const scheduleCloseHoverTip = useCallback((delay = 200) => {
     if (tooltipCloseTimeoutRef.current) {
       clearTimeout(tooltipCloseTimeoutRef.current);
     }
     tooltipCloseTimeoutRef.current = setTimeout(() => {
+      // Don't close if mouse is over the tooltip
+      if (isMouseOverTooltipRef.current) return;
       setHoverTip((prev) => {
         if (!prev || prev.pinned) return prev;
         return null;
       });
     }, delay);
   }, []);
+
+  // Cancel close when entering tooltip
+  const handleTooltipMouseEnter = useCallback(() => {
+    isMouseOverTooltipRef.current = true;
+    if (tooltipCloseTimeoutRef.current) {
+      clearTimeout(tooltipCloseTimeoutRef.current);
+      tooltipCloseTimeoutRef.current = null;
+    }
+    // Pin the tooltip so it stays open
+    setHoverTip((prev) => prev ? { ...prev, pinned: true } : null);
+  }, []);
+
+  // Schedule close when leaving tooltip
+  const handleTooltipMouseLeave = useCallback((e) => {
+    isMouseOverTooltipRef.current = false;
+    // Check if we're moving back to a table cell (part of hover zone)
+    const relatedTarget = e.relatedTarget;
+    const isMovingToCell = relatedTarget?.closest?.('.pivot-body td');
+    if (isMovingToCell) {
+      // Don't close immediately, let the cell hover handler decide
+      return;
+    }
+    scheduleCloseHoverTip(200);
+  }, [scheduleCloseHoverTip]);
 
   // Close on outside click ONLY if pinned
   useEffect(() => {
@@ -204,9 +246,27 @@ function PurchasesPivotTable({
   }, []);
   
   const handleCellHover = useCallback((e, row, cat, value, count) => {
+    // Generate a unique key for this cell
+    const cellKey = `${row.key}-${cat}`;
+    
+    // If we're already showing a tooltip for this cell, just cancel any close timeout
+    if (currentCellRef.current === cellKey && hoverTip) {
+      if (tooltipCloseTimeoutRef.current) {
+        clearTimeout(tooltipCloseTimeoutRef.current);
+        tooltipCloseTimeoutRef.current = null;
+      }
+      return;
+    }
+    
     // Clear any existing hover timeout
     if (hoverTimeoutRef.current) {
       clearTimeout(hoverTimeoutRef.current);
+    }
+    
+    // Clear any pending close timeout
+    if (tooltipCloseTimeoutRef.current) {
+      clearTimeout(tooltipCloseTimeoutRef.current);
+      tooltipCloseTimeoutRef.current = null;
     }
     
     // Small delay to prevent tooltip on quick mouse movements
@@ -216,17 +276,34 @@ function PurchasesPivotTable({
         e,
         `${row.label} • ${cat} • ${money(value)} (${count} item${count === 1 ? "" : "s"})`,
         items,
-        false
+        false,
+        cellKey
       );
     }, 50);
-  }, [getCellItems, money, openHoverTip]);
+  }, [getCellItems, money, openHoverTip, hoverTip]);
   
-  const handleCellLeave = useCallback(() => {
+  const handleCellLeave = useCallback((e) => {
     // Clear hover timeout if mouse leaves before delay completes
     if (hoverTimeoutRef.current) {
       clearTimeout(hoverTimeoutRef.current);
     }
-    scheduleCloseHoverTip(100);
+    
+    // Check if we're moving to the tooltip itself
+    const relatedTarget = e.relatedTarget;
+    const tooltipEl = tooltipRef.current;
+    if (tooltipEl && (relatedTarget === tooltipEl || tooltipEl.contains(relatedTarget))) {
+      // Moving to tooltip, don't close
+      return;
+    }
+    
+    // Also check if moving to another cell
+    const isMovingToAnotherCell = relatedTarget?.closest?.('.pivot-body td');
+    if (isMovingToAnotherCell) {
+      // Let the new cell's hover handler take over
+      return;
+    }
+    
+    scheduleCloseHoverTip(200);
   }, [scheduleCloseHoverTip]);
   
   // Use deferred value for smoother UI - data can lag behind while UI stays responsive
@@ -417,25 +494,13 @@ function PurchasesPivotTable({
               </div>
                 {hoverTip && (
                   <div
+                    ref={tooltipRef}
                     className="tracker-hover-tip shadow"
                     style={{ left: hoverTip.x, top: hoverTip.y }}
                     role="dialog"
                     aria-label="Purchase details"
-                    onMouseEnter={() => {
-                      // Pin tooltip when hovering over it
-                      if (hoverTip && !hoverTip.pinned) {
-                        openHoverTip(
-                          { clientX: hoverTip.x, clientY: hoverTip.y },
-                          hoverTip.title,
-                          hoverTip.items,
-                          true
-                        );
-                      }
-                    }}
-                    onMouseLeave={() => {
-                      // Schedule close with delay
-                      scheduleCloseHoverTip(150);
-                    }}
+                    onMouseEnter={handleTooltipMouseEnter}
+                    onMouseLeave={handleTooltipMouseLeave}
                     onMouseDown={(e) => e.stopPropagation()}
                   >
                     <div className="tracker-hover-header">
