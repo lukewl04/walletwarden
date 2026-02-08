@@ -114,6 +114,10 @@ function PurchasesPivotTable({
   formatMoney,
   money,
   getViewTotal,
+  handleUpdatePurchaseCategory,
+  editingPurchaseId,
+  setEditingPurchaseId,
+  allCategoryNames,
 }) {
   // ===== Hover tooltip state (isolated to prevent parent re-renders) =====
   const [hoverTip, setHoverTip] = useState(null);
@@ -465,11 +469,42 @@ function PurchasesPivotTable({
                     {hoverTip.items?.length ? (
                       <div className="tracker-hover-list">
                         {hoverTip.items.map((it) => (
-                          <div key={it.id} className="tracker-hover-row">
-                            <div className="tracker-hover-desc" title={it.description}>
+                          <div key={it.id} className="tracker-hover-row" style={{ alignItems: "center" }}>
+                            <div className="tracker-hover-desc" title={it.description} style={{ flex: 1, minWidth: 0 }}>
                               {it.description}
                             </div>
-                            <div className="tracker-hover-amt">{money(it.amount)}</div>
+                            <div style={{ display: "flex", alignItems: "center", gap: "6px", flexShrink: 0 }}>
+                              {editingPurchaseId === it.id ? (
+                                <select
+                                  className="form-select form-select-sm"
+                                  style={{ width: "120px", fontSize: "0.75rem", padding: "2px 4px" }}
+                                  value={it.category || "Other"}
+                                  onChange={(e) => {
+                                    e.stopPropagation();
+                                    handleUpdatePurchaseCategory(it.id, e.target.value);
+                                  }}
+                                  onBlur={() => setTimeout(() => setEditingPurchaseId(null), 150)}
+                                  onMouseDown={(e) => e.stopPropagation()}
+                                  autoFocus
+                                >
+                                  {(allCategoryNames || splitCategoryNames || []).map((cat) => (
+                                    <option key={cat} value={cat}>{cat}</option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <button
+                                  type="button"
+                                  className="badge text-bg-secondary"
+                                  style={{ fontSize: "0.7rem", border: "none", cursor: "pointer", padding: "3px 6px", whiteSpace: "nowrap" }}
+                                  onClick={(e) => { e.stopPropagation(); setEditingPurchaseId(it.id); }}
+                                  onMouseDown={(e) => e.stopPropagation()}
+                                  title="Click to change category"
+                                >
+                                  {it.category || "Other"}
+                                </button>
+                              )}
+                              <div className="tracker-hover-amt">{money(it.amount)}</div>
+                            </div>
                           </div>
                         ))}
                       </div>

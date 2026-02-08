@@ -1094,7 +1094,7 @@ export default function WardenInsights() {
                                   setEditingCategoryId(null);
                                 }}
                                 autoFocus
-                                onBlur={() => setEditingCategoryId(null)}
+                                onBlur={() => setTimeout(() => setEditingCategoryId(null), 150)}
                               >
                                 {categories.map((cat) => (
                                   <option key={cat} value={cat}>

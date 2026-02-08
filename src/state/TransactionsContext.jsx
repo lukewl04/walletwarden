@@ -171,9 +171,9 @@ export function TransactionsProvider({ children }) {
     try {
       const token = await getToken();
       const res = await fetch(`${API_BASE}/transactions/${encodeURIComponent(id)}`, {
-        method: 'PUT',
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ ...updates, id }),
+        body: JSON.stringify(updates),
       });
       
       if (res.ok) {

@@ -6,6 +6,7 @@ import CsvPdfUpload from "../components/csv-pdf-upload.jsx";
 import { useTransactions } from "../state/TransactionsContext";
 import { generateId } from "../models/transaction";
 import { getUserToken } from "../utils/userToken";
+import { suggestCategory } from "../utils/categories";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import "./tracker.css";
 
@@ -76,7 +77,7 @@ const sanitizeIncome = (entry) => {
 };
 
 export default function Tracker() {
-  const { addTransaction, bulkAddTransactions, transactions: globalTransactions = [] } =
+  const { addTransaction, bulkAddTransactions, updateTransaction, transactions: globalTransactions = [] } =
     useTransactions?.() ?? {};
 
   const location = useLocation();
@@ -864,24 +865,40 @@ export default function Tracker() {
     const purchase = purchases.find((p) => p.id === purchaseId);
     if (purchase?.description) upsertCategoryRule(purchase.description, newCategory);
 
+    // Also update the linked global transaction so Warden Insights stays in sync
+    if (purchase?.transaction_id && typeof updateTransaction === "function") {
+      updateTransaction(purchase.transaction_id, { category: newCategory });
+    }
+
     setEditingPurchaseId(null);
   };
 
-  // Category matching - uses Insights category if it matches a split category
+  // Category matching – unified across the app via suggestCategory.
+  // Priority: 1) user-defined rules  2) imported category if it matches a split category
+  //           3) suggestCategory keyword match against split categories  4) first split cat
   const matchCategory = useCallback((importedCat, description = "") => {
-    // First check for user-defined category rules (highest priority)
+    // 1. User-defined description rules (highest priority)
     const ruleHit = categoryRules[normalizeDescriptionKey(description)];
     if (ruleHit) return ruleHit;
 
-    // Use the category from Insights if it matches a split category (case-insensitive)
+    const splitCats = selectedSplitData?.categories || [];
+
+    // 2. Imported category matches a split category (case-insensitive)
     if (importedCat) {
       const importedLower = importedCat.toLowerCase();
-      const exactMatch = selectedSplitData?.categories.find((c) => c.name.toLowerCase() === importedLower);
+      const exactMatch = splitCats.find((c) => c.name.toLowerCase() === importedLower);
       if (exactMatch) return exactMatch.name;
     }
 
-    // Fallback: use the first split category as default
-    return selectedSplitData?.categories[0]?.name || "Other";
+    // 3. Run the global keyword matcher and check if that category exists in the split
+    const suggested = suggestCategory(description);
+    if (suggested !== "Other") {
+      const suggestedMatch = splitCats.find((c) => c.name.toLowerCase() === suggested.toLowerCase());
+      if (suggestedMatch) return suggestedMatch.name;
+    }
+
+    // 4. Fallback: first split category
+    return splitCats[0]?.name || "Other";
   }, [categoryRules, selectedSplitData]);
 
   // Bulk add via upload
@@ -983,21 +1000,30 @@ export default function Tracker() {
       uniqueUnlinkedIncome.push(tx);
     }
 
-    // Use category from Insights if it matches a split category, otherwise fallback to matching
+    // Use category from Insights if it matches a split category, otherwise keyword-match
     const getCategoryForSplit = (importedCat, description = "") => {
-      // First check for user-defined category rules (highest priority)
+      // 1. User-defined description rules (highest priority)
       const ruleHit = categoryRules[normalizeDescriptionKey(description)];
       if (ruleHit) return ruleHit;
 
-      // Use the category from Insights if it matches a split category (case-insensitive)
+      const splitCats = splitData?.categories || [];
+
+      // 2. Imported category matches a split category (case-insensitive)
       if (importedCat) {
         const importedLower = importedCat.toLowerCase();
-        const exactMatch = splitData?.categories.find((c) => c.name.toLowerCase() === importedLower);
+        const exactMatch = splitCats.find((c) => c.name.toLowerCase() === importedLower);
         if (exactMatch) return exactMatch.name;
       }
 
-      // Fallback: use the first split category as default
-      return splitData?.categories[0]?.name || "Other";
+      // 3. Run global keyword matcher and see if it matches a split category
+      const suggested = suggestCategory(description);
+      if (suggested !== "Other") {
+        const suggestedMatch = splitCats.find((c) => c.name.toLowerCase() === suggested.toLowerCase());
+        if (suggestedMatch) return suggestedMatch.name;
+      }
+
+      // 4. Fallback: first split category
+      return splitCats[0]?.name || "Other";
     };
 
     const newPurchases = uniqueUnlinked.map((t) => {
@@ -1154,6 +1180,8 @@ export default function Tracker() {
           id: p.id,
           description: p.description || "–",
           amount: Number(p.amount) || 0,
+          category: p.category || "Other",
+          transaction_id: p.transaction_id || null,
         }));
 
       // Cache the result (limit cache size to prevent memory issues)
@@ -1406,6 +1434,10 @@ export default function Tracker() {
                 formatMoney={formatMoney}
                 money={money}
                 getViewTotal={getViewTotal}
+                handleUpdatePurchaseCategory={handleUpdatePurchaseCategory}
+                editingPurchaseId={editingPurchaseId}
+                setEditingPurchaseId={setEditingPurchaseId}
+                allCategoryNames={splitCategoryNames}
               />
             </div>
           </div>

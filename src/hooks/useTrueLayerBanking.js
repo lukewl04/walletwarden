@@ -1,5 +1,6 @@
 // src/hooks/useTrueLayerBanking.js
 import { useState, useEffect, useRef, useCallback } from "react";
+import { suggestCategory } from "../utils/categories";
 
 /**
  * Extracts all TrueLayer / Open-Banking state, effects, and handlers
@@ -128,7 +129,7 @@ export default function useTrueLayerBanking({
               ? "CREDIT"
               : "DEBIT",
           description: tx.description || "",
-          category: tx.category || "Other",
+          category: tx.category || suggestCategory(tx.description),
         }));
 
       setBankTransactions(normalized);
