@@ -1,5 +1,5 @@
 // src/views/WardenInsights.jsx
-import React, { useMemo, useState, useCallback } from "react";
+import React, { useMemo, useState, useCallback, useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import CsvPdfUpload from "../components/csv-pdf-upload.jsx";
 import Navbar from "../components/navbar.jsx";
@@ -13,6 +13,7 @@ import LineChart from "../components/charts/LineChart.jsx";
 import Bars from "../components/charts/Bars.jsx";
 
 import useTrueLayerBanking from "../hooks/useTrueLayerBanking.js";
+import { loadInsightsLayout } from "../utils/insightsLayout.js";
 
 export default function WardenInsights() {
   const location = useLocation();
@@ -58,7 +59,10 @@ export default function WardenInsights() {
   // Insights controls - unified time filter: "3m" | "6m" | "12m" | "cumulative"
   const [timeFilter, setTimeFilter] = useState("cumulative");
   const [showInsightsDetails, setShowInsightsDetails] = useState(true);
-  
+
+  // ── Widget layout (read-only from localStorage; edited on /insights/customize) ──
+  const insightsLayout = useMemo(loadInsightsLayout, []);
+
   // Derived values from unified time filter
   const showCumulative = timeFilter === "cumulative";
   const monthsBack = timeFilter === "cumulative" ? 12 : parseInt(timeFilter, 10);
@@ -188,6 +192,34 @@ export default function WardenInsights() {
     });
     return { income, expense };
   }, [chartTransactions, monthsBack]);
+
+  // ── Donut totals from TrueLayer bank feed (with local fallback) ────────
+  const donutTotals = useMemo(() => {
+    const hasBankTxs =
+      banking.isBankConnected &&
+      Array.isArray(banking.bankTransactions) &&
+      banking.bankTransactions.length > 0;
+
+    if (!hasBankTxs) {
+      // No bank data – fall back to existing local totals so UX stays unchanged
+      return totals;
+    }
+
+    const now = new Date();
+    const cutoff = new Date(now.getFullYear(), now.getMonth() - monthsBack, 1);
+
+    let income = 0;
+    let expense = 0;
+
+    banking.bankTransactions.forEach((tx) => {
+      const txDate = new Date(tx.date);
+      if (isNaN(txDate) || txDate < cutoff) return;
+      if (tx.direction === "CREDIT") income += tx.amount;
+      else expense += tx.amount;
+    });
+
+    return { income, expense };
+  }, [banking.isBankConnected, banking.bankTransactions, monthsBack, totals]);
 
   const monthly = useMemo(() => {
     const now = new Date();
@@ -386,6 +418,18 @@ export default function WardenInsights() {
       .slice(0, 5);
   }, [chartTransactions, monthsBack]);
 
+  // ── Debug: log TrueLayer transactions & donut totals (DEV only) ────────
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    if (!Array.isArray(banking.bankTransactions)) return;
+    console.debug(
+      "[WardenInsights] bankTransactions (first 3):",
+      banking.bankTransactions.slice(0, 3),
+      "| donutTotals:",
+      donutTotals
+    );
+  }, [banking.bankTransactions, donutTotals]);
+
   return (
     <div
       className="container-fluid py-4 mt-5"
@@ -451,6 +495,15 @@ export default function WardenInsights() {
                   Cumulative
                 </button>
               </div>
+
+              <button
+                className="btn btn-sm btn-outline-secondary"
+                onClick={() => navigate("/insights/customize")}
+                title="Customize dashboard"
+                style={{ fontSize: "0.8rem", padding: "0.25rem 0.5rem" }}
+              >
+                ⚙ Customize
+              </button>
             </div>
           </div>
 
@@ -644,111 +697,168 @@ export default function WardenInsights() {
             </div>
           )}
 
-          {/* Charts */}
+          {/* Charts / Insights – rendered from customizable widget layout */}
           {parsed.length === 0 ? (
             <div className="text-muted">
               No transactions to show. Import some transactions to see insights.
             </div>
-          ) : (
-            <div className="row g-3 mb-3">
-              <div className="col-12 col-md-4 d-flex align-items-center justify-content-center">
-                <Donut income={totals.income} expense={totals.expense} />
-              </div>
+          ) : (() => {
+            const DETAIL = new Set(["topExpenses", "topMerchants", "spendingForecast", "potentialSavings"]);
+            const hasDonut = insightsLayout.some(w => w.type === "donut");
+            const hasLine  = insightsLayout.some(w => w.type === "line");
+            const bothCharts = hasDonut && hasLine;
+            const hasAnyDetail = insightsLayout.some(w => DETAIL.has(w.type));
+            let donutLineDone = false;
+            let toggleDone = false;
 
-              <div className="col-12 col-md-8">
-                <div className="card p-2" style={{ height: 220 }}>
-                  <div className="d-flex align-items-center justify-content-between mb-2">
-                    <small className="text-muted">
-                      {showCumulative ? "Cumulative balance" : "Net per month"}
-                    </small>
-                    <small className="text-muted">{monthsBack} months</small>
+            const elems = insightsLayout.flatMap((widget, idx) => {
+              const isDetail = DETAIL.has(widget.type);
+              const out = [];
+
+              /* Insert toggle button once, right before the first detail widget */
+              if (isDetail && !toggleDone && hasAnyDetail) {
+                toggleDone = true;
+                out.push(
+                  <div key="insights-toggle" className="col-12 d-flex justify-content-center mb-3">
+                    <button
+                      className="segmented-control__segment segmented-control__segment--active"
+                      style={{ borderRadius: "24px", padding: "10px 14px", fontSize: "1rem" }}
+                      onClick={() => setShowInsightsDetails(v => !v)}
+                      title={showInsightsDetails ? "Hide insights details" : "Show insights details"}
+                    >
+                      {showInsightsDetails ? "▼ Hide Insights" : "▶ Show Insights"}
+                    </button>
                   </div>
-                  <div style={{ width: "100%", height: 160 }}>
-                    <LineChart
-                      data={monthly}
-                      showCumulative={showCumulative}
-                      width={600}
-                      height={160}
-                    />
-                  </div>
-                </div>
-              </div>
+                );
+              }
 
-              {/* Toggle button for insights details */}
-              <div className="d-flex justify-content-center mb-3">
-                <button
-                  className="segmented-control__segment segmented-control__segment--active"
-                  style={{ borderRadius: '24px', padding: '10px 14px', fontSize: '1rem' }}
-                  onClick={() => setShowInsightsDetails(!showInsightsDetails)}
-                  title={
-                    showInsightsDetails
-                      ? "Hide insights details"
-                      : "Show insights details"
-                  }
-                >
-                  {showInsightsDetails ? "▼ Hide Insights" : "▶ Show Insights"}
-                </button>
-              </div>
+              /* Detail widgets hidden when collapsed */
+              if (isDetail && !showInsightsDetails) return out;
 
-              {/* Collapsible insights sections */}
-              {showInsightsDetails && (
-                <>
-                  <div className="row g-3 mb-3">
-                    <div className="col-12 col-lg-6">
-                      <div className="card p-2">
+              /* ── Donut + Line paired row (when both present) ── */
+              if ((widget.type === "donut" || widget.type === "line") && bothCharts) {
+                if (donutLineDone) return out;
+                donutLineDone = true;
+                out.push(
+                  <React.Fragment key="donut-line-pair">
+                    <div className="col-12 col-md-4 d-flex align-items-center justify-content-center">
+                      <Donut income={donutTotals.income} expense={donutTotals.expense} />
+                    </div>
+                    <div className="col-12 col-md-8">
+                      <div className="card p-2" style={{ height: 220 }}>
                         <div className="d-flex align-items-center justify-content-between mb-2">
-                          <div>
-                            <strong>Top Expense Categories</strong>
-                            <div className="text-muted small">Largest buckets</div>
-                          </div>
-                          <div className="text-muted small">{topExpenses.length}</div>
+                          <small className="text-muted">
+                            {showCumulative ? "Cumulative balance" : "Net per month"}
+                          </small>
+                          <small className="text-muted">{monthsBack} months</small>
                         </div>
-
-                        {topExpenses.length === 0 ? (
-                          <div className="text-muted">No expense data available.</div>
-                        ) : (
-                          <div style={{ minHeight: 220 }}>
-                            <Bars items={topExpenses} width={400} height={180} />
-                          </div>
-                        )}
+                        <div style={{ width: "100%", height: 160 }}>
+                          <LineChart data={monthly} showCumulative={showCumulative} width={600} height={160} />
+                        </div>
                       </div>
                     </div>
+                  </React.Fragment>
+                );
+                return out;
+              }
 
-                    <div className="col-12 col-lg-6">
-                      <div className="card p-2">
-                        <div className="d-flex align-items-center justify-content-between mb-2">
-                          <div>
-                            <strong>Top Merchants & Vendors</strong>
-                            <div className="text-muted small">Where you spend most</div>
-                          </div>
-                          <div className="text-muted small">{topMerchants.length}</div>
-                        </div>
+              /* ── Standalone donut ── */
+              if (widget.type === "donut" && !bothCharts) {
+                out.push(
+                  <div key={widget.id} className="col-12 d-flex align-items-center justify-content-center">
+                    <Donut income={donutTotals.income} expense={donutTotals.expense} />
+                  </div>
+                );
+                return out;
+              }
 
-                        {topMerchants.length === 0 ? (
-                          <div className="text-muted">No merchant data available.</div>
-                        ) : (
-                          <div style={{ minHeight: 220 }}>
-                            <Bars
-                              items={topMerchants.map((m) => ({
-                                category: m.vendor,
-                                amount: m.amount,
-                              }))}
-                              width={400}
-                              height={180}
-                            />
-                          </div>
-                        )}
+              /* ── Standalone line ── */
+              if (widget.type === "line" && !bothCharts) {
+                out.push(
+                  <div key={widget.id} className="col-12">
+                    <div className="card p-2" style={{ height: 220 }}>
+                      <div className="d-flex align-items-center justify-content-between mb-2">
+                        <small className="text-muted">
+                          {showCumulative ? "Cumulative balance" : "Net per month"}
+                        </small>
+                        <small className="text-muted">{monthsBack} months</small>
+                      </div>
+                      <div style={{ width: "100%", height: 160 }}>
+                        <LineChart data={monthly} showCumulative={showCumulative} width={600} height={160} />
                       </div>
                     </div>
                   </div>
+                );
+                return out;
+              }
 
-                  {spendingForecast && (
+              /* ── Top Expense Categories ── */
+              if (widget.type === "topExpenses") {
+                out.push(
+                  <div key={widget.id} className="col-12 col-lg-6">
+                    <div className="card p-2">
+                      <div className="d-flex align-items-center justify-content-between mb-2">
+                        <div>
+                          <strong>Top Expense Categories</strong>
+                          <div className="text-muted small">Largest buckets</div>
+                        </div>
+                        <div className="text-muted small">{topExpenses.length}</div>
+                      </div>
+                      {topExpenses.length === 0 ? (
+                        <div className="text-muted">No expense data available.</div>
+                      ) : (
+                        <div style={{ minHeight: 220 }}>
+                          <Bars items={topExpenses} width={400} height={180} />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+                return out;
+              }
+
+              /* ── Top Merchants & Vendors ── */
+              if (widget.type === "topMerchants") {
+                out.push(
+                  <div key={widget.id} className="col-12 col-lg-6">
+                    <div className="card p-2">
+                      <div className="d-flex align-items-center justify-content-between mb-2">
+                        <div>
+                          <strong>Top Merchants & Vendors</strong>
+                          <div className="text-muted small">Where you spend most</div>
+                        </div>
+                        <div className="text-muted small">{topMerchants.length}</div>
+                      </div>
+                      {topMerchants.length === 0 ? (
+                        <div className="text-muted">No merchant data available.</div>
+                      ) : (
+                        <div style={{ minHeight: 220 }}>
+                          <Bars
+                            items={topMerchants.map((m) => ({
+                              category: m.vendor,
+                              amount: m.amount,
+                            }))}
+                            width={400}
+                            height={180}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+                return out;
+              }
+
+              /* ── Spending Forecast ── */
+              if (widget.type === "spendingForecast") {
+                if (!spendingForecast) return out;
+                out.push(
+                  <div key={widget.id} className="col-12">
                     <div className="card p-3 mb-3">
                       <div className="mb-3">
                         <strong>Spending Forecast</strong>
                         <div className="text-muted small">Next month projection</div>
                       </div>
-
                       <div className="row g-3">
                         <div className="col-12 col-sm-6">
                           <div
@@ -829,9 +939,16 @@ export default function WardenInsights() {
                         </div>
                       </div>
                     </div>
-                  )}
+                  </div>
+                );
+                return out;
+              }
 
-                  {potentialSavings.length > 0 && (
+              /* ── Where You Could Save ── */
+              if (widget.type === "potentialSavings") {
+                if (potentialSavings.length === 0) return out;
+                out.push(
+                  <div key={widget.id} className="col-12">
                     <div className="card p-2 mb-3">
                       <div className="d-flex align-items-center justify-content-between mb-2">
                         <div>
@@ -844,14 +961,13 @@ export default function WardenInsights() {
                           £{potentialSavings.reduce((sum, item) => sum + item.yearlyPotential, 0).toFixed(0)}/yr
                         </div>
                       </div>
-
                       <div style={{ maxHeight: 200, overflowY: "auto" }}>
-                        {potentialSavings.map((item, idx) => (
+                        {potentialSavings.map((item, i) => (
                           <div
-                            key={idx}
+                            key={i}
                             className="d-flex align-items-center justify-content-between py-1 px-2"
                             style={{
-                              backgroundColor: idx % 2 === 0 ? "rgba(220, 53, 69, 0.04)" : "transparent",
+                              backgroundColor: i % 2 === 0 ? "rgba(220, 53, 69, 0.04)" : "transparent",
                               borderLeft: "2px solid #dc3545",
                               marginBottom: '2px',
                             }}
@@ -876,11 +992,20 @@ export default function WardenInsights() {
                         ))}
                       </div>
                     </div>
-                  )}
-                </>
-              )}
-            </div>
-          )}
+                  </div>
+                );
+                return out;
+              }
+
+              return out;
+            });
+
+            return (
+              <div className="row g-3 mb-3">
+                {elems}
+              </div>
+            );
+          })()}
 
           {/* Recent Transactions */}
           <div className="card shadow-sm">
@@ -1130,6 +1255,8 @@ export default function WardenInsights() {
               </div>
             </div>
           )}
+
+
         </div>
       </div>
     </div>

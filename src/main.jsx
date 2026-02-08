@@ -13,6 +13,7 @@ import Import from "./components/csv-pdf-upload";
 import SplitMaker from "./views/splitmaker";
 import { TransactionsProvider } from "./state/TransactionsContext";
 import WardenInsights from "./views/wardenInsights";
+import WardenInsightsCustomize from "./views/WardenInsightsCustomize";
 import Tracker from "./views/tracker";
 
 import Options from "./views/options";
@@ -21,6 +22,7 @@ const ProtectedHome = ProtectedRoute(Home);
 const ProtectedImport = ProtectedRoute(Import);
 const ProtectedSplit = ProtectedRoute(SplitMaker);
 const ProtectedWardenInsights = ProtectedRoute(WardenInsights);
+const ProtectedWardenInsightsCustomize = ProtectedRoute(WardenInsightsCustomize);
 const ProtectedTracker = ProtectedRoute(Tracker);
 
 const ProtectedOptions = ProtectedRoute(Options);
@@ -47,6 +49,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(
               <Route path="/import" element={<ProtectedImport />} />
               <Route path="/splitmaker" element={<ProtectedSplit />} />
               <Route path="/wardeninsights" element={<ProtectedWardenInsights />} />
+              <Route path="/insights/customize" element={<ProtectedWardenInsightsCustomize />} />
               <Route path="/tracker" element={<ProtectedTracker />} />
 
               <Route path="/options" element={<ProtectedOptions />} />

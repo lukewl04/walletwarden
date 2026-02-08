@@ -8,6 +8,13 @@ const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000/api';
 
 const TransactionsContext = createContext(null);
 
+// Source of truth for transactions
+// Responsibilities:
+// - Fetch transactions
+// - Store transactions
+// - Expose mutation functions
+// - Notify consumers on change
+
 /**
  * TransactionsProvider - Supabase-only data store
  * All data comes from and goes to Supabase via the backend API.
@@ -21,6 +28,7 @@ export function TransactionsProvider({ children }) {
   const isDevMode = import.meta.env.VITE_DEV_MODE === 'true';
 
   // Helper to get auth token - uses unique per-browser token in dev mode
+  // creates a unique id for each browser session, allowing devs to test auth flows without Auth0
   const getToken = async () => {
     if (isDevMode) {
       return getUserToken(); // Generates unique ID per browser
@@ -29,6 +37,7 @@ export function TransactionsProvider({ children }) {
   };
 
   // Load transactions from Supabase on mount
+  // 
   useEffect(() => {
     let aborted = false;
 

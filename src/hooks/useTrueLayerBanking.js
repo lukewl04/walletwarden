@@ -33,6 +33,9 @@ export default function useTrueLayerBanking({
   const [storedBalance, setStoredBalance] = useState(null);
   const [storedBalanceLoading, setStoredBalanceLoading] = useState(true);
 
+  // TrueLayer transaction feed — normalised for chart consumption
+  const [bankTransactions, setBankTransactions] = useState([]);
+
   const [liveBalanceLoading, setLiveBalanceLoading] = useState(false);
   const [postConnectRunning, setPostConnectRunning] = useState(false);
 
@@ -97,6 +100,43 @@ export default function useTrueLayerBanking({
     }
   }, [API_URL, getAuthHeaders]);
 
+  /**
+   * Fetch bank-sourced transactions from the backend and normalise them.
+   * Backend stores amounts in major units (£) as positive numbers with
+   * type = 'income' | 'expense'.  We derive direction (CREDIT / DEBIT)
+   * from the type field and ensure amount is always Math.abs (defensive).
+   * If the backend ever switches to minor units (pence), divide by 100 here.
+   */
+  const fetchBankTransactions = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_URL}/transactions`, {
+        headers: getAuthHeaders(),
+        cache: "no-store",
+      });
+      if (!res.ok) return;
+
+      const data = await res.json();
+      if (!Array.isArray(data)) return;
+
+      const normalized = data
+        .filter((tx) => tx.source === "bank")
+        .map((tx) => ({
+          date: tx.date,                                      // ISO string
+          amount: Math.abs(Number(tx.amount) || 0),           // positive, major units (£)
+          direction:
+            (tx.type || "").toLowerCase() === "income"
+              ? "CREDIT"
+              : "DEBIT",
+          description: tx.description || "",
+          category: tx.category || "Other",
+        }));
+
+      setBankTransactions(normalized);
+    } catch (err) {
+      console.error("Failed to fetch bank transactions:", err);
+    }
+  }, [API_URL, getAuthHeaders]);
+
   // ── sync handler ─────────────────────────────────────────────────────
 
   const handleSyncBank = useCallback(
@@ -148,6 +188,7 @@ export default function useTrueLayerBanking({
 
         await refreshTransactions();
         await fetchBankBalance();
+        await fetchBankTransactions();
       } catch (err) {
         clearTimeout(timeoutId);
         console.error("Sync error:", err);
@@ -160,7 +201,7 @@ export default function useTrueLayerBanking({
         setBankSyncing(false);
       }
     },
-    [API_URL, getAuthHeaders, bankStatus?.connected, bankSyncing, refreshTransactions, fetchBankBalance]
+    [API_URL, getAuthHeaders, bankStatus?.connected, bankSyncing, refreshTransactions, fetchBankBalance, fetchBankTransactions]
   );
 
   // ── mount effect: resolve bank connection + handle OAuth callback ───
@@ -197,6 +238,7 @@ export default function useTrueLayerBanking({
 
         if (connected) {
           await fetchBankBalance();
+          await fetchBankTransactions();
         } else {
           await fetchStoredBalance();
         }
@@ -237,12 +279,12 @@ export default function useTrueLayerBanking({
       const MAX_POLLS = 36; // 36 × 2.5s = 90s
 
       // Kick off an immediate first fetch
-      Promise.allSettled([fetchBankBalance(), refreshTransactions()]);
+      Promise.allSettled([fetchBankBalance(), refreshTransactions(), fetchBankTransactions()]);
 
       pollTimerRef.current = setInterval(async () => {
         polls++;
         try {
-          await Promise.allSettled([fetchBankBalance(), refreshTransactions()]);
+          await Promise.allSettled([fetchBankBalance(), refreshTransactions(), fetchBankTransactions()]);
         } catch (_) { /* swallow */ }
 
         // Progressive status messages
@@ -374,10 +416,14 @@ export default function useTrueLayerBanking({
     baseBalanceValue,
     noBalanceAvailable,
 
+    // data
+    bankTransactions,
+
     // actions
     handleConnectBank,
     handleSyncBank,
     fetchBankBalance,
     fetchStoredBalance,
+    fetchBankTransactions,
   };
 }
