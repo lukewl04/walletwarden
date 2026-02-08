@@ -51,6 +51,7 @@ export function TransactionsProvider({ children }) {
       try {
         const token = await getToken();
         console.log('[TransactionsContext] Fetching transactions from Supabase...');
+        console.log('[TransactionsContext] Using token:', token);
         
         const res = await fetch(`${API_BASE}/transactions`, {
           headers: { Authorization: `Bearer ${token}` },

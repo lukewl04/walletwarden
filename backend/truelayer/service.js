@@ -12,16 +12,19 @@ const client = require('./client');
  * Returns true when the account name looks like a savings pot, jar, or
  * sub-account rather than a real current / personal account.
  *
- * Positive main-account indicators ("current", "personal", "main") take
- * priority so they are never accidentally excluded.
+ * Positive main-account indicators ("current", "personal", "main", "C/A", "everyday")
+ * take priority so they are never accidentally excluded.
  */
 function isPotOrSavingsAccount(name) {
   if (!name) return false;
   const lower = name.toLowerCase();
-  // Definitely a main account
-  if (/\b(current|personal|main)\b/i.test(lower)) return false;
-  // Strong pot / savings indicators
-  if (/\b(saving|savings|pot|vault|jar|challenge|rainy|round.?up|transfer|emergency)\b/i.test(lower)) return true;
+  // Definitely a main account - check for common current account indicators
+  if (/\b(current|personal|main|everyday)\b/i.test(lower)) return false;
+  if (/\bc\/a\b/i.test(lower)) return false; // "C/A" = Current Account
+  // Strong pot / savings indicators (but only if not a main account)
+  if (/\b(saving|savings|pot|vault|jar|challenge|rainy|round.?up|emergency)\b/i.test(lower)) return true;
+  // "transfer" alone (without main account indicators) might be a transfer pot
+  if (/\btransfer\b/i.test(lower) && !/\b(current|personal|main|everyday)\b/i.test(lower) && !/\bc\/a\b/i.test(lower)) return true;
   return false; // Unknown – assume main (safer)
 }
 

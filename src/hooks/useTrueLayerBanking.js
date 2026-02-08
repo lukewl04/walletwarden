@@ -239,6 +239,8 @@ export default function useTrueLayerBanking({
         if (connected) {
           await fetchBankBalance();
           await fetchBankTransactions();
+          // Also refresh the main transactions list to include bank transactions
+          await refreshTransactions();
         } else {
           await fetchStoredBalance();
         }
