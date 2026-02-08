@@ -124,6 +124,10 @@ export default function Tracker() {
   const dirtyIncomeIds = useRef(new Set());
   const syncedPurchaseIds = useRef(new Set()); // Track what's already in backend
 
+  // State for manual sync from Warden Insights
+  const [isSyncingFromInsights, setIsSyncingFromInsights] = useState(false);
+  const [lastSyncResult, setLastSyncResult] = useState(null);
+
   // Restore selected split from navigation state or localStorage on mount
   useEffect(() => {
     // Priority: navigation state > localStorage
@@ -1166,7 +1170,37 @@ export default function Tracker() {
       setSplitIncomes((prev) => [...prev, ...newIncomes.map(sanitizeIncome).filter(Boolean)]);
       console.log("[Tracker] Auto-imported", newIncomes.length, "incomes from Warden Insights");
     }
+    
+    return { purchases: newPurchases.length, incomes: newIncomes.length };
   };
+
+  // Manual sync handler - wraps autoImportFromWardenInsights with UI feedback
+  const handleSyncFromInsights = useCallback(async () => {
+    if (!selectedSplit || !selectedSplitData || isSyncingFromInsights) return;
+    
+    setIsSyncingFromInsights(true);
+    setLastSyncResult(null);
+    
+    try {
+      const result = await autoImportFromWardenInsights(selectedSplit, selectedSplitData);
+      if (result) {
+        setLastSyncResult({
+          success: true,
+          purchases: result.purchases || 0,
+          incomes: result.incomes || 0,
+        });
+      } else {
+        setLastSyncResult({ success: true, purchases: 0, incomes: 0 });
+      }
+    } catch (err) {
+      console.error("[Tracker] Sync from Insights failed:", err);
+      setLastSyncResult({ success: false, error: err.message });
+    } finally {
+      setIsSyncingFromInsights(false);
+      // Clear the result message after 5 seconds
+      setTimeout(() => setLastSyncResult(null), 5000);
+    }
+  }, [selectedSplit, selectedSplitData, isSyncingFromInsights]);
 
   // =========================
   // NEW: Pivot-table helpers
@@ -1490,6 +1524,62 @@ export default function Tracker() {
                     toLocalDate={toLocalDate}
                     formatDisplayDate={formatDisplayDate}
                   />
+                </div>
+                
+                {/* Sync from Warden Insights Card */}
+                <div className="tracker-sidebar-item">
+                  <div className="card" style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)' }}>
+                    <div className="card-body p-3">
+                      <div className="d-flex align-items-center gap-2 mb-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--accent-color)' }}>
+                          <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+                          <path d="M3 3v5h5"/>
+                          <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/>
+                          <path d="M16 16h5v5"/>
+                        </svg>
+                        <span className="fw-semibold" style={{ color: 'var(--text-primary)', fontSize: '0.9rem' }}>
+                          Sync from Insights
+                        </span>
+                      </div>
+                      <p className="text-muted mb-3" style={{ fontSize: '0.8rem', lineHeight: 1.4 }}>
+                        Import bank transactions from Warden Insights into your Tracker purchases.
+                      </p>
+                      <button
+                        className="btn btn-sm w-100"
+                        style={{
+                          background: 'var(--accent-color)',
+                          color: '#fff',
+                          border: 'none',
+                          fontWeight: 500,
+                          opacity: isSyncingFromInsights ? 0.7 : 1,
+                        }}
+                        onClick={handleSyncFromInsights}
+                        disabled={isSyncingFromInsights || !selectedSplit}
+                      >
+                        {isSyncingFromInsights ? (
+                          <>
+                            <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                            Syncing...
+                          </>
+                        ) : (
+                          'Sync Now'
+                        )}
+                      </button>
+                      {lastSyncResult && (
+                        <div 
+                          className={`mt-2 p-2 rounded text-center`}
+                          style={{ 
+                            fontSize: '0.75rem',
+                            background: lastSyncResult.success ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                            color: lastSyncResult.success ? 'var(--success-color, #10b981)' : 'var(--danger-color, #ef4444)',
+                            border: `1px solid ${lastSyncResult.success ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
+                          }}
+                        >
+                          {lastSyncResult.message}
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
