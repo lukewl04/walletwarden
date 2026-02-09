@@ -16,6 +16,8 @@ import { EntitlementsProvider } from "./state/EntitlementsContext";
 import WardenInsights from "./views/wardenInsights";
 import WardenInsightsCustomize from "./views/WardenInsightsCustomize";
 import Tracker from "./views/tracker";
+import Pricing from "./views/Pricing";
+import BillingSuccess from "./views/BillingSuccess";
 
 import Options from "./views/options";
 
@@ -25,6 +27,8 @@ const ProtectedSplit = ProtectedRoute(SplitMaker);
 const ProtectedWardenInsights = ProtectedRoute(WardenInsights);
 const ProtectedWardenInsightsCustomize = ProtectedRoute(WardenInsightsCustomize);
 const ProtectedTracker = ProtectedRoute(Tracker);
+const ProtectedPricing = ProtectedRoute(Pricing);
+const ProtectedBillingSuccess = ProtectedRoute(BillingSuccess);
 
 const ProtectedOptions = ProtectedRoute(Options);
 ReactDOM.createRoot(document.getElementById("root")).render(
@@ -53,6 +57,8 @@ ReactDOM.createRoot(document.getElementById("root")).render(
               <Route path="/wardeninsights" element={<ProtectedWardenInsights />} />
               <Route path="/insights/customize" element={<ProtectedWardenInsightsCustomize />} />
               <Route path="/tracker" element={<ProtectedTracker />} />
+              <Route path="/pricing" element={<ProtectedPricing />} />
+              <Route path="/billing/success" element={<ProtectedBillingSuccess />} />
 
               <Route path="/options" element={<ProtectedOptions />} />
             </Routes>

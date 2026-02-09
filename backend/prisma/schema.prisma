@@ -129,6 +129,8 @@ model UserPlan {
   plan                    String    @default("free") // free | plus | pro
   stripe_customer_id      String?
   stripe_subscription_id  String?
+  plan_status             String?   // active | trialing | past_due | canceled
+  plan_current_period_end DateTime?
   started_at              DateTime  @default(now())
   expires_at              DateTime?
   cancelled_at            DateTime?
@@ -136,6 +138,7 @@ model UserPlan {
   updated_at              DateTime  @default(now()) @updatedAt
 
   @@index([user_id])
+  @@index([stripe_subscription_id])
   @@map("user_plans")
 }
 

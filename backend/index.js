@@ -69,6 +69,13 @@ const corsOrigins = [
 ].filter(Boolean);
 
 app.use(cors({ origin: corsOrigins }));
+
+// Stripe webhook needs raw body for signature verification
+// Must be mounted BEFORE express.json() so the body isn't consumed.
+// Local testing: stripe listen --forward-to localhost:4000/api/stripe/webhook
+const stripeWebhookHandler = require('./routes/stripe-webhook')(prisma);
+app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), stripeWebhookHandler);
+
 app.use(express.json({ limit: '10mb' }));
 
 // Auth0 JWT middleware - DISABLED FOR DEVELOPMENT
@@ -122,6 +129,9 @@ app.use('/api', subscriptionRoutes(prisma));
 
 const gatedFeatureRoutes = require('./routes/gated-features');
 app.use('/api', gatedFeatureRoutes(prisma));
+
+const billingRoutes = require('./routes/billing');
+app.use('/api/billing', billingRoutes(prisma));
 
 // health
 app.get('/health', (req, res) => res.json({ ok: true, database: 'supabase' }));

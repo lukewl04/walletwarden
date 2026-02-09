@@ -1,10 +1,9 @@
 // src/views/WardenInsightsCustomize.jsx
 // Dedicated page for customizing the Warden Insights dashboard layout.
-import React, { useState, useMemo, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import React, { useState, useMemo, useCallback, useEffect } from "react";
+import { useNavigate, Link } from "react-router-dom";
 import Navbar from "../components/navbar.jsx";
-import { useEntitlements } from "../state/EntitlementsContext";
-import UpgradePrompt from "../components/UpgradePrompt.jsx";
+import { getUserToken } from "../utils/userToken.js";
 import {
   INSIGHT_WIDGET_CATALOG,
   DEFAULT_INSIGHTS_LAYOUT,
@@ -16,24 +15,28 @@ import {
 
 export default function WardenInsightsCustomize() {
   const navigate = useNavigate();
-  const { canCustomiseInsights } = useEntitlements();
 
-  // If user doesn't have customisation permission, show upgrade prompt
-  if (!canCustomiseInsights) {
-    return (
-      <>
-        <Navbar />
-        <div className="container py-4" style={{ maxWidth: 600 }}>
-          <UpgradePrompt feature="Insight Customisation" plan="pro" onUpgrade={() => navigate("/options")}>
-            <div style={{ padding: '60px 20px', textAlign: 'center' }}>
-              <h5>Customise Your Dashboard</h5>
-              <p className="text-muted">Drag, reorder and pick which insight widgets appear on your dashboard.</p>
-            </div>
-          </UpgradePrompt>
-        </div>
-      </>
-    );
-  }
+  // ── Plan gate: require plus or pro ────────────────────────────────
+  const [planAllowed, setPlanAllowed] = useState(null); // null = loading
+  const API_URL = import.meta.env.VITE_API_URL || "http://localhost:4000/api";
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${API_URL}/entitlements`, {
+          headers: { Authorization: `Bearer ${getUserToken()}` },
+        });
+        if (!res.ok) throw new Error("entitlements fetch failed");
+        const ent = await res.json();
+        if (!cancelled) setPlanAllowed(!!ent.canCustomiseInsights);
+      } catch (err) {
+        console.error("[InsightsCustomize] entitlements error:", err);
+        if (!cancelled) setPlanAllowed(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [API_URL]);
 
   // Work on a local copy – only persist on explicit Save
   const [layout, setLayout] = useState(() => loadInsightsLayout());
@@ -89,6 +92,25 @@ export default function WardenInsightsCustomize() {
     >
       <Navbar />
 
+      {/* Plan gate: show upgrade prompt if user lacks entitlement */}
+      {planAllowed === null ? (
+        <div className="text-center py-5">
+          <div className="spinner-border text-primary" role="status" />
+        </div>
+      ) : !planAllowed ? (
+        <div className="card shadow-sm text-center" style={{ maxWidth: 500, margin: "3rem auto" }}>
+          <div className="card-body py-5">
+            <div style={{ fontSize: "2.5rem", marginBottom: "0.5rem" }}>🔒</div>
+            <h4 className="mb-2">Upgrade Required</h4>
+            <p className="text-muted mb-4">
+              Insights customization is available on <strong>Plus</strong> and <strong>Pro</strong> plans.
+            </p>
+            <Link to="/pricing" className="btn btn-primary">
+              View Plans & Upgrade
+            </Link>
+          </div>
+        </div>
+      ) : (
       <div className="card shadow-sm mb-4">
         <div className="card-body">
           {/* ── Header ──────────────────────────────────────────────── */}
@@ -233,6 +255,7 @@ export default function WardenInsightsCustomize() {
           </div>
         </div>
       </div>
+      )}
     </div>
   );
 }
