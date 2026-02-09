@@ -9,6 +9,7 @@ const router = express.Router();
 const config = require("../truelayer/config");
 const client = require("../truelayer/client");
 const service = require("../truelayer/service");
+const { requireBankConnectionQuota, incrementBankUsage } = require("../entitlements");
 
 // Prisma client will be attached by the main app
 let prisma = null;
@@ -29,9 +30,10 @@ function requireConfig(req, res, next) {
 
 /**
  * GET /api/banks/truelayer/connect
- * Returns the TrueLayer authorization URL for the user to connect their bank
+ * Returns the TrueLayer authorization URL for the user to connect their bank.
+ * Gated by weekly bank connection quota.
  */
-router.get("/connect", requireConfig, (req, res) => {
+router.get("/connect", requireConfig, requireBankConnectionQuota, (req, res) => {
   try {
     const userId = req.auth?.sub;
     if (!userId) {
@@ -106,6 +108,14 @@ router.get("/callback", requireConfig, async (req, res) => {
 
     // Store connection tokens (encrypted refresh token etc.)
     await service.storeConnection(prisma, userId, tokenResponse);
+
+    // Increment bank connection usage counter for this week
+    try {
+      await incrementBankUsage(prisma, userId);
+      console.log(`[TrueLayer] Incremented bank connection usage for ${userId}`);
+    } catch (usageErr) {
+      console.error('[TrueLayer] Failed to increment bank usage:', usageErr.message);
+    }
 
     // Redirect IMMEDIATELY — syncs run in the background;
     // the frontend polls for results in real-time.

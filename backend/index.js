@@ -113,6 +113,16 @@ const trueLayerRouter = trueLayerRoutes(prisma);
 console.log('[TrueLayer] Router created:', !!trueLayerRouter);
 app.use('/api/banks/truelayer', trueLayerRouter);
 
+// Subscription & entitlements routes
+const { attachEntitlements } = require('./entitlements');
+app.use(attachEntitlements(prisma));   // populates req.entitlements for all routes below
+
+const subscriptionRoutes = require('./routes/subscription');
+app.use('/api', subscriptionRoutes(prisma));
+
+const gatedFeatureRoutes = require('./routes/gated-features');
+app.use('/api', gatedFeatureRoutes(prisma));
+
 // health
 app.get('/health', (req, res) => res.json({ ok: true, database: 'supabase' }));
 

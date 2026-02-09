@@ -122,3 +122,33 @@ model BankBalanceSnapshot {
   @@map("bank_balance_snapshots")
 }
 
+// Subscription tier system
+model UserPlan {
+  id                      String    @id @default(uuid())
+  user_id                 String    @unique
+  plan                    String    @default("free") // free | plus | pro
+  stripe_customer_id      String?
+  stripe_subscription_id  String?
+  started_at              DateTime  @default(now())
+  expires_at              DateTime?
+  cancelled_at            DateTime?
+  created_at              DateTime  @default(now())
+  updated_at              DateTime  @default(now()) @updatedAt
+
+  @@index([user_id])
+  @@map("user_plans")
+}
+
+model BankConnectionUsage {
+  id               String   @id @default(uuid())
+  user_id          String
+  week_start       DateTime @db.Date  // Monday of ISO week
+  connections_used Int      @default(0)
+  created_at       DateTime @default(now())
+  updated_at       DateTime @default(now()) @updatedAt
+
+  @@unique([user_id, week_start])
+  @@index([user_id, week_start])
+  @@map("bank_connection_usage")
+}
+
