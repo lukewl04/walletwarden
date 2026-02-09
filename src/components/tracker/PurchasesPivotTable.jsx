@@ -128,7 +128,8 @@ function PurchasesPivotTable({
   const currentCellRef = useRef(null); // Track which cell triggered the tooltip
 
   // Open hover tooltip with position calculation (only repositions on new cell)
-  const openHoverTip = useCallback((evt, title, items, pinned = false, cellKey = null) => {
+  // Stores cell query parameters instead of snapshot data so items are derived at render time.
+  const openHoverTip = useCallback((evt, rowLabel, categoryName, start, end, pinned = false, cellKey = null) => {
     // Clear any pending close timeout
     if (tooltipCloseTimeoutRef.current) {
       clearTimeout(tooltipCloseTimeoutRef.current);
@@ -168,7 +169,7 @@ function PurchasesPivotTable({
     x = Math.max(padding, Math.min(x, window.innerWidth - tooltipWidth - padding));
     y = Math.max(padding, y);
     
-    setHoverTip({ x, y, title, items, pinned });
+    setHoverTip({ x, y, rowLabel, categoryName, start, end, pinned });
   }, [hoverTip]);
 
   const closeHoverTip = useCallback(() => {
@@ -271,16 +272,17 @@ function PurchasesPivotTable({
     
     // Small delay to prevent tooltip on quick mouse movements
     hoverTimeoutRef.current = setTimeout(() => {
-      const items = getCellItems(row.start, row.end, cat);
       openHoverTip(
         e,
-        `${row.label} • ${cat} • ${money(value)} (${count} item${count === 1 ? "" : "s"})`,
-        items,
+        row.label,
+        cat,
+        row.start,
+        row.end,
         false,
         cellKey
       );
     }, 50);
-  }, [getCellItems, money, openHoverTip, hoverTip]);
+  }, [openHoverTip, hoverTip]);
   
   const handleCellLeave = useCallback((e) => {
     // Clear hover timeout if mouse leaves before delay completes
@@ -492,7 +494,14 @@ function PurchasesPivotTable({
                   </tfoot>
                 </table>
               </div>
-                {hoverTip && (
+                {hoverTip && (() => {
+                  // Derive tooltip data from the source of truth on every render
+                  const tooltipItems = getCellItems(hoverTip.start, hoverTip.end, hoverTip.categoryName);
+                  const tooltipValue = tooltipItems.reduce((s, it) => s + it.amount, 0);
+                  const tooltipCount = tooltipItems.length;
+                  const tooltipTitle = `${hoverTip.rowLabel} • ${hoverTip.categoryName} • ${money(tooltipValue)} (${tooltipCount} item${tooltipCount === 1 ? "" : "s"})`;
+
+                  return (
                   <div
                     ref={tooltipRef}
                     className="tracker-hover-tip shadow"
@@ -504,7 +513,7 @@ function PurchasesPivotTable({
                     onMouseDown={(e) => e.stopPropagation()}
                   >
                     <div className="tracker-hover-header">
-                      <div className="tracker-hover-title">{hoverTip.title}</div>
+                      <div className="tracker-hover-title">{tooltipTitle}</div>
 
                       {hoverTip.pinned && (
                         <button
@@ -531,9 +540,9 @@ function PurchasesPivotTable({
                       </div>
                     )}
 
-                    {hoverTip.items?.length ? (
+                    {tooltipItems.length ? (
                       <div className="tracker-hover-list">
-                        {hoverTip.items.map((it) => (
+                        {tooltipItems.map((it) => (
                           <div key={it.id} className="tracker-hover-row" style={{ alignItems: "center" }}>
                             <div className="tracker-hover-desc" title={it.description} style={{ flex: 1, minWidth: 0 }}>
                               {it.description}
@@ -560,7 +569,7 @@ function PurchasesPivotTable({
                                 <button
                                   type="button"
                                   className="badge text-bg-secondary"
-                                  style={{ fontSize: "0.7rem", border: "none", cursor: "pointer", padding: "3px 6px", whiteSpace: "nowrap" }}
+                                  style={{ fontSize: "0.65rem", border: "none", cursor: "pointer", padding: "2px 6px", whiteSpace: "nowrap", opacity: 0.6, fontWeight: 400 }}
                                   onClick={(e) => { e.stopPropagation(); setEditingPurchaseId(it.id); }}
                                   onMouseDown={(e) => e.stopPropagation()}
                                   title="Click to change category"
@@ -577,7 +586,8 @@ function PurchasesPivotTable({
                       <div className="tracker-hover-empty">No items</div>
                     )}
                   </div>
-                )}
+                  );
+                })()}
 
 
 

@@ -194,15 +194,16 @@
 .tracker-hover-tip {
   position: fixed;
   z-index: 9999;
-  background: rgba(20, 20, 30, 0.98);
-  backdrop-filter: blur(4px); /* Reduced from 12px for performance */
-  border: 1px solid rgba(13, 110, 253, 0.3);
-  border-radius: 12px;
+  background: rgba(18, 18, 28, 0.88);
+  backdrop-filter: blur(14px) saturate(1.2);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
   padding: 0;
   min-width: 280px;
   max-width: 320px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4),
-              0 2px 8px rgba(13, 110, 253, 0.2);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35),
+              0 1px 4px rgba(13, 110, 253, 0.08);
   color: #fff;
   font-size: 0.85rem;
   overflow: hidden;
@@ -218,16 +219,17 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 12px 14px;
-  background: linear-gradient(135deg, rgba(13, 110, 253, 0.15) 0%, rgba(13, 110, 253, 0.08) 100%);
-  border-bottom: 1px solid rgba(13, 110, 253, 0.2);
+  padding: 11px 14px;
+  background: linear-gradient(135deg, rgba(13, 110, 253, 0.08) 0%, rgba(13, 110, 253, 0.03) 100%);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .tracker-hover-title {
   font-weight: 600;
-  font-size: 0.9rem;
-  color: #fff;
+  font-size: 0.88rem;
+  color: rgba(255, 255, 255, 0.92);
   flex: 1;
+  letter-spacing: 0.01em;
 }
 
 .tracker-hover-close {
@@ -252,50 +254,55 @@
   max-height: 600;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 10px;
+  padding: 6px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   /* Performance optimizations */
   contain: layout style paint;
   will-change: scroll-position;
   /* Ensure scrollbar is visible */
   scrollbar-width: thin;
-  scrollbar-color: rgba(13, 110, 253, 0.5) rgba(255, 255, 255, 0.1);
+  scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
 }
 
 /* Custom scrollbar for webkit browsers */
 .tracker-hover-list::-webkit-scrollbar {
-  width: 6px;
+  width: 5px;
 }
 
 .tracker-hover-list::-webkit-scrollbar-track {
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 3px;
+  background: transparent;
 }
 
 .tracker-hover-list::-webkit-scrollbar-thumb {
-  background: rgba(13, 110, 253, 0.5);
+  background: rgba(255, 255, 255, 0.12);
   border-radius: 3px;
 }
 
 .tracker-hover-list::-webkit-scrollbar-thumb:hover {
-  background: rgba(13, 110, 253, 0.7);
+  background: rgba(255, 255, 255, 0.22);
 }
 
 .tracker-hover-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 10px 12px;
-  border-radius: 10px;
-  transition: background 0.15s ease, box-shadow 0.15s ease;
-  background: rgba(13, 110, 253, 0.02);
-  border: 1px solid rgba(13, 110, 253, 0.08);
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  transition: background 0.15s ease;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.tracker-hover-row:last-child {
+  border-bottom: none;
 }
 
 .tracker-hover-row:hover {
-  background: rgba(13, 110, 253, 0.06);
-  border-color: rgba(13, 110, 253, 0.15);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.04);
 }
 
 .tracker-hover-desc {
@@ -303,30 +310,33 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: rgba(255, 255, 255, 0.9);
-  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 0.8rem;
+  font-weight: 400;
 }
 
 .tracker-hover-amt {
-  font-weight: 600;
-  color: #0d6efd;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.95);
   white-space: nowrap;
-  font-size: 0.9rem;
+  font-size: 0.92rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
 }
 
 .tracker-hover-more {
-  padding: 8px 10px;
+  padding: 6px 10px;
   text-align: center;
-  font-size: 0.8rem;
-  color: rgba(255, 255, 255, 0.5);
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.3);
   font-style: italic;
 }
 
 .tracker-hover-empty {
   padding: 20px;
   text-align: center;
-  color: rgba(255, 255, 255, 0.4);
-  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.3);
+  font-size: 0.82rem;
 }
 
 .tracker-hover-hint {
@@ -334,12 +344,12 @@
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 10px 14px;
-  background: linear-gradient(135deg, rgba(13, 110, 253, 0.12) 0%, rgba(13, 110, 253, 0.06) 100%);
-  border-top: 1px solid rgba(13, 110, 253, 0.15);
-  color: rgba(13, 110, 253, 0.95);
-  font-size: 0.75rem;
-  font-weight: 500;
+  padding: 8px 14px;
+  background: rgba(255, 255, 255, 0.02);
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.35);
+  font-size: 0.72rem;
+  font-weight: 400;
   letter-spacing: 0.02em;
   animation: tracker-hint-pulse 2s ease-in-out infinite;
 }
