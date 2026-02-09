@@ -298,6 +298,13 @@ const Navbar = () => {
                     >
                       ⚙️ Settings
                     </Link>
+                    <Link
+                      to="/pricing"
+                      className="dropdown-item"
+                      onClick={() => setShowProfileDropdown(false)}
+                    >
+                      💳 Pricing
+                    </Link>
                     <hr className="dropdown-divider my-2" />
                     <button
                       type="button"

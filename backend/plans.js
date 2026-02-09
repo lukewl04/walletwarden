@@ -34,7 +34,7 @@ const PLAN_ENTITLEMENTS = Object.freeze({
     priceMonthly: 5.00,
     canExport:              true,
     canUseLLM:              false,
-    canCustomiseInsights:   false,
+    canCustomiseInsights:   true,
     fullInsights:           false,
     weeklyBankLimit:        3,
   },
@@ -58,8 +58,8 @@ function getEntitlements(plan) {
 // ── Stripe ↔ internal plan mapping ──────────────────────────────────────
 // Populate these from your Stripe dashboard when you create products.
 const STRIPE_PRICE_TO_PLAN = Object.freeze({
-  // 'price_xxxxxxxxxxxxx': PLANS.PLUS,
-  // 'price_yyyyyyyyyyyyy': PLANS.PRO,
+  ...(process.env.STRIPE_PLUS_PRICE_ID ? { [process.env.STRIPE_PLUS_PRICE_ID]: PLANS.PLUS } : {}),
+  ...(process.env.STRIPE_PRO_PRICE_ID  ? { [process.env.STRIPE_PRO_PRICE_ID]:  PLANS.PRO  } : {}),
 });
 
 function planFromStripePrice(priceId) {
