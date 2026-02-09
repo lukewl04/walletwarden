@@ -492,7 +492,7 @@ export default function WardenInsights() {
                   className={`segmented-control__segment ${timeFilter === "cumulative" ? "segmented-control__segment--active" : ""}`}
                   onClick={() => setTimeFilter("cumulative")}
                 >
-                  Cumulative
+                  All Time
                 </button>
               </div>
 
@@ -688,7 +688,7 @@ export default function WardenInsights() {
                           Connecting...
                         </>
                       ) : (
-                        "🏦 Open Banking"
+                        "🏦 Connect Bank"
                       )}
                     </button>
                   )}

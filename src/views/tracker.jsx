@@ -83,6 +83,27 @@ export default function Tracker() {
   const location = useLocation();
   const prefersReducedMotion = useReducedMotion();
 
+  // Raw bank categories from TrueLayer that need re-categorizing
+  const RAW_BANK_CATEGORIES = useMemo(() => new Set([
+    'purchase', 'transfer', 'debit', 'direct_debit', 'credit',
+    'standing_order', 'faster_payment', 'bacs', 'unknown', 'other',
+  ]), []);
+
+  // Map suggestCategory() outputs → common split category names
+  const CATEGORY_ALIAS_MAP = useMemo(() => ({
+    'groceries': 'food',
+    'restaurants': 'food',
+    'utilities': 'bills',
+    'insurance': 'bills',
+    'rent': 'bills',
+    'transport': 'petrol',
+    'education': 'bills',
+    'fees': 'bills',
+    'gifts': 'shopping',
+    'charity': 'shopping',
+    'salary': 'income',
+  }), []);
+
   const [savedSplits, setSavedSplits] = useState([]);
   const [selectedSplit, setSelectedSplit] = useState(null);
   const [viewMode, setViewMode] = useState("weekly"); // "weekly", "monthly", or "yearly"
@@ -124,9 +145,8 @@ export default function Tracker() {
   const dirtyIncomeIds = useRef(new Set());
   const syncedPurchaseIds = useRef(new Set()); // Track what's already in backend
 
-  // State for manual sync from Warden Insights
-  const [isSyncingFromInsights, setIsSyncingFromInsights] = useState(false);
-  const [lastSyncResult, setLastSyncResult] = useState(null);
+  // Auto-sync guard – ensures we only auto-import once per mount
+  const autoSyncDone = useRef(false);
 
   // Restore selected split from navigation state or localStorage on mount
   useEffect(() => {
@@ -366,8 +386,49 @@ export default function Tracker() {
             }
           }
 
+          // Re-categorize purchases that have raw bank categories (PURCHASE, TRANSFER, etc.)
+          const rawBankCats = new Set(['purchase', 'transfer', 'debit', 'direct_debit', 'credit', 'standing_order', 'faster_payment', 'bacs', 'unknown', 'other']);
+          const aliasMap = { 'groceries': 'food', 'restaurants': 'food', 'utilities': 'bills', 'insurance': 'bills', 'rent': 'bills', 'transport': 'petrol', 'education': 'bills', 'fees': 'bills', 'gifts': 'shopping', 'charity': 'shopping', 'salary': 'income' };
+          const splitCatNames = (selectedSplitData?.categories || []).map(c => c.name);
+          const splitLookup = new Map(splitCatNames.map(n => [n.toLowerCase(), n]));
+
+          let recatCount = 0;
+          const recategorizedExpenses = expensePurchases.map(p => {
+            const catLower = (p.category || '').toLowerCase();
+            if (!rawBankCats.has(catLower)) return p; // Already has a real category
+
+            // Try user-set category rules from localStorage
+            const ruleKey = (p.description || '').toLowerCase().trim();
+            const savedRules = (() => { try { return JSON.parse(localStorage.getItem('walletwardenCategoryRules') || '{}'); } catch { return {}; } })();
+            if (savedRules[ruleKey]) { recatCount++; return { ...p, category: savedRules[ruleKey] }; }
+
+            // Try keyword-based suggestion
+            const suggested = suggestCategory(p.description || '');
+            if (suggested && suggested !== 'Other') {
+              const lower = suggested.toLowerCase();
+              if (splitLookup.has(lower)) { recatCount++; return { ...p, category: splitLookup.get(lower) }; }
+              const alias = aliasMap[lower];
+              if (alias && splitLookup.has(alias)) { recatCount++; return { ...p, category: splitLookup.get(alias) }; }
+              recatCount++;
+              return { ...p, category: suggested };
+            }
+
+            // Fallback to first split category
+            if (splitCatNames.length > 0) { recatCount++; return { ...p, category: splitCatNames[0] }; }
+            return { ...p, category: 'Other' };
+          });
+
+          if (recatCount > 0) {
+            console.log(`[Tracker] Re-categorized ${recatCount} purchases with raw bank categories`);
+            // Mark recategorized purchases as dirty so they sync to backend
+            recategorizedExpenses.forEach(p => {
+              const orig = expensePurchases.find(o => o.id === p.id);
+              if (orig && orig.category !== p.category) dirtyPurchaseIds.current.add(p.id);
+            });
+          }
+
           purchasesLoadedFromBackend.current = true;
-          setPurchases(expensePurchases);
+          setPurchases(recategorizedExpenses);
 
           if (incomePurchases.length > 0) {
             const loadedIncomes = incomePurchases
@@ -405,21 +466,6 @@ export default function Tracker() {
 
         dataLoadedFromBackend.current = true;
         setIsLoading(false);
-        
-        // DISABLED: Auto-import was causing massive duplication issues (415k+ duplicates)
-        // Transactions from Warden Insights should be imported manually via the Import button
-        // if (selectedSplitId && selectedSplitData) {
-        //   const runAutoImport = () => {
-        //     console.log("[Tracker] Starting deferred auto-import from Warden Insights...");
-        //     autoImportFromWardenInsights(selectedSplitId, selectedSplitData);
-        //   };
-        //   
-        //   if (typeof requestIdleCallback === "function") {
-        //     requestIdleCallback(runAutoImport, { timeout: 3000 });
-        //   } else {
-        //     setTimeout(runAutoImport, 100);
-        //   }
-        // }
       } catch (err) {
         console.error("Error loading data from backend:", err);
 
@@ -531,6 +577,9 @@ export default function Tracker() {
     });
   }, [globalTransactions]);
 
+  // Note: Category sync from Insights → Tracker now happens at load time
+  // (inline in loadDataFromBackend) to avoid reactive chains that corrupt state.
+
   // Pre-index purchases by split_id for O(1) lookup
   const purchasesBySplit = useMemo(() => {
     const map = new Map();
@@ -554,14 +603,15 @@ export default function Tracker() {
     return map;
   }, [splitIncomes]);
 
-  // All purchases (no longer filtered by split - splits only define categories/budgets)
-  const filteredPurchases = useMemo(() => {
-    return purchases;
-  }, [purchases]);
+  // All purchases (split just defines category columns / budget, not a filter)
+  const filteredPurchases = useMemo(() => purchases, [purchases]);
 
-  // All incomes (no longer filtered by split)
+  // All incomes
   const filteredIncomes = useMemo(() => {
-    return splitIncomes.map(sanitizeIncome).filter(Boolean);
+    return splitIncomes
+      .map(sanitizeIncome)
+      .filter(Boolean)
+      .filter((i) => (Number(i.amount) || 0) > 0);
   }, [splitIncomes]);
 
   const incomeTransactions = useMemo(() => filteredIncomes, [filteredIncomes]);
@@ -946,41 +996,62 @@ export default function Tracker() {
     const purchase = purchases.find((p) => p.id === purchaseId);
     if (purchase?.description) upsertCategoryRule(purchase.description, newCategory);
 
-    // Also update the linked global transaction so Warden Insights stays in sync
-    if (purchase?.transaction_id && typeof updateTransaction === "function") {
-      updateTransaction(purchase.transaction_id, { category: newCategory });
-    }
-
     setEditingPurchaseId(null);
   };
 
-  // Category matching – unified across the app via suggestCategory.
-  // Priority: 1) user-defined rules  2) imported category if it matches a split category
-  //           3) suggestCategory keyword match against split categories  4) first split cat
-  const matchCategory = useCallback((importedCat, description = "") => {
-    // 1. User-defined description rules (highest priority)
+  const resolveCategoryForSplit = useCallback((importedCat, description = "", splitCatsOverride) => {
     const ruleHit = categoryRules[normalizeDescriptionKey(description)];
     if (ruleHit) return ruleHit;
 
-    const splitCats = selectedSplitData?.categories || [];
+    const splitCats = splitCatsOverride ?? selectedSplitData?.categories ?? [];
+    const splitLookup = new Map();
+    splitCats.forEach((cat) => {
+      if (cat?.name) splitLookup.set(cat.name.toLowerCase(), cat.name);
+    });
 
-    // 2. Imported category matches a split category (case-insensitive)
-    if (importedCat) {
-      const importedLower = importedCat.toLowerCase();
-      const exactMatch = splitCats.find((c) => c.name.toLowerCase() === importedLower);
-      if (exactMatch) return exactMatch.name;
+    // Helper: try to match a category name against split categories, including aliases
+    const matchToSplit = (catName) => {
+      if (!catName) return null;
+      const lower = catName.toLowerCase();
+      // Direct match
+      if (splitLookup.has(lower)) return splitLookup.get(lower);
+      // Alias match (e.g. "Groceries" → "food" → "Food")
+      const alias = CATEGORY_ALIAS_MAP[lower];
+      if (alias && splitLookup.has(alias)) return splitLookup.get(alias);
+      return null;
+    };
+
+    // Check if imported category matches a split category (direct or via alias)
+    const normalizedImported = (importedCat || "").toString().trim();
+    if (normalizedImported && !RAW_BANK_CATEGORIES.has(normalizedImported.toLowerCase())) {
+      const matched = matchToSplit(normalizedImported);
+      if (matched) return matched;
+      // If imported category is a real user-set category (not raw bank), keep it
+      // even if it doesn't match the split (e.g. from Warden Insights)
     }
 
-    // 3. Run the global keyword matcher and check if that category exists in the split
+    // Try keyword-based categorization from description
     const suggested = suggestCategory(description);
-    if (suggested !== "Other") {
-      const suggestedMatch = splitCats.find((c) => c.name.toLowerCase() === suggested.toLowerCase());
-      if (suggestedMatch) return suggestedMatch.name;
+    if (suggested && suggested !== "Other") {
+      const matched = matchToSplit(suggested);
+      if (matched) return matched;
+      // If suggestCategory found something but it doesn't match split, still return it
+      return suggested;
     }
 
-    // 4. Fallback: first split category
-    return splitCats[0]?.name || "Other";
-  }, [categoryRules, selectedSplitData]);
+    // If imported category was a real (non-raw-bank) category, return it as-is
+    if (normalizedImported && !RAW_BANK_CATEGORIES.has(normalizedImported.toLowerCase())) {
+      return normalizedImported;
+    }
+
+    if (splitCats.length > 0) return splitCats[0].name;
+    return "Other";
+  }, [categoryRules, selectedSplitData, CATEGORY_ALIAS_MAP, RAW_BANK_CATEGORIES]);
+
+  // Category matching – unified across the app via suggestCategory.
+  const matchCategory = useCallback((importedCat, description = "") => {
+    return resolveCategoryForSplit(importedCat, description);
+  }, [resolveCategoryForSplit]);
 
   // Bulk add via upload
   const handleBulkAdd = useCallback((transactions) => {
@@ -1082,33 +1153,8 @@ export default function Tracker() {
     }
 
     // Use category from Insights if it matches a split category, otherwise keyword-match
-    const getCategoryForSplit = (importedCat, description = "") => {
-      // 1. User-defined description rules (highest priority)
-      const ruleHit = categoryRules[normalizeDescriptionKey(description)];
-      if (ruleHit) return ruleHit;
-
-      const splitCats = splitData?.categories || [];
-
-      // 2. Imported category matches a split category (case-insensitive)
-      if (importedCat) {
-        const importedLower = importedCat.toLowerCase();
-        const exactMatch = splitCats.find((c) => c.name.toLowerCase() === importedLower);
-        if (exactMatch) return exactMatch.name;
-      }
-
-      // 3. Run global keyword matcher and see if it matches a split category
-      const suggested = suggestCategory(description);
-      if (suggested !== "Other") {
-        const suggestedMatch = splitCats.find((c) => c.name.toLowerCase() === suggested.toLowerCase());
-        if (suggestedMatch) return suggestedMatch.name;
-      }
-
-      // 4. Fallback: first split category
-      return splitCats[0]?.name || "Other";
-    };
-
     const newPurchases = uniqueUnlinked.map((t) => {
-      const category = getCategoryForSplit(t.category, t.description);
+      const category = resolveCategoryForSplit(t.category, t.description, splitData?.categories);
       return {
         id: crypto.randomUUID(),
         split_id: splitId,
@@ -1174,33 +1220,25 @@ export default function Tracker() {
     return { purchases: newPurchases.length, incomes: newIncomes.length };
   };
 
-  // Manual sync handler - wraps autoImportFromWardenInsights with UI feedback
-  const handleSyncFromInsights = useCallback(async () => {
-    if (!selectedSplit || !selectedSplitData || isSyncingFromInsights) return;
-    
-    setIsSyncingFromInsights(true);
-    setLastSyncResult(null);
-    
-    try {
-      const result = await autoImportFromWardenInsights(selectedSplit, selectedSplitData);
-      if (result) {
-        setLastSyncResult({
-          success: true,
-          purchases: result.purchases || 0,
-          incomes: result.incomes || 0,
-        });
-      } else {
-        setLastSyncResult({ success: true, purchases: 0, incomes: 0 });
-      }
-    } catch (err) {
-      console.error("[Tracker] Sync from Insights failed:", err);
-      setLastSyncResult({ success: false, error: err.message });
-    } finally {
-      setIsSyncingFromInsights(false);
-      // Clear the result message after 5 seconds
-      setTimeout(() => setLastSyncResult(null), 5000);
-    }
-  }, [selectedSplit, selectedSplitData, isSyncingFromInsights]);
+  // Auto-sync from Warden Insights once data is loaded
+  useEffect(() => {
+    if (autoSyncDone.current) return;
+    if (isLoading || !dataLoadedFromBackend.current) return;
+    if (!selectedSplit || !selectedSplitData) return;
+    if (normalizedTransactions.length === 0) return;
+
+    autoSyncDone.current = true;
+    console.log("[Tracker] Auto-syncing from Warden Insights...");
+    autoImportFromWardenInsights(selectedSplit, selectedSplitData)
+      .then((result) => {
+        if (result) {
+          console.log(`[Tracker] Auto-sync complete: ${result.purchases} purchases, ${result.incomes} incomes imported`);
+        } else {
+          console.log("[Tracker] Auto-sync complete: nothing new to import");
+        }
+      })
+      .catch((err) => console.error("[Tracker] Auto-sync failed:", err));
+  }, [isLoading, selectedSplit, selectedSplitData, normalizedTransactions]);
 
   // =========================
   // NEW: Pivot-table helpers
@@ -1525,62 +1563,7 @@ export default function Tracker() {
                     formatDisplayDate={formatDisplayDate}
                   />
                 </div>
-                
-                {/* Sync from Warden Insights Card */}
-                <div className="tracker-sidebar-item">
-                  <div className="card" style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)' }}>
-                    <div className="card-body p-3">
-                      <div className="d-flex align-items-center gap-2 mb-2">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--accent-color)' }}>
-                          <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
-                          <path d="M3 3v5h5"/>
-                          <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/>
-                          <path d="M16 16h5v5"/>
-                        </svg>
-                        <span className="fw-semibold" style={{ color: 'var(--text-primary)', fontSize: '0.9rem' }}>
-                          Sync from Insights
-                        </span>
-                      </div>
-                      <p className="text-muted mb-3" style={{ fontSize: '0.8rem', lineHeight: 1.4 }}>
-                        Import bank transactions from Warden Insights into your Tracker purchases.
-                      </p>
-                      <button
-                        className="btn btn-sm w-100"
-                        style={{
-                          background: 'var(--accent-color)',
-                          color: '#fff',
-                          border: 'none',
-                          fontWeight: 500,
-                          opacity: isSyncingFromInsights ? 0.7 : 1,
-                        }}
-                        onClick={handleSyncFromInsights}
-                        disabled={isSyncingFromInsights || !selectedSplit}
-                      >
-                        {isSyncingFromInsights ? (
-                          <>
-                            <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
-                            Syncing...
-                          </>
-                        ) : (
-                          'Sync Now'
-                        )}
-                      </button>
-                      {lastSyncResult && (
-                        <div 
-                          className={`mt-2 p-2 rounded text-center`}
-                          style={{ 
-                            fontSize: '0.75rem',
-                            background: lastSyncResult.success ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
-                            color: lastSyncResult.success ? 'var(--success-color, #10b981)' : 'var(--danger-color, #ef4444)',
-                            border: `1px solid ${lastSyncResult.success ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
-                          }}
-                        >
-                          {lastSyncResult.message}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
+
               </div>
             </div>
 

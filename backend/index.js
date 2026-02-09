@@ -69,7 +69,7 @@ const corsOrigins = [
 ].filter(Boolean);
 
 app.use(cors({ origin: corsOrigins }));
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 
 // Auth0 JWT middleware - DISABLED FOR DEVELOPMENT
 // const authCheck = jwt.expressjwt({
@@ -86,11 +86,11 @@ app.use(express.json());
 
 // app.use(authCheck);
 
-// Mock middleware for development: extract user_id from Authorization header
+// Auth middleware: extract user_id from Authorization header
+// In production, this would validate JWT. In dev, the token IS the user_id.
 app.use((req, res, next) => {
   const authHeader = req.headers.authorization || '';
   const token = authHeader.replace('Bearer ', '');
-  // For dev, treat token as user_id (in production, validate JWT properly)
   req.auth = { sub: token || 'dev-user' };
   next();
 });
@@ -457,10 +457,12 @@ app.post('/api/purchases/batch', async (req, res) => {
       return res.status(400).json({ error: 'invalid_payload', message: 'purchases array required' });
     }
 
-    // Use transaction for atomicity and better performance
-    await prisma.$transaction(
-      purchases.map(p => 
-        prisma.purchase.upsert({
+    // Process individually (Supabase pgbouncer doesn't support long transactions)
+    let processed = 0;
+    let errors = 0;
+    for (const p of purchases) {
+      try {
+        await prisma.purchase.upsert({
           where: { id: p.id },
           update: {
             split_id: p.split_id,
@@ -480,9 +482,13 @@ app.post('/api/purchases/batch', async (req, res) => {
             category: p.category,
             description: p.description || null
           }
-        })
-      )
-    );
+        });
+        processed++;
+      } catch (e) {
+        errors++;
+        if (errors <= 3) console.error(`[Batch] Upsert error for ${p.id}:`, e.message);
+      }
+    }
     
     // Invalidate cache
     invalidateCache(`purchases:${userId}`);

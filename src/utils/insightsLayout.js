@@ -29,7 +29,7 @@ export function loadInsightsLayout() {
     const raw = localStorage.getItem(LAYOUT_STORAGE_KEY);
     if (!raw) return DEFAULT_INSIGHTS_LAYOUT;
     const arr = JSON.parse(raw);
-    if (!Array.isArray(arr) || arr.length === 0) return DEFAULT_INSIGHTS_LAYOUT;
+    if (!Array.isArray(arr)) return DEFAULT_INSIGHTS_LAYOUT;
     if (!arr.every(item => item.id && item.type && VALID_WIDGET_TYPES.has(item.type)))
       return DEFAULT_INSIGHTS_LAYOUT;
     return arr;
