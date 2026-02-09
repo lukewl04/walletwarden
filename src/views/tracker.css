@@ -249,10 +249,10 @@
 }
 
 .tracker-hover-list {
-  max-height: 500;
+  max-height: 600;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 8px;
+  padding: 10px;
   /* Performance optimizations */
   contain: layout style paint;
   will-change: scroll-position;
