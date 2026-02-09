@@ -3,6 +3,8 @@
 import React, { useState, useMemo, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import Navbar from "../components/navbar.jsx";
+import { useEntitlements } from "../state/EntitlementsContext";
+import UpgradePrompt from "../components/UpgradePrompt.jsx";
 import {
   INSIGHT_WIDGET_CATALOG,
   DEFAULT_INSIGHTS_LAYOUT,
@@ -14,6 +16,24 @@ import {
 
 export default function WardenInsightsCustomize() {
   const navigate = useNavigate();
+  const { canCustomiseInsights } = useEntitlements();
+
+  // If user doesn't have customisation permission, show upgrade prompt
+  if (!canCustomiseInsights) {
+    return (
+      <>
+        <Navbar />
+        <div className="container py-4" style={{ maxWidth: 600 }}>
+          <UpgradePrompt feature="Insight Customisation" plan="pro" onUpgrade={() => navigate("/options")}>
+            <div style={{ padding: '60px 20px', textAlign: 'center' }}>
+              <h5>Customise Your Dashboard</h5>
+              <p className="text-muted">Drag, reorder and pick which insight widgets appear on your dashboard.</p>
+            </div>
+          </UpgradePrompt>
+        </div>
+      </>
+    );
+  }
 
   // Work on a local copy – only persist on explicit Save
   const [layout, setLayout] = useState(() => loadInsightsLayout());

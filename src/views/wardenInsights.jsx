@@ -5,6 +5,9 @@ import CsvPdfUpload from "../components/csv-pdf-upload.jsx";
 import Navbar from "../components/navbar.jsx";
 import HelpPanel from "../components/help-panel.jsx";
 import { useTransactions } from "../state/TransactionsContext";
+import { useEntitlements } from "../state/EntitlementsContext";
+import FeatureGate from "../components/FeatureGate";
+import UpgradePrompt from "../components/UpgradePrompt";
 import { TRANSACTION_CATEGORIES } from "../utils/categories";
 import { getUserToken } from "../utils/userToken";
 
@@ -18,6 +21,7 @@ import { loadInsightsLayout } from "../utils/insightsLayout.js";
 export default function WardenInsights() {
   const location = useLocation();
   const navigate = useNavigate();
+  const ent = useEntitlements();
   const shouldShowHelp =
     location.state?.showHelp || localStorage.getItem("walletwarden-show-help");
 
@@ -499,10 +503,11 @@ export default function WardenInsights() {
               <button
                 className="btn btn-sm btn-outline-secondary"
                 onClick={() => navigate("/insights/customize")}
-                title="Customize dashboard"
-                style={{ fontSize: "0.8rem", padding: "0.25rem 0.5rem" }}
+                title={ent.canCustomiseInsights ? "Customize dashboard" : "Upgrade to Pro to customize"}
+                style={{ fontSize: "0.8rem", padding: "0.25rem 0.5rem", opacity: ent.canCustomiseInsights ? 1 : 0.5 }}
+                disabled={!ent.canCustomiseInsights}
               >
-                ⚙ Customize
+                ⚙ Customize{!ent.canCustomiseInsights && <> <UpgradePrompt feature="Customise Insights" plan="pro" inline /></>}
               </button>
             </div>
           </div>
@@ -675,7 +680,8 @@ export default function WardenInsights() {
                       className="segmented-control__segment segmented-control__segment--active flex-fill"
                       style={{ borderRadius: '20px', padding: '6px 12px', fontSize: '0.8rem' }}
                       onClick={banking.handleConnectBank}
-                      disabled={banking.bankLoading}
+                      disabled={banking.bankLoading || ent.bankConnectionsRemaining <= 0}
+                      title={ent.bankConnectionsRemaining <= 0 ? 'Weekly bank connection limit reached. Upgrade for more.' : ''}
                     >
                       {banking.bankLoading ? (
                         <>
@@ -693,6 +699,14 @@ export default function WardenInsights() {
                     </button>
                   )}
                 </div>
+                {ent.weeklyBankLimit !== Infinity && (
+                  <div className="text-muted mt-1" style={{ fontSize: '0.7rem' }}>
+                    {ent.bankConnectionsRemaining} of {ent.weeklyBankLimit} bank connection{ent.weeklyBankLimit === 1 ? '' : 's'} remaining this week
+                    {ent.bankConnectionsRemaining <= 0 && (
+                      <span className="ms-1" style={{ color: 'rgba(13, 110, 253, 0.8)', cursor: 'pointer' }}>— Upgrade</span>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           )}
