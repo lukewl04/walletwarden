@@ -12,6 +12,7 @@ import Home from "./views/home";
 import Import from "./components/csv-pdf-upload";
 import SplitMaker from "./views/splitmaker";
 import { TransactionsProvider } from "./state/TransactionsContext";
+import { EntitlementsProvider } from "./state/EntitlementsContext";
 import WardenInsights from "./views/wardenInsights";
 import WardenInsightsCustomize from "./views/WardenInsightsCustomize";
 import Tracker from "./views/tracker";
@@ -49,6 +50,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(
     >
       <AuthSync>
         <TransactionsProvider>
+          <EntitlementsProvider>
           <BrowserRouter>
             <Routes>
               <Route path="/" element={<ProtectedHome />} />
@@ -64,6 +66,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(
               <Route path="/options" element={<ProtectedOptions />} />
             </Routes>
           </BrowserRouter>
+          </EntitlementsProvider>
         </TransactionsProvider>
       </AuthSync>
     </Auth0Provider>
