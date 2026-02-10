@@ -17,6 +17,7 @@ import WardenInsightsCustomize from "./views/WardenInsightsCustomize";
 import Tracker from "./views/tracker";
 import Pricing from "./views/Pricing";
 import BillingSuccess from "./views/BillingSuccess";
+import AdminDashboard from "./views/AdminDashboard";
 
 import Options from "./views/options";
 
@@ -28,6 +29,7 @@ const ProtectedWardenInsightsCustomize = ProtectedRoute(WardenInsightsCustomize)
 const ProtectedTracker = ProtectedRoute(Tracker);
 const ProtectedPricing = ProtectedRoute(Pricing);
 const ProtectedBillingSuccess = ProtectedRoute(BillingSuccess);
+const ProtectedAdminDashboard = ProtectedRoute(AdminDashboard);
 
 const ProtectedOptions = ProtectedRoute(Options);
 ReactDOM.createRoot(document.getElementById("root")).render(
@@ -57,6 +59,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(
               <Route path="/tracker" element={<ProtectedTracker />} />
               <Route path="/pricing" element={<ProtectedPricing />} />
               <Route path="/billing/success" element={<ProtectedBillingSuccess />} />
+              <Route path="/admin" element={<ProtectedAdminDashboard />} />
 
               <Route path="/options" element={<ProtectedOptions />} />
             </Routes>

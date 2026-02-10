@@ -5,15 +5,23 @@
 
 const TOKEN_KEY = 'walletwarden-token';
 const AUTH0_USER_KEY = 'walletwarden-auth0-user';
+const AUTH0_USER_DATA_KEY = 'walletwarden-auth0-user-data';
 
 /**
- * Set the Auth0 user ID when user logs in.
- * This should be called from the Auth0 provider when user authenticates.
+ * Set the Auth0 user when user logs in.
+ * Stores both ID and full user data (including email).
  */
 export function setAuth0User(user) {
   if (user?.sub) {
     localStorage.setItem(AUTH0_USER_KEY, user.sub);
-    console.log('[Auth] Set Auth0 user:', user.sub);
+    // Store full user object for email access
+    localStorage.setItem(AUTH0_USER_DATA_KEY, JSON.stringify({
+      sub: user.sub,
+      email: user.email,
+      name: user.name,
+      picture: user.picture
+    }));
+    console.log('[Auth] Set Auth0 user:', user.sub, user.email);
   }
 }
 
@@ -22,6 +30,23 @@ export function setAuth0User(user) {
  */
 export function clearAuth0User() {
   localStorage.removeItem(AUTH0_USER_KEY);
+  localStorage.removeItem(AUTH0_USER_DATA_KEY);
+}
+
+/**
+ * Get Auth0 user email if available
+ */
+export function getAuth0UserEmail() {
+  try {
+    const userData = localStorage.getItem(AUTH0_USER_DATA_KEY);
+    if (userData) {
+      const user = JSON.parse(userData);
+      return user.email || null;
+    }
+  } catch (e) {
+    console.error('[Auth] Error parsing user data:', e);
+  }
+  return null;
 }
 
 /**
@@ -38,8 +63,9 @@ export function getUserToken() {
   // Fall back to browser-generated token for dev mode / not logged in
   let token = localStorage.getItem(TOKEN_KEY);
   
-  // If no token exists, or it's the old shared "dev-user" token, create a unique one
-  if (!token || token === 'dev-user') {
+  // Only create a NEW token if one doesn't exist at all
+  // Don't replace 'dev-user' to avoid creating multiple entries
+  if (!token) {
     token = `user-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
     localStorage.setItem(TOKEN_KEY, token);
     console.log('[Auth] Created new browser token:', token);
@@ -54,13 +80,23 @@ export function getUserToken() {
 export function clearUserToken() {
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(AUTH0_USER_KEY);
+  localStorage.removeItem(AUTH0_USER_DATA_KEY);
 }
 
 /**
  * Get authorization headers for API requests
  */
 export function getAuthHeaders() {
-  return {
+  const headers = {
     Authorization: `Bearer ${getUserToken()}`
   };
+  
+  // Include email if available (from Auth0)
+  const email = getAuth0UserEmail();
+  console.log('[Auth] Getting headers, email:', email);
+  if (email) {
+    headers['X-User-Email'] = email;
+  }
+  
+  return headers;
 }

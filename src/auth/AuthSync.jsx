@@ -16,10 +16,12 @@ export default function AuthSync({ children }) {
       // User is logged in - store their Auth0 ID
       setAuth0User(user);
       console.log('[AuthSync] User authenticated:', user.sub);
-    } else {
-      // User logged out - clear Auth0 ID (will fall back to browser token)
-      clearAuth0User();
-      console.log('[AuthSync] User not authenticated, using browser token');
+      console.log('[AuthSync] User email:', user.email);
+      console.log('[AuthSync] Full user object:', user);
+    } else if (!isAuthenticated && !isLoading) {
+      // User explicitly logged out or not authenticated
+      // Don't create fallback tokens - they should log in
+      console.log('[AuthSync] User not authenticated');
     }
   }, [isAuthenticated, user, isLoading]);
 

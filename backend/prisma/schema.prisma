@@ -126,7 +126,9 @@ model BankBalanceSnapshot {
 model UserPlan {
   id                      String    @id @default(uuid())
   user_id                 String    @unique
+  email                   String?
   plan                    String    @default("free") // free | plus | pro
+  role                    String    @default("user") // user | admin
   stripe_customer_id      String?
   stripe_subscription_id  String?
   plan_status             String?   // active | trialing | past_due | canceled

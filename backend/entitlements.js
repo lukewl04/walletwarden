@@ -10,7 +10,7 @@
 const { getEntitlements, getCurrentWeekStart, PLANS } = require('./plans');
 
 // ── Load user plan from DB (with auto-provision for new users) ──────────
-async function loadUserPlan(prisma, userId) {
+async function loadUserPlan(prisma, userId, userEmail = null) {
   let row = await prisma.userPlan.findUnique({ where: { user_id: userId } });
 
   // Auto-provision Free plan for first-time users
@@ -18,8 +18,15 @@ async function loadUserPlan(prisma, userId) {
     row = await prisma.userPlan.create({
       data: {
         user_id: userId,
+        email: userEmail,
         plan: PLANS.FREE,
       },
+    });
+  } else if (userEmail && row.email !== userEmail) {
+    // Update email if we have a new one and it's different
+    row = await prisma.userPlan.update({
+      where: { user_id: userId },
+      data: { email: userEmail },
     });
   }
 
@@ -60,7 +67,11 @@ function attachEntitlements(prisma) {
       const userId = req.auth?.sub;
       if (!userId) return next(); // unauthenticated – let auth middleware handle
 
-      const planRow = await loadUserPlan(prisma, userId);
+      // Extract email from JWT if available (Auth0 includes email in token)
+      const userEmail = req.auth?.email || req.auth?.['https://walletwarden.app/email'];
+      console.log('[Entitlements] User:', userId, 'Email:', userEmail);
+      
+      const planRow = await loadUserPlan(prisma, userId, userEmail);
       const ent = getEntitlements(planRow.plan);
       const bankUsedThisWeek = await getWeeklyBankUsage(prisma, userId);
 

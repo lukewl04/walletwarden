@@ -5,6 +5,8 @@ import { useTransactions } from "../state/TransactionsContext";
 import { useAuth0 } from "@auth0/auth0-react";
 import { TRANSACTION_CATEGORIES } from "../utils/categories";
 import { getUserToken, clearAuth0User } from "../utils/userToken";
+import { useAdminRole } from "../hooks/useAdminRole";
+import { useNavigate } from "react-router-dom";
 
 const CURRENCY_OPTIONS = [
   { code: 'GBP', symbol: '£', name: 'British Pound' },
@@ -27,6 +29,13 @@ const getAuthHeaders = () => ({ Authorization: `Bearer ${getUserToken()}` });
 export default function Options() {
   const { clearTransactions } = useTransactions();
   const { user, logout } = useAuth0();
+  const { isAdmin, loading: adminLoading } = useAdminRole();
+  const navigate = useNavigate();
+  
+  // Debug logging
+  useEffect(() => {
+    console.log('[Options] isAdmin:', isAdmin, 'adminLoading:', adminLoading);
+  }, [isAdmin, adminLoading]);
   
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
@@ -472,6 +481,17 @@ export default function Options() {
             Data
           </button>
         </li>
+        {isAdmin && (
+          <li className="nav-item">
+            <button
+              className={`nav-link ${activeTab === "admin" ? "active" : ""}`}
+              onClick={() => setActiveTab("admin")}
+              style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white', border: 'none' }}
+            >
+              🛡️ Admin Dashboard
+            </button>
+          </li>
+        )}
       </ul>
 
       {/* Account Settings Tab */}
@@ -875,6 +895,37 @@ export default function Options() {
             </div>
             <p className="text-muted small mt-3 mb-0">
               This will permanently delete: all transactions (manual and imported), budget splits, bank connections, balance data, and income settings. Your account will be reset to a fresh state. This cannot be undone.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Admin Dashboard Tab */}
+      {activeTab === "admin" && isAdmin && (
+        <div className="card shadow-sm mb-4">
+          <div className="card-body">
+            <h5 className="card-title mb-4">🛡️ Admin Dashboard</h5>
+            <p className="text-muted mb-4">
+              Manage users, roles, and subscriptions. Click below to open the full admin dashboard.
+            </p>
+
+            <div className="d-flex gap-2">
+              <button
+                className="segmented-control__segment segmented-control__segment--active"
+                style={{ 
+                  borderRadius: '20px', 
+                  padding: '10px 20px', 
+                  fontSize: '1rem',
+                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                  border: 'none'
+                }}
+                onClick={() => navigate('/admin')}
+              >
+                Open Admin Dashboard →
+              </button>
+            </div>
+            <p className="text-muted small mt-3 mb-0">
+              View all users, manage subscription plans, and control admin access.
             </p>
           </div>
         </div>

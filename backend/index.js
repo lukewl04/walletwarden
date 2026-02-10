@@ -98,7 +98,8 @@ app.use(express.json({ limit: '10mb' }));
 app.use((req, res, next) => {
   const authHeader = req.headers.authorization || '';
   const token = authHeader.replace('Bearer ', '');
-  req.auth = { sub: token || 'dev-user' };
+  const email = req.headers['x-user-email'] || null; // Email from frontend
+  req.auth = { sub: token || 'dev-user', email };
   next();
 });
 
@@ -133,8 +134,30 @@ app.use('/api', gatedFeatureRoutes(prisma));
 const billingRoutes = require('./routes/billing');
 app.use('/api/billing', billingRoutes(prisma));
 
+// Admin routes (protected by admin middleware)
+const adminRoutes = require('./routes/admin');
+app.use('/api/admin', adminRoutes(prisma));
+
+// Attach user role to all requests (for frontend to check)
+const { attachRole } = require('./admin');
+app.use(attachRole(prisma));
+
 // health
 app.get('/health', (req, res) => res.json({ ok: true, database: 'supabase' }));
+
+// Get current user's role (for frontend visibility checks)
+app.get('/api/me/role', async (req, res) => {
+  try {
+    const userId = req.auth?.sub;
+    if (!userId) return res.status(401).json({ error: 'unauthorized' });
+
+    const role = req.userRole || 'user';
+    return res.json({ role });
+  } catch (err) {
+    console.error('[Auth] Error getting user role:', err);
+    return res.status(500).json({ error: 'internal_error', message: err.message });
+  }
+});
 
 // Get transactions for authenticated user
 app.get('/api/transactions', async (req, res) => {
