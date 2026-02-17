@@ -8,28 +8,57 @@
  */
 
 const { getEntitlements, getCurrentWeekStart, PLANS } = require('./plans');
+const { withRetry } = require('./db-retry');
+
+// ── Simple in-memory cache for plan lookups ─────────────────────────────
+const planCache = new Map();
+const PLAN_CACHE_TTL = 15_000; // 15 seconds
+
+function getCachedPlan(userId) {
+  const entry = planCache.get(userId);
+  if (!entry) return null;
+  if (Date.now() > entry.expires) { planCache.delete(userId); return null; }
+  return entry.data;
+}
+function setCachedPlan(userId, data) {
+  planCache.set(userId, { data, expires: Date.now() + PLAN_CACHE_TTL });
+}
 
 // ── Load user plan from DB (with auto-provision for new users) ──────────
 async function loadUserPlan(prisma, userId, userEmail = null) {
-  let row = await prisma.userPlan.findUnique({ where: { user_id: userId } });
+  // Check cache first
+  const cached = getCachedPlan(userId);
+  if (cached && (!userEmail || cached.email === userEmail)) return cached;
+
+  let row = await withRetry(
+    () => prisma.userPlan.findUnique({ where: { user_id: userId } }),
+    { label: 'Entitlements', retries: 2 }
+  );
 
   // Auto-provision Free plan for first-time users
   if (!row) {
-    row = await prisma.userPlan.create({
-      data: {
-        user_id: userId,
-        email: userEmail,
-        plan: PLANS.FREE,
-      },
-    });
+    row = await withRetry(
+      () => prisma.userPlan.create({
+        data: {
+          user_id: userId,
+          email: userEmail,
+          plan: PLANS.FREE,
+        },
+      }),
+      { label: 'Entitlements', retries: 2 }
+    );
   } else if (userEmail && row.email !== userEmail) {
     // Update email if we have a new one and it's different
-    row = await prisma.userPlan.update({
-      where: { user_id: userId },
-      data: { email: userEmail },
-    });
+    row = await withRetry(
+      () => prisma.userPlan.update({
+        where: { user_id: userId },
+        data: { email: userEmail },
+      }),
+      { label: 'Entitlements', retries: 2 }
+    );
   }
 
+  setCachedPlan(userId, row);
   return row;
 }
 
@@ -37,9 +66,12 @@ async function loadUserPlan(prisma, userId, userEmail = null) {
 async function getWeeklyBankUsage(prisma, userId) {
   const weekStart = getCurrentWeekStart();
 
-  const row = await prisma.bankConnectionUsage.findUnique({
-    where: { user_id_week_start: { user_id: userId, week_start: new Date(weekStart) } },
-  });
+  const row = await withRetry(
+    () => prisma.bankConnectionUsage.findUnique({
+      where: { user_id_week_start: { user_id: userId, week_start: new Date(weekStart) } },
+    }),
+    { label: 'Entitlements', retries: 2 }
+  );
 
   return row?.connections_used ?? 0;
 }
@@ -47,11 +79,14 @@ async function getWeeklyBankUsage(prisma, userId) {
 async function incrementBankUsage(prisma, userId) {
   const weekStart = getCurrentWeekStart();
 
-  await prisma.bankConnectionUsage.upsert({
-    where: { user_id_week_start: { user_id: userId, week_start: new Date(weekStart) } },
-    update: { connections_used: { increment: 1 }, updated_at: new Date() },
-    create: { user_id: userId, week_start: new Date(weekStart), connections_used: 1 },
-  });
+  await withRetry(
+    () => prisma.bankConnectionUsage.upsert({
+      where: { user_id_week_start: { user_id: userId, week_start: new Date(weekStart) } },
+      update: { connections_used: { increment: 1 }, updated_at: new Date() },
+      create: { user_id: userId, week_start: new Date(weekStart), connections_used: 1 },
+    }),
+    { label: 'Entitlements', retries: 2 }
+  );
 }
 
 // ── Express middleware: attach entitlements to req ──────────────────────

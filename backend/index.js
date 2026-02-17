@@ -23,11 +23,18 @@ if (!connectionString) {
 const pool = new Pool({
   connectionString,
   ssl: { rejectUnauthorized: false }, // Required for Supabase
-  // Connection pool optimizations - reduced for Supabase Session mode limit
-  max: 5, // Maximum connections (Supabase Session mode default is 10 total)
-  min: 1,  // Minimum connections to keep alive
-  idleTimeoutMillis: 20000, // Close idle connections after 20s
-  connectionTimeoutMillis: 8000, // Timeout waiting for connection
+  // Connection pool optimizations - reduced for Supabase pooler limits
+  max: 3, // Keep low to avoid overwhelming the Supabase pooler
+  min: 0,  // Don't keep idle connections (pooler may drop them)
+  idleTimeoutMillis: 10000, // Close idle connections after 10s
+  connectionTimeoutMillis: 10000, // Timeout waiting for connection
+  allowExitOnIdle: true, // Let pool wind down when idle
+});
+
+// Handle pool-level errors to prevent crashes on connection drops
+pool.on('error', (err) => {
+  console.error('[Pool] Unexpected pool error:', err.message);
+  // Don't crash — the pool will create new connections on next query
 });
 
 // Initialize Prisma with PostgreSQL adapter
@@ -778,14 +785,25 @@ app.post('/api/reset', async (req, res) => {
   }
 });
 
-// Test database connection on startup
+// Test database connection on startup with retries
 async function testConnection() {
+  const { withRetry } = require('./db-retry');
   try {
-    await prisma.$connect();
+    await withRetry(
+      async () => {
+        // Use $connect first, then a real query to verify end-to-end
+        await prisma.$connect();
+        await prisma.$queryRaw`SELECT 1 AS ok`;
+      },
+      { retries: 4, delay: 2000, label: 'Startup' }
+    );
     console.log('✅ Connected to Supabase PostgreSQL database');
     return true;
   } catch (err) {
     console.error('❌ Failed to connect to database:', err.message);
+    console.error('⚠️  If you see "Tenant or user not found", your Supabase project may be paused.');
+    console.error('   Go to https://supabase.com/dashboard and check your project status.');
+    console.error('   Also verify your DATABASE_URL password is current.');
     return false;
   }
 }

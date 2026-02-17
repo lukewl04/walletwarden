@@ -6,10 +6,26 @@
  * 2. Database role field (dev fallback)
  */
 
+const { withRetry } = require('./db-retry');
+
 const ROLES = Object.freeze({
   USER: 'user',
   ADMIN: 'admin',
 });
+
+// ── Simple in-memory cache for role lookups ─────────────────────────────
+const roleCache = new Map();
+const ROLE_CACHE_TTL = 30_000; // 30 seconds
+
+function getCachedRole(userId) {
+  const entry = roleCache.get(userId);
+  if (!entry) return null;
+  if (Date.now() > entry.expires) { roleCache.delete(userId); return null; }
+  return entry.data;
+}
+function setCachedRole(userId, data) {
+  roleCache.set(userId, { data, expires: Date.now() + ROLE_CACHE_TTL });
+}
 
 /**
  * Extract role from Auth0 JWT claims (production).
@@ -42,13 +58,21 @@ async function getUserRole(prisma, req) {
     return jwtRole;
   }
 
+  // Check cache
+  const cached = getCachedRole(userId);
+  if (cached) return cached;
+
   // Fallback to database (dev mode)
-  const userPlan = await prisma.userPlan.findUnique({
-    where: { user_id: userId },
-    select: { role: true },
-  });
+  const userPlan = await withRetry(
+    () => prisma.userPlan.findUnique({
+      where: { user_id: userId },
+      select: { role: true },
+    }),
+    { label: 'Admin', retries: 2 }
+  );
 
   const role = userPlan?.role || ROLES.USER;
+  setCachedRole(userId, role);
   console.log(`[Admin] Role from DB: ${role} for user ${userId}`);
   return role;
 }
