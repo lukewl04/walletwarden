@@ -5,9 +5,10 @@ import { setAuth0User, clearAuth0User } from '../utils/userToken';
 /**
  * AuthSync - Syncs Auth0 user to localStorage for API requests.
  * This ensures all API calls use the Auth0 user ID when logged in.
+ * Also clears stale auth data on logout to prevent ghost sessions.
  */
 export default function AuthSync({ children }) {
-  const { user, isAuthenticated, isLoading } = useAuth0();
+  const { user, isAuthenticated, isLoading, error } = useAuth0();
 
   useEffect(() => {
     if (isLoading) return;
@@ -16,14 +17,17 @@ export default function AuthSync({ children }) {
       // User is logged in - store their Auth0 ID
       setAuth0User(user);
       console.log('[AuthSync] User authenticated:', user.sub);
-      console.log('[AuthSync] User email:', user.email);
-      console.log('[AuthSync] Full user object:', user);
+      console.log('[AuthSync] User email:', user.email || '(not provided)');
     } else if (!isAuthenticated && !isLoading) {
       // User explicitly logged out or not authenticated
-      // Don't create fallback tokens - they should log in
-      console.log('[AuthSync] User not authenticated');
+      // Clear any stale auth data from localStorage
+      clearAuth0User();
+      console.log('[AuthSync] User not authenticated — cleared stale auth data');
+      if (error) {
+        console.error('[AuthSync] Auth0 error:', error.message);
+      }
     }
-  }, [isAuthenticated, user, isLoading]);
+  }, [isAuthenticated, user, isLoading, error]);
 
   return children;
 }

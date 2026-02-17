@@ -33,8 +33,21 @@ const ProtectedBillingSuccess = ProtectedRoute(BillingSuccess);
 const ProtectedAdminDashboard = ProtectedRoute(AdminDashboard);
 
 const ProtectedOptions = ProtectedRoute(Options);
+
+// Clean up Auth0 callback params from URL after login redirect
+function onRedirectCallback(appState) {
+  window.history.replaceState(
+    {},
+    document.title,
+    appState?.returnTo || window.location.pathname
+  );
+}
+
 ReactDOM.createRoot(document.getElementById("root")).render(
-  <React.StrictMode>
+  // NOTE: React.StrictMode removed — it double-mounts components in dev,
+  // which causes Auth0's redirect callback to fire twice and consume the
+  // auth code on the first mount, leaving the second mount with a stale
+  // code → login redirect loop ("spazzing out").
     <Auth0Provider
       domain={import.meta.env.VITE_AUTH0_DOMAIN}
       clientId={import.meta.env.VITE_AUTH0_CLIENT_ID}
@@ -43,6 +56,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(
         audience: import.meta.env.VITE_AUTH0_AUDIENCE,
         scope: 'openid profile email'
       }}
+      onRedirectCallback={onRedirectCallback}
       // Persist tokens across reloads: use refresh tokens with localStorage cache.
       // Note: storing tokens in localStorage has security tradeoffs (XSS risk).
       useRefreshTokens={true}
@@ -70,5 +84,4 @@ ReactDOM.createRoot(document.getElementById("root")).render(
         </TransactionsProvider>
       </AuthSync>
     </Auth0Provider>
-  </React.StrictMode>
 );

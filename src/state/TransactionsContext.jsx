@@ -1,7 +1,7 @@
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useState, useCallback } from 'react';
 import { normalizeTransaction, generateId } from '../models/transaction';
 import { useAuth0 } from '@auth0/auth0-react';
-import { getUserToken, getAuthHeaders } from '../utils/userToken';
+import { getUserToken, getAuth0UserEmail } from '../utils/userToken';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000/api';
 
@@ -29,11 +29,19 @@ export function TransactionsProvider({ children }) {
 
   // Helper to get auth token - uses unique per-browser token in dev mode
   // creates a unique id for each browser session, allowing devs to test auth flows without Auth0
-  const getToken = async () => {
+  const getToken = useCallback(async () => {
     if (isDevMode) {
       return getUserToken(); // Generates unique ID per browser
     }
     return await getAccessTokenSilently({ audience: import.meta.env.VITE_AUTH0_AUDIENCE });
+  }, [isDevMode, getAccessTokenSilently]);
+
+  // Build auth headers using the token from getToken()
+  const buildHeaders = (token, extraHeaders = {}) => {
+    const headers = { Authorization: `Bearer ${token}`, ...extraHeaders };
+    const email = getAuth0UserEmail();
+    if (email) headers['X-User-Email'] = email;
+    return headers;
   };
 
   // Load transactions from Supabase on mount
@@ -51,10 +59,9 @@ export function TransactionsProvider({ children }) {
       try {
         const token = await getToken();
         console.log('[TransactionsContext] Fetching transactions from Supabase...');
-        console.log('[TransactionsContext] Using token:', token);
         
         const res = await fetch(`${API_BASE}/transactions`, {
-          headers: getAuthHeaders(),
+          headers: buildHeaders(token),
         });
 
         if (!aborted && res.ok) {
@@ -84,7 +91,7 @@ export function TransactionsProvider({ children }) {
     try {
       const token = await getToken();
       const res = await fetch(`${API_BASE}/transactions`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: buildHeaders(token),
       });
       
       if (res.ok) {
@@ -132,7 +139,7 @@ export function TransactionsProvider({ children }) {
       const token = await getToken();
       const res = await fetch(`${API_BASE}/transactions/bulk`, {
         method: 'POST',
-        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        headers: buildHeaders(token, { 'Content-Type': 'application/json' }),
         body: JSON.stringify(norms),
       });
       
@@ -153,7 +160,7 @@ export function TransactionsProvider({ children }) {
       const token = await getToken();
       const res = await fetch(`${API_BASE}/transactions/${encodeURIComponent(id)}`, {
         method: 'DELETE',
-        headers: getAuthHeaders(),
+        headers: buildHeaders(token),
       });
       
       if (res.ok) {
@@ -172,7 +179,7 @@ export function TransactionsProvider({ children }) {
       const token = await getToken();
       const res = await fetch(`${API_BASE}/transactions/${encodeURIComponent(id)}`, {
         method: 'PATCH',
-        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        headers: buildHeaders(token, { 'Content-Type': 'application/json' }),
         body: JSON.stringify(updates),
       });
       
@@ -194,7 +201,7 @@ export function TransactionsProvider({ children }) {
       // Bulk delete all transactions from Supabase
       const res = await fetch(`${API_BASE}/transactions/clear`, {
         method: 'DELETE',
-        headers: getAuthHeaders(),
+        headers: buildHeaders(token),
       });
       
       if (res.ok) {
