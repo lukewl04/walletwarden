@@ -134,6 +134,46 @@ async function main() {
     `;
     console.log("✅ bank_accounts table created/verified");
 
+    // Create user_plans table
+    await prisma.$executeRaw`
+      CREATE TABLE IF NOT EXISTS user_plans (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id TEXT NOT NULL UNIQUE,
+        email TEXT,
+        plan TEXT NOT NULL DEFAULT 'free',
+        role TEXT NOT NULL DEFAULT 'user',
+        stripe_customer_id TEXT,
+        stripe_subscription_id TEXT,
+        plan_status TEXT,
+        plan_current_period_end TIMESTAMPTZ,
+        started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        expires_at TIMESTAMPTZ,
+        cancelled_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )
+    `;
+    console.log("✅ user_plans table created/verified");
+
+    // Add email and role columns if they don't exist (for existing installs)
+    await prisma.$executeRaw`ALTER TABLE user_plans ADD COLUMN IF NOT EXISTS email TEXT`;
+    await prisma.$executeRaw`ALTER TABLE user_plans ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'user'`;
+    console.log("✅ user_plans email & role columns verified");
+
+    // Create bank_connection_usage table
+    await prisma.$executeRaw`
+      CREATE TABLE IF NOT EXISTS bank_connection_usage (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id TEXT NOT NULL,
+        week_start DATE NOT NULL,
+        connections_used INT NOT NULL DEFAULT 0,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE(user_id, week_start)
+      )
+    `;
+    console.log("✅ bank_connection_usage table created/verified");
+
     // Enable RLS
     console.log("🔐 Enabling Row Level Security...");
     await prisma.$executeRaw`ALTER TABLE transactions ENABLE ROW LEVEL SECURITY`;

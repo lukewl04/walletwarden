@@ -10,7 +10,10 @@ const { execSync } = require('child_process');
 console.log('🔧 Setting up WalletWarden database...\n');
 
 try {
-  console.log('📊 Pushing schema to database...');
+  console.log('� Generating Prisma client...');
+  execSync('npx prisma generate', { stdio: 'inherit' });
+
+  console.log('\n�📊 Pushing schema to database...');
   execSync('npx prisma db push', { stdio: 'inherit' });
   
   console.log('\n✅ Database setup complete!');
@@ -21,6 +24,8 @@ try {
   console.log('  ✓ income_settings table');
   console.log('  ✓ bank_connections table (for open banking)');
   console.log('  ✓ bank_accounts table (for bank account tracking)');
+  console.log('  ✓ user_plans table (subscriptions, email, roles)');
+  console.log('  ✓ bank_connection_usage table');
   console.log('\nYou can now connect your bank account via open banking!');
 } catch (error) {
   console.error('❌ Database setup failed:', error.message);
