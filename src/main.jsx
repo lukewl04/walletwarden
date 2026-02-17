@@ -6,6 +6,8 @@ import "./App.css";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { Auth0Provider } from "@auth0/auth0-react";
 
+const isDevMode = import.meta.env.VITE_DEV_MODE === 'true';
+
 import ProtectedRoute from "./auth/ProtectedRoute";
 import AuthSync from "./auth/AuthSync";
 import Home from "./views/home";
@@ -43,45 +45,45 @@ function onRedirectCallback(appState) {
   );
 }
 
-ReactDOM.createRoot(document.getElementById("root")).render(
-  // NOTE: React.StrictMode removed — it double-mounts components in dev,
-  // which causes Auth0's redirect callback to fire twice and consume the
-  // auth code on the first mount, leaving the second mount with a stale
-  // code → login redirect loop ("spazzing out").
-    <Auth0Provider
-      domain={import.meta.env.VITE_AUTH0_DOMAIN}
-      clientId={import.meta.env.VITE_AUTH0_CLIENT_ID}
-      authorizationParams={{
-        redirect_uri: window.location.origin,
-        audience: import.meta.env.VITE_AUTH0_AUDIENCE,
-        scope: 'openid profile email'
-      }}
-      onRedirectCallback={onRedirectCallback}
-      // Persist tokens across reloads: use refresh tokens with localStorage cache.
-      // Note: storing tokens in localStorage has security tradeoffs (XSS risk).
-      useRefreshTokens={true}
-      cacheLocation="localstorage"
-    >
-      <AuthSync>
-        <TransactionsProvider>
-          <EntitlementsProvider>
-          <BrowserRouter>
-            <Routes>
-              <Route path="/" element={<ProtectedHome />} />
-              <Route path="/import" element={<ProtectedImport />} />
-              <Route path="/splitmaker" element={<ProtectedSplit />} />
-              <Route path="/wardeninsights" element={<ProtectedWardenInsights />} />
-              <Route path="/insights/customize" element={<ProtectedWardenInsightsCustomize />} />
-              <Route path="/tracker" element={<ProtectedTracker />} />
-              <Route path="/pricing" element={<ProtectedPricing />} />
-              <Route path="/billing/success" element={<ProtectedBillingSuccess />} />
-              <Route path="/admin" element={<ProtectedAdminDashboard />} />
+// The app shell — routes wrapped in providers
+const AppRoutes = (
+  <AuthSync>
+    <TransactionsProvider>
+      <EntitlementsProvider>
+        <BrowserRouter>
+          <Routes>
+            <Route path="/" element={<ProtectedHome />} />
+            <Route path="/import" element={<ProtectedImport />} />
+            <Route path="/splitmaker" element={<ProtectedSplit />} />
+            <Route path="/wardeninsights" element={<ProtectedWardenInsights />} />
+            <Route path="/insights/customize" element={<ProtectedWardenInsightsCustomize />} />
+            <Route path="/tracker" element={<ProtectedTracker />} />
+            <Route path="/pricing" element={<ProtectedPricing />} />
+            <Route path="/billing/success" element={<ProtectedBillingSuccess />} />
+            <Route path="/admin" element={<ProtectedAdminDashboard />} />
+            <Route path="/options" element={<ProtectedOptions />} />
+          </Routes>
+        </BrowserRouter>
+      </EntitlementsProvider>
+    </TransactionsProvider>
+  </AuthSync>
+);
 
-              <Route path="/options" element={<ProtectedOptions />} />
-            </Routes>
-          </BrowserRouter>
-          </EntitlementsProvider>
-        </TransactionsProvider>
-      </AuthSync>
-    </Auth0Provider>
+ReactDOM.createRoot(document.getElementById("root")).render(
+  // Auth0Provider always wraps so useAuth0() hooks don't crash,
+  // but ProtectedRoute skips login enforcement when VITE_DEV_MODE=true
+  <Auth0Provider
+    domain={import.meta.env.VITE_AUTH0_DOMAIN || 'placeholder.auth0.com'}
+    clientId={import.meta.env.VITE_AUTH0_CLIENT_ID || 'placeholder'}
+    authorizationParams={{
+      redirect_uri: window.location.origin,
+      audience: import.meta.env.VITE_AUTH0_AUDIENCE,
+      scope: 'openid profile email'
+    }}
+    onRedirectCallback={onRedirectCallback}
+    useRefreshTokens={!isDevMode}
+    cacheLocation="localstorage"
+  >
+    {AppRoutes}
+  </Auth0Provider>
 );
