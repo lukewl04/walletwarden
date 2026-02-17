@@ -1,7 +1,7 @@
 import { withAuthenticationRequired, useAuth0 } from "@auth0/auth0-react";
 
 function AuthErrorBoundary({ children }) {
-  const { error } = useAuth0();
+  const { error, logout } = useAuth0();
 
   if (error) {
     return (
@@ -12,12 +12,12 @@ function AuthErrorBoundary({ children }) {
           <button
             className="btn btn-primary"
             onClick={() => {
-              // Clear all auth state and reload
+              // Clear all auth state then do a proper Auth0 logout
               localStorage.clear();
-              window.location.href = window.location.origin;
+              logout({ logoutParams: { returnTo: window.location.origin } });
             }}
           >
-            Try Again
+            Sign In Again
           </button>
         </div>
       </div>
