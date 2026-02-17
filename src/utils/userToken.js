@@ -31,6 +31,10 @@ export function setAuth0User(user) {
 export function clearAuth0User() {
   localStorage.removeItem(AUTH0_USER_KEY);
   localStorage.removeItem(AUTH0_USER_DATA_KEY);
+  // Also clear Auth0 SDK's cached tokens to prevent stale token errors on re-login
+  Object.keys(localStorage)
+    .filter(k => k.startsWith('@@auth0spajs@@'))
+    .forEach(k => localStorage.removeItem(k));
 }
 
 /**

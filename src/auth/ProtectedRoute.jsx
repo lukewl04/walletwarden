@@ -1,7 +1,5 @@
 import { withAuthenticationRequired, useAuth0 } from "@auth0/auth0-react";
 
-const isDevMode = import.meta.env.VITE_DEV_MODE === 'true';
-
 function AuthErrorBoundary({ children }) {
   const { error } = useAuth0();
 
@@ -29,11 +27,6 @@ function AuthErrorBoundary({ children }) {
 }
 
 export default function ProtectedRoute(Component) {
-  // In dev mode, skip Auth0 authentication entirely
-  if (isDevMode) {
-    return Component;
-  }
-
   const Wrapped = withAuthenticationRequired(Component, {
     onRedirecting: () => (
       <div className="container py-5">
