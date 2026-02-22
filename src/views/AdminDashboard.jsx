@@ -174,6 +174,36 @@ export default function AdminDashboard() {
     }
   }
 
+  // Delete user entirely
+  async function deleteUser(userId, email) {
+    const displayName = email || userId.slice(0, 20) + '...';
+    if (!confirm(`⚠️ PERMANENTLY DELETE user ${displayName}?\n\nThis will remove ALL their data (transactions, splits, purchases, bank connections, etc.) and their Supabase Auth account.\n\nThis action CANNOT be undone.`)) return;
+
+    const key = `${userId}-delete`;
+    try {
+      setActionLoading(prev => ({ ...prev, [key]: true }));
+
+      const response = await fetch(`${API_URL}/admin/users/${userId}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || 'Failed to delete user');
+      }
+
+      showMessage(`✓ ${data.message}`, 'success');
+      await fetchData();
+    } catch (err) {
+      console.error('[Admin] Error deleting user:', err);
+      showMessage(`✗ ${err.message}`, 'error');
+    } finally {
+      setActionLoading(prev => ({ ...prev, [key]: false }));
+    }
+  }
+
   function showMessage(text, type) {
     setMessage({ text, type });
     setTimeout(() => setMessage(null), 5000);
@@ -328,6 +358,16 @@ export default function AdminDashboard() {
                           ✗
                         </button>
                       )}
+
+                      {/* Delete user button */}
+                      <button
+                        onClick={() => deleteUser(user.user_id, user.email)}
+                        disabled={actionLoading[`${user.user_id}-delete`]}
+                        className="btn-delete-user"
+                        title="Permanently Delete User"
+                      >
+                        🗑️
+                      </button>
                     </td>
                   </tr>
                 ))}

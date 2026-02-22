@@ -69,7 +69,6 @@ function attachEntitlements(prisma) {
 
       // Extract email from JWT if available (Auth0 includes email in token)
       const userEmail = req.auth?.email || req.auth?.['https://walletwarden.app/email'];
-      console.log('[Entitlements] User:', userId, 'Email:', userEmail);
       
       const planRow = await loadUserPlan(prisma, userId, userEmail);
       const ent = getEntitlements(planRow.plan);

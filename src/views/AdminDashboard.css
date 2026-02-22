@@ -325,6 +325,27 @@
   cursor: not-allowed;
 }
 
+.btn-delete-user {
+  padding: 0.4rem 0.6rem;
+  background: #b71c1c;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: all 0.2s;
+}
+
+.btn-delete-user:hover:not(:disabled) {
+  background: #880e0e;
+  transform: scale(1.1);
+}
+
+.btn-delete-user:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .no-users {
   padding: 3rem;
   text-align: center;
