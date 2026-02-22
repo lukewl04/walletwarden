@@ -8,7 +8,8 @@ const segmentedNavStyles = {
   container: {
     display: 'flex',
     alignItems: 'center',
-    backgroundColor: 'rgba(30, 41, 59, 0.8)',
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    border: '1px solid rgba(255, 255, 255, 0.2)',
     borderRadius: '9999px',
     padding: '4px',
     gap: '2px',
@@ -23,6 +24,7 @@ const segmentedNavStyles = {
     transition: 'background-color 180ms ease, color 180ms ease, box-shadow 180ms ease',
     border: 'none',
     outline: 'none',
+    color: '#ffffff',
   },
   active: {
     backgroundColor: '#3b82f6',
@@ -31,7 +33,7 @@ const segmentedNavStyles = {
   },
   inactive: {
     backgroundColor: 'transparent',
-    color: 'rgba(148, 163, 184, 0.9)',
+    color: '#ffffff',
   },
 };
 
@@ -130,7 +132,7 @@ const Navbar = () => {
   };
 
   return (
-    <nav className="navbar navbar-expand-lg shadow-sm fixed-top">
+    <nav className="navbar navbar-expand-lg navbar-dark shadow-sm fixed-top bg-dark" style={{ backgroundColor: 'var(--nav-bg, #0b1224) !important' }}>
       <div className="container-fluid px-4">
         {/* Brand - Far Left */}
         <Link className="navbar-brand fw-bold d-flex align-items-center gap-1 me-auto" to="/">
@@ -156,16 +158,19 @@ const Navbar = () => {
         </button>
 
         {/* Links */}
-        <div className="collapse navbar-collapse" id="navbarNav">
-          <ul className="navbar-nav align-items-lg-center gap-lg-3 ms-auto">
+        <div className="collapse navbar-collapse show" id="navbarNav" style={{ display: 'flex !important' }}>
+          <ul className="navbar-nav align-items-lg-center gap-lg-3 ms-auto" style={{ display: 'flex', gap: '1.5rem', marginLeft: 'auto', alignItems: 'center', listStyle: 'none', width: 'auto', }}>
+
             {/* Segmented Nav Pill */}
-            <li className="nav-item">
+            <li className="nav-item" style={{ listStyle: 'none', display: 'flex', alignItems: 'center', }}>
               <div style={segmentedNavStyles.container}>
                 <Link
                   to="/wardeninsights"
                   style={{
                     ...segmentedNavStyles.segment,
                     ...(location.pathname === '/wardeninsights' ? segmentedNavStyles.active : segmentedNavStyles.inactive),
+                    display: 'block',
+                    whiteSpace: 'nowrap',
                   }}
                   onMouseEnter={(e) => {
                     if (location.pathname !== '/wardeninsights') {
@@ -176,7 +181,7 @@ const Navbar = () => {
                   onMouseLeave={(e) => {
                     if (location.pathname !== '/wardeninsights') {
                       e.currentTarget.style.backgroundColor = 'transparent';
-                      e.currentTarget.style.color = 'rgba(148, 163, 184, 0.9)';
+                      e.currentTarget.style.color = '#ffffff';
                     }
                   }}
                   onFocus={(e) => {
@@ -189,47 +194,50 @@ const Navbar = () => {
                 >
                   Insights
                 </Link>
-                {hasSplits && (
-                  <Link
-                    to="/tracker"
-                    style={{
-                      ...segmentedNavStyles.segment,
-                      ...(location.pathname === '/tracker' ? segmentedNavStyles.active : segmentedNavStyles.inactive),
-                    }}
-                    onMouseEnter={(e) => {
-                      if (location.pathname !== '/tracker') {
-                        e.currentTarget.style.backgroundColor = 'rgba(59, 130, 246, 0.15)';
-                        e.currentTarget.style.color = 'rgba(203, 213, 225, 1)';
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      if (location.pathname !== '/tracker') {
-                        e.currentTarget.style.backgroundColor = 'transparent';
-                        e.currentTarget.style.color = 'rgba(148, 163, 184, 0.9)';
-                      }
-                    }}
-                    onFocus={(e) => {
-                      e.currentTarget.style.outline = '2px solid rgba(59, 130, 246, 0.5)';
-                      e.currentTarget.style.outlineOffset = '2px';
-                    }}
-                    onBlur={(e) => {
-                      e.currentTarget.style.outline = 'none';
-                    }}
-                  >
-                    Tracker
-                  </Link>
-                )}
+                {/* Always show Tracker for debugging */}
+                <Link
+                  to="/tracker"
+                  style={{
+                    ...segmentedNavStyles.segment,
+                    ...(location.pathname === '/tracker' ? segmentedNavStyles.active : segmentedNavStyles.inactive),
+                    display: 'block',
+                    whiteSpace: 'nowrap',
+                  }}
+                  onMouseEnter={(e) => {
+                    if (location.pathname !== '/tracker') {
+                      e.currentTarget.style.backgroundColor = 'rgba(59, 130, 246, 0.15)';
+                      e.currentTarget.style.color = 'rgba(203, 213, 225, 1)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (location.pathname !== '/tracker') {
+                      e.currentTarget.style.backgroundColor = 'transparent';
+                      e.currentTarget.style.color = '#ffffff';
+                    }
+                  }}
+                  onFocus={(e) => {
+                    e.currentTarget.style.outline = '2px solid rgba(59, 130, 246, 0.5)';
+                    e.currentTarget.style.outlineOffset = '2px';
+                  }}
+                  onBlur={(e) => {
+                    e.currentTarget.style.outline = 'none';
+                  }}
+                >
+                  Tracker
+                </Link>
               </div>
             </li>
 
-            {user && (
-              <li className="nav-item ms-lg-3 mt-2 mt-lg-0 position-relative profile-dropdown-container">
-                <button
-                  type="button"
-                  className="btn p-0 border-0"
-                  onClick={() => setShowProfileDropdown(!showProfileDropdown)}
-                  aria-label="Profile menu"
-                >
+            {/* Always show profile dropdown for debugging */}
+            <li className="nav-item position-relative profile-dropdown-container" style={{ marginLeft: '1.5rem', display: 'flex', alignItems: 'center', listStyle: 'none', }}>
+              <button
+                type="button"
+                className="btn p-0 border-0"
+                onClick={() => setShowProfileDropdown(!showProfileDropdown)}
+                aria-label="Profile menu"
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'none', cursor: 'pointer', }}
+              >
+                {user ? (
                   <img
                     src={profilePicture || user.picture}
                     alt={user.name || "Profile"}
@@ -242,7 +250,26 @@ const Navbar = () => {
                     }}
                     title={user.name || user.email}
                   />
-                </button>
+                ) : (
+                  <div
+                    style={{
+                      width: '40px',
+                      height: '40px',
+                      borderRadius: '50%',
+                      backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      cursor: 'pointer',
+                      color: '#ffffff',
+                      fontSize: '18px',
+                    }}
+                    title="Not logged in"
+                  >
+                    👤
+                  </div>
+                )}
+              </button>
 
                 {showSettingsTooltip && (
                   <div 

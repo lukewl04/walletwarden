@@ -8,4 +8,7 @@ export default {
     extend: {},
   },
   plugins: [],
+  corePlugins: {
+    preflight: true, // Re-enable Preflight for Bootstrap compatibility
+  },
 }
