@@ -406,37 +406,25 @@ async function syncAccountsAndTransactions(prisma, userId, { fromDate, toDate } 
 
       console.log(`[TrueLayer] Processing ${transactions.length} transactions for account ${acc.display_name || acc.account_id}`);
 
+      // Filter out internal transfers and normalize in one pass
+      const normalized = [];
       for (const tx of transactions) {
-        // Skip internal transfers (description matches another account name)
         if (isInternalTransfer(tx, accountNameSet)) {
           totalInternal++;
           continue;
         }
+        normalized.push(normalizeTransaction(tx, userId));
+      }
 
-        const normalized = normalizeTransaction(tx, userId);
-        
-        // Check if transaction already exists
-        const existing = await prisma.transaction.findUnique({
-          where: { id: normalized.id },
+      // Batch insert using createMany (FAST — one DB round-trip per account)
+      if (normalized.length > 0) {
+        const result = await prisma.transaction.createMany({
+          data: normalized,
+          skipDuplicates: true,
         });
-        
-        if (existing) {
-          totalSkipped++;
-        } else {
-          try {
-            await prisma.transaction.create({
-              data: normalized,
-            });
-            totalInserted++;
-          } catch (err) {
-            // Ignore duplicate key errors (race condition)
-            if (err.code === 'P2002') {
-              totalSkipped++;
-            } else {
-              throw err;
-            }
-          }
-        }
+        const inserted = result.count || 0;
+        totalInserted += inserted;
+        totalSkipped += normalized.length - inserted;
       }
     } catch (err) {
       // Log but don't fail the whole sync if one account has issues

@@ -181,10 +181,16 @@ router.post("/sync", requireConfig, async (req, res) => {
         daysBack: 60,
       });
 
+      const bankTxCount = await prisma.transaction.count({
+        where: { user_id: userId, source: 'bank' },
+      });
+      console.log(`[TrueLayer] QUICK sync complete for ${userId}: ${result.inserted} inserted, ${bankTxCount} total bank txns in DB`);
+
       return res.json({
         ok: true,
         mode: "quick",
         ...result,
+        bankTransactionsInDb: bankTxCount,
       });
     }
 
@@ -195,10 +201,17 @@ router.post("/sync", requireConfig, async (req, res) => {
       toDate,
     });
 
+    // Also return count of bank transactions now in DB — lets frontend verify data persisted
+    const bankTxCount = await prisma.transaction.count({
+      where: { user_id: userId, source: 'bank' },
+    });
+    console.log(`[TrueLayer] POST /sync complete for ${userId}: ${result.inserted} inserted, ${bankTxCount} total bank txns in DB`);
+
     return res.json({
       ok: true,
       mode: "full",
       ...result,
+      bankTransactionsInDb: bankTxCount,
     });
   } catch (err) {
     console.error("Error syncing transactions:", err);

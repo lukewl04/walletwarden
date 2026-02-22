@@ -174,6 +174,12 @@ app.get('/api/transactions', async (req, res) => {
         source: true
       }
     });
+
+    // Log source breakdown for debugging
+    const bankCount = rows.filter(r => r.source === 'bank').length;
+    const manualCount = rows.length - bankCount;
+    console.log(`[Transactions] GET /api/transactions for ${userId}: ${rows.length} total (${bankCount} bank, ${manualCount} manual)`);
+
     // Convert date fields to ISO string for frontend compatibility
     return res.json(rows.map(r => ({ ...r, date: r.date ? new Date(r.date).toISOString() : null })));
   } catch (err) {
