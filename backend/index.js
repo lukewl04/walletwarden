@@ -109,6 +109,10 @@ app.use((err, req, res, next) => {
   return res.status(500).json({ error: 'internal_error', message: err.message });
 });
 
+// Subscription & entitlements routes (must be before any route that checks req.entitlements)
+const { attachEntitlements } = require('./entitlements');
+app.use(attachEntitlements(prisma));   // populates req.entitlements for all routes below
+
 // TrueLayer Open Banking routes
 const trueLayerRoutes = require('./routes/banks.truelayer');
 console.log('[TrueLayer] Setting up routes, prisma available:', !!prisma);
@@ -116,10 +120,6 @@ console.log('[TrueLayer] trueLayerRoutes type:', typeof trueLayerRoutes);
 const trueLayerRouter = trueLayerRoutes(prisma);
 console.log('[TrueLayer] Router created:', !!trueLayerRouter);
 app.use('/api/banks/truelayer', trueLayerRouter);
-
-// Subscription & entitlements routes
-const { attachEntitlements } = require('./entitlements');
-app.use(attachEntitlements(prisma));   // populates req.entitlements for all routes below
 
 const subscriptionRoutes = require('./routes/subscription');
 app.use('/api', subscriptionRoutes(prisma));
