@@ -158,8 +158,8 @@ const Navbar = () => {
         </button>
 
         {/* Links */}
-        <div className="collapse navbar-collapse show" id="navbarNav" style={{ display: 'flex !important' }}>
-          <ul className="navbar-nav align-items-lg-center gap-lg-3 ms-auto" style={{ display: 'flex', gap: '1.5rem', marginLeft: 'auto', alignItems: 'center', listStyle: 'none', width: 'auto', }}>
+        <div className="navbar-collapse" id="navbarNav" style={{ display: 'flex', flexBasis: 'auto', flexGrow: 0 }}>
+          <ul className="navbar-nav align-items-lg-center gap-lg-3 ms-auto" style={{ display: 'flex', flexDirection: 'row', gap: '1.5rem', marginLeft: 'auto', alignItems: 'center', listStyle: 'none', width: 'auto', }}>
 
             {/* Segmented Nav Pill */}
             <li className="nav-item" style={{ listStyle: 'none', display: 'flex', alignItems: 'center', }}>
@@ -358,7 +358,6 @@ const Navbar = () => {
                   </div>
                 )}
               </li>
-            )}
           </ul>
         </div>
       </div>
