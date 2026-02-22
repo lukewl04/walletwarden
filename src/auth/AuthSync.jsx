@@ -20,8 +20,9 @@ export default function AuthSync({ children }) {
       console.log('[AuthSync] Full user object:', user);
     } else if (!isAuthenticated && !isLoading) {
       // User explicitly logged out or not authenticated
-      // Don't create fallback tokens - they should log in
-      console.log('[AuthSync] User not authenticated');
+      // Clear stale Auth0 credentials from localStorage
+      clearAuth0User();
+      console.log('[AuthSync] User not authenticated, cleared stored credentials');
     }
   }, [isAuthenticated, user, isLoading]);
 

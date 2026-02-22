@@ -103,14 +103,10 @@ app.use((req, res, next) => {
   next();
 });
 
-// Error handling middleware for JWT errors
+// General error handling middleware
 app.use((err, req, res, next) => {
-  if (err instanceof jwt.UnauthorizedError) {
-    console.error(`[${new Date().toISOString()}] JWT Error on ${req.method} ${req.path}:`, err.message);
-    console.error('Authorization header:', req.headers.authorization ? 'present but invalid' : 'missing');
-    return res.status(401).json({ error: 'unauthorized', message: err.message });
-  }
-  next(err);
+  console.error(`[${new Date().toISOString()}] Error on ${req.method} ${req.path}:`, err.message);
+  return res.status(500).json({ error: 'internal_error', message: err.message });
 });
 
 // TrueLayer Open Banking routes
@@ -134,13 +130,13 @@ app.use('/api', gatedFeatureRoutes(prisma));
 const billingRoutes = require('./routes/billing');
 app.use('/api/billing', billingRoutes(prisma));
 
-// Admin routes (protected by admin middleware)
-const adminRoutes = require('./routes/admin');
-app.use('/api/admin', adminRoutes(prisma));
-
 // Attach user role to all requests (for frontend to check)
 const { attachRole } = require('./admin');
 app.use(attachRole(prisma));
+
+// Admin routes (protected by admin middleware)
+const adminRoutes = require('./routes/admin');
+app.use('/api/admin', adminRoutes(prisma));
 
 // health
 app.get('/health', (req, res) => res.json({ ok: true, database: 'supabase' }));

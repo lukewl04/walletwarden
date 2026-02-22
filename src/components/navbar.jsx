@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useAuth0 } from "@auth0/auth0-react";
+import { useAdminRole } from "../hooks/useAdminRole";
 
 /* Segmented nav pill styles */
 const segmentedNavStyles = {
@@ -39,6 +40,7 @@ const PROFILE_PICTURE_KEY = "walletwarden:profilePicture";
 
 const Navbar = () => {
   const { user } = useAuth0();
+  const { isAdmin } = useAdminRole();
   const location = useLocation();
   const [theme, setTheme] = useState(() => {
     if (typeof window === "undefined") return "dark";
@@ -305,6 +307,15 @@ const Navbar = () => {
                     >
                       💳 Pricing
                     </Link>
+                    {isAdmin && (
+                      <Link
+                        to="/admin"
+                        className="dropdown-item"
+                        onClick={() => setShowProfileDropdown(false)}
+                      >
+                        🛡️ Admin
+                      </Link>
+                    )}
                     <hr className="dropdown-divider my-2" />
                     <button
                       type="button"

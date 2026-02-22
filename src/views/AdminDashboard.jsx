@@ -8,8 +8,10 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import Navbar from '../components/navbar';
-import { getUserToken } from '../utils/userToken';
+import { getAuthHeaders } from '../utils/userToken';
+import { useAdminRole } from '../hooks/useAdminRole';
 import './AdminDashboard.css';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000/api';
@@ -27,6 +29,8 @@ const PLAN_LABELS = {
 };
 
 export default function AdminDashboard() {
+  const { isAdmin, loading: adminLoading } = useAdminRole();
+  const navigate = useNavigate();
   const [users, setUsers] = useState([]);
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -34,16 +38,22 @@ export default function AdminDashboard() {
   const [actionLoading, setActionLoading] = useState({});
   const [message, setMessage] = useState(null);
 
+  // Redirect non-admins away
+  useEffect(() => {
+    if (!adminLoading && !isAdmin) {
+      navigate('/', { replace: true });
+    }
+  }, [adminLoading, isAdmin, navigate]);
+
   // Fetch users and stats
   useEffect(() => {
-    fetchData();
-  }, []);
+    if (isAdmin) fetchData();
+  }, [isAdmin]);
 
   async function fetchData() {
     try {
       setLoading(true);
-      const token = getUserToken();
-      const headers = { Authorization: `Bearer ${token}` };
+      const headers = getAuthHeaders();
 
       const [usersRes, statsRes] = await Promise.all([
         fetch(`${API_URL}/admin/users`, { headers }),
@@ -73,13 +83,12 @@ export default function AdminDashboard() {
     const key = `${userId}-plan`;
     try {
       setActionLoading(prev => ({ ...prev, [key]: true }));
-      const token = getUserToken();
 
       const response = await fetch(`${API_URL}/admin/users/${userId}/plan`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
+          ...getAuthHeaders(),
         },
         body: JSON.stringify({ plan }),
       });
@@ -107,11 +116,10 @@ export default function AdminDashboard() {
 
     try {
       setActionLoading(prev => ({ ...prev, [key]: true }));
-      const token = getUserToken();
 
       const response = await fetch(`${API_URL}/admin/users/${userId}/plan`, {
         method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
+        headers: getAuthHeaders(),
       });
 
       const data = await response.json();
@@ -140,13 +148,12 @@ export default function AdminDashboard() {
     const key = `${userId}-role`;
     try {
       setActionLoading(prev => ({ ...prev, [key]: true }));
-      const token = getUserToken();
 
       const response = await fetch(`${API_URL}/admin/users/${userId}/role`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
+          ...getAuthHeaders(),
         },
         body: JSON.stringify({ role: newRole }),
       });

@@ -5,7 +5,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { getUserToken } from '../utils/userToken';
+import { getAuthHeaders } from '../utils/userToken';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000/api';
 
@@ -20,15 +20,13 @@ export function useAdminRole() {
     async function checkAdminRole() {
       try {
         setLoading(true);
-        const token = getUserToken();
+        const headers = getAuthHeaders();
         
-        console.log('[Admin Hook] Checking admin role for token:', token);
+        console.log('[Admin Hook] Checking admin role...');
         console.log('[Admin Hook] API URL:', `${API_URL}/me/role`);
         
         const response = await fetch(`${API_URL}/me/role`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
+          headers,
         });
 
         if (!response.ok) {

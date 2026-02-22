@@ -21,7 +21,7 @@ const CURRENCY_STORAGE_KEY = 'walletwarden:currency';
 const CUSTOM_CATEGORIES_KEY = 'walletwarden:customCategories';
 const PROFILE_PICTURE_KEY = 'walletwarden:profilePicture';
 
-const API_URL = "http://localhost:4000/api";
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:4000/api";
 
 // Helper to get auth headers with unique user token
 const getAuthHeaders = () => ({ Authorization: `Bearer ${getUserToken()}` });

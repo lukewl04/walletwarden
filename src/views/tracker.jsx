@@ -20,7 +20,7 @@ import AddPurchaseModal from "../components/tracker/AddPurchaseModal.jsx";
 import ImportModal from "../components/tracker/ImportModal.jsx";
 import ExpectedIncomeModal from "../components/tracker/ExpectedIncomeModal.jsx";
 
-const API_URL = "http://localhost:4000/api";
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:4000/api";
 
 // Helper to get auth headers with unique user token
 const getAuthHeaders = () => ({ Authorization: `Bearer ${getUserToken()}` });
