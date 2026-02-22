@@ -37,10 +37,7 @@ async function getUserRole(prisma, req) {
 
   // Try JWT first (production)
   const jwtRole = getRoleFromJWT(req);
-  if (jwtRole) {
-    console.log(`[Admin] Role from JWT: ${jwtRole} for user ${userId}`);
-    return jwtRole;
-  }
+  if (jwtRole) return jwtRole;
 
   // Fallback to database (dev mode)
   const userPlan = await prisma.userPlan.findUnique({
@@ -49,7 +46,6 @@ async function getUserRole(prisma, req) {
   });
 
   const role = userPlan?.role || ROLES.USER;
-  console.log(`[Admin] Role from DB: ${role} for user ${userId}`);
   return role;
 }
 

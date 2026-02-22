@@ -9,6 +9,15 @@ const express = require('express');
 const { requireAdmin } = require('../admin');
 const { PLANS } = require('../plans');
 
+// Lazy-loaded to avoid crashing at startup if env vars aren't set
+let _supabaseAdmin = null;
+function getSupabaseAdmin() {
+  if (!_supabaseAdmin) {
+    _supabaseAdmin = require('../supabaseAdmin');
+  }
+  return _supabaseAdmin;
+}
+
 module.exports = function adminRoutes(prisma) {
   const router = express.Router();
 
@@ -226,6 +235,81 @@ module.exports = function adminRoutes(prisma) {
       return res.status(500).json({ 
         error: 'internal_error', 
         message: err.message 
+      });
+    }
+  });
+
+  /**
+   * DELETE /api/admin/users/:userId
+   * Permanently delete a user and all their data.
+   * Removes from all database tables and Supabase Auth.
+   */
+  router.delete('/users/:userId', async (req, res) => {
+    try {
+      const { userId } = req.params;
+
+      // Prevent self-deletion
+      const adminUserId = req.auth?.sub;
+      if (userId === adminUserId) {
+        return res.status(400).json({
+          error: 'self_deletion',
+          message: 'Cannot delete your own account',
+        });
+      }
+
+      // Check user exists
+      const existing = await prisma.userPlan.findUnique({
+        where: { user_id: userId },
+      });
+      if (!existing) {
+        return res.status(404).json({
+          error: 'not_found',
+          message: 'User not found',
+        });
+      }
+
+      // Delete all user data from every table (order matters for safety)
+      const deletions = await prisma.$transaction([
+        prisma.purchase.deleteMany({ where: { user_id: userId } }),
+        prisma.incomeSetting.deleteMany({ where: { user_id: userId } }),
+        prisma.split.deleteMany({ where: { user_id: userId } }),
+        prisma.transaction.deleteMany({ where: { user_id: userId } }),
+        prisma.bankBalanceSnapshot.deleteMany({ where: { user_id: userId } }),
+        prisma.bankAccount.deleteMany({ where: { user_id: userId } }),
+        prisma.bankConnection.deleteMany({ where: { user_id: userId } }),
+        prisma.bankConnectionUsage.deleteMany({ where: { user_id: userId } }),
+        prisma.userPlan.delete({ where: { user_id: userId } }),
+      ]);
+
+      console.log(`[Admin] Deleted all DB data for user ${userId}`);
+
+      // Remove user from Supabase Auth
+      try {
+        const supabaseAdmin = getSupabaseAdmin();
+        if (!supabaseAdmin) {
+          console.warn(`[Admin] Supabase admin client not configured — skipping auth deletion for ${userId}`);
+        } else {
+          const { error: authError } = await supabaseAdmin.auth.admin.deleteUser(userId);
+          if (authError) {
+            console.warn(`[Admin] Supabase auth deletion warning for ${userId}:`, authError.message);
+          } else {
+            console.log(`[Admin] Removed user ${userId} from Supabase Auth`);
+          }
+        }
+      } catch (authErr) {
+        // Log but don't fail — DB data is already gone
+        console.warn(`[Admin] Could not remove user from Supabase Auth:`, authErr.message);
+      }
+
+      return res.json({
+        success: true,
+        message: `User ${existing.email || userId} permanently deleted`,
+      });
+    } catch (err) {
+      console.error('[Admin] Error deleting user:', err);
+      return res.status(500).json({
+        error: 'internal_error',
+        message: err.message,
       });
     }
   });
