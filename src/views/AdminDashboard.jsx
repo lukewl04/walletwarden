@@ -1,10 +1,11 @@
 /**
  * AdminDashboard.jsx — Admin-only user management dashboard.
- * 
+ *
  * Lists all users and allows admins to:
  * - View user plans and roles
  * - Set plan (free/plus/pro)
  * - Grant/revoke admin role
+ * - Delete users
  */
 
 import React, { useState, useEffect } from 'react';
@@ -12,72 +13,379 @@ import { useNavigate } from 'react-router-dom';
 import Navbar from '../components/navbar';
 import { getAuthHeaders } from '../utils/userToken';
 import { useAdminRole } from '../hooks/useAdminRole';
-import './AdminDashboard.css';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000/api';
 
-const PLANS = {
-  FREE: 'free',
-  PLUS: 'plus',
-  PRO: 'pro',
-};
+const PLANS = { FREE: 'free', PLUS: 'plus', PRO: 'pro' };
 
-const PLAN_LABELS = {
-  [PLANS.FREE]: 'Free',
-  [PLANS.PLUS]: 'Plus ($5/mo)',
-  [PLANS.PRO]: 'Pro ($6.99/mo)',
-};
+const styles = `
+  @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@400;500;600&display=swap');
+  @import url('https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css');
 
-// Custom Dropdown Component
-function CustomDropdown({ value, onChange, disabled, options }) {
-  const [isOpen, setIsOpen] = useState(false);
+  .adm-wrap {
+    font-family: 'Syne', sans-serif;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 2rem 1.5rem;
+    min-height: 100vh;
+  }
 
-  const handleSelect = (newValue) => {
-    onChange(newValue);
-    setIsOpen(false);
+  .adm-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 1.75rem;
+    padding-bottom: 1.25rem;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+  }
+
+  .adm-title {
+    font-size: 20px;
+    font-weight: 600;
+    color: #f1f0fb;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .adm-title i {
+    font-size: 22px;
+    color: #7F77DD;
+  }
+
+  .adm-subtitle {
+    font-size: 13px;
+    color: #94a3b8;
+    margin-top: 4px;
+    font-weight: 400;
+  }
+
+  .btn-refresh {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 8px;
+    padding: 8px 16px;
+    font-size: 13px;
+    font-family: 'Syne', sans-serif;
+    color: #94a3b8;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    transition: all 0.15s;
+  }
+
+  .btn-refresh:hover:not(:disabled) {
+    color: #f1f0fb;
+    background: rgba(255,255,255,0.09);
+  }
+
+  .btn-refresh:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .btn-refresh i { font-size: 15px; }
+
+  /* Message banner */
+  .adm-msg {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    margin-bottom: 1.25rem;
+  }
+
+  .adm-msg i { font-size: 16px; }
+  .adm-msg.success { background: rgba(29,158,117,0.15); color: #5dcaa5; border: 1px solid rgba(29,158,117,0.25); }
+  .adm-msg.error   { background: rgba(226,75,74,0.15);  color: #f09595; border: 1px solid rgba(226,75,74,0.25); }
+
+  /* Stats */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 10px;
+    margin-bottom: 1.75rem;
+  }
+
+  .stat-card {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.07);
+    border-radius: 10px;
+    padding: 14px 16px;
+  }
+
+  .stat-val {
+    font-size: 26px;
+    font-weight: 600;
+    line-height: 1;
+    margin-bottom: 5px;
+  }
+
+  .stat-label {
+    font-size: 12px;
+    color: #64748b;
+    font-weight: 400;
+  }
+
+  .stat-purple .stat-val { color: #7F77DD; }
+  .stat-blue   .stat-val { color: #378ADD; }
+  .stat-teal   .stat-val { color: #1D9E75; }
+  .stat-coral  .stat-val { color: #D85A30; }
+  .stat-amber  .stat-val { color: #BA7517; }
+
+  /* Section head */
+  .section-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+
+  .section-title {
+    font-size: 14px;
+    font-weight: 500;
+    color: #f1f0fb;
+  }
+
+  .user-count {
+    font-size: 12px;
+    color: #64748b;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.07);
+    border-radius: 20px;
+    padding: 2px 10px;
+  }
+
+  /* Table */
+  .table-wrap {
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+
+  .adm-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+
+  .adm-table thead {
+    background: rgba(255,255,255,0.03);
+  }
+
+  .adm-table th {
+    padding: 11px 14px;
+    text-align: left;
+    font-size: 11px;
+    font-weight: 500;
+    color: #64748b;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  .adm-table td {
+    padding: 13px 14px;
+    border-top: 1px solid rgba(255,255,255,0.05);
+    vertical-align: middle;
+    color: #cbd5e1;
+  }
+
+  .adm-table tbody tr:hover td {
+    background: rgba(255,255,255,0.025);
+  }
+
+  .mono {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    color: #64748b;
+  }
+
+  /* Badges */
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 9px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
+  .badge i { font-size: 12px; }
+
+  .badge-admin    { background: rgba(127,119,221,0.18); color: #a5a0f0; border: 1px solid rgba(127,119,221,0.3); }
+  .badge-user     { background: rgba(255,255,255,0.05); color: #94a3b8; border: 1px solid rgba(255,255,255,0.1); }
+  .badge-free     { background: rgba(255,255,255,0.05); color: #94a3b8; border: 1px solid rgba(255,255,255,0.1); }
+  .badge-plus     { background: rgba(55,138,221,0.15);  color: #85b7eb; border: 1px solid rgba(55,138,221,0.25); }
+  .badge-pro      { background: rgba(127,119,221,0.18); color: #a5a0f0; border: 1px solid rgba(127,119,221,0.3); }
+  .badge-active   { background: rgba(29,158,117,0.15);  color: #5dcaa5; border: 1px solid rgba(29,158,117,0.25); }
+  .badge-trialing { background: rgba(186,117,23,0.15);  color: #faC775; border: 1px solid rgba(186,117,23,0.25); }
+  .badge-past_due { background: rgba(226,75,74,0.15);   color: #f09595; border: 1px solid rgba(226,75,74,0.25); }
+  .badge-canceled { background: rgba(255,255,255,0.05); color: #64748b; border: 1px solid rgba(255,255,255,0.08); }
+
+  /* Actions */
+  .actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .plan-select {
+    font-family: 'Syne', sans-serif;
+    font-size: 12px;
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 7px;
+    padding: 5px 8px;
+    background: rgba(255,255,255,0.05);
+    color: #cbd5e1;
+    cursor: pointer;
+    height: 30px;
+    transition: border-color 0.15s;
+  }
+
+  .plan-select:focus {
+    outline: none;
+    border-color: #7F77DD;
+    box-shadow: 0 0 0 3px rgba(127,119,221,0.2);
+  }
+
+  .act-btn {
+    height: 30px;
+    padding: 0 10px;
+    border-radius: 7px;
+    font-size: 12px;
+    font-family: 'Syne', sans-serif;
+    font-weight: 500;
+    cursor: pointer;
+    border: 1px solid rgba(255,255,255,0.1);
+    background: rgba(255,255,255,0.04);
+    color: #94a3b8;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+
+  .act-btn i { font-size: 14px; }
+
+  .act-btn:hover:not(:disabled) {
+    background: rgba(255,255,255,0.09);
+    color: #f1f0fb;
+  }
+
+  .act-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  .act-btn.grant  { color: #85b7eb; border-color: rgba(55,138,221,0.3); }
+  .act-btn.grant:hover:not(:disabled)  { background: rgba(55,138,221,0.12); }
+
+  .act-btn.revoke { color: #faC775; border-color: rgba(186,117,23,0.3); }
+  .act-btn.revoke:hover:not(:disabled) { background: rgba(186,117,23,0.12); }
+
+  .act-btn.remove { color: #f09595; border-color: rgba(226,75,74,0.3); }
+  .act-btn.remove:hover:not(:disabled) { background: rgba(226,75,74,0.12); }
+
+  .act-btn.delete { color: #f09595; border-color: rgba(226,75,74,0.3); }
+  .act-btn.delete:hover:not(:disabled) { background: rgba(226,75,74,0.12); }
+
+  /* Empty / loading / error states */
+  .adm-state {
+    text-align: center;
+    padding: 4rem 2rem;
+    color: #64748b;
+    font-size: 14px;
+  }
+
+  .adm-state h3 {
+    font-size: 16px;
+    font-weight: 500;
+    color: #94a3b8;
+    margin-bottom: 8px;
+  }
+
+  .btn-retry {
+    margin-top: 14px;
+    padding: 8px 20px;
+    border-radius: 8px;
+    background: rgba(127,119,221,0.15);
+    border: 1px solid rgba(127,119,221,0.3);
+    color: #a5a0f0;
+    font-family: 'Syne', sans-serif;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .btn-retry:hover { background: rgba(127,119,221,0.25); }
+
+  @media (max-width: 900px) {
+    .stats-grid { grid-template-columns: repeat(3, 1fr); }
+  }
+
+  @media (max-width: 600px) {
+    .stats-grid { grid-template-columns: repeat(2, 1fr); }
+    .adm-wrap { padding: 1rem; }
+  }
+`;
+
+function PlanBadge({ plan }) {
+  const map = {
+    free: { cls: 'badge-free', icon: null, label: 'Free' },
+    plus: { cls: 'badge-plus', icon: 'ti-star', label: 'Plus' },
+    pro:  { cls: 'badge-pro',  icon: 'ti-rocket', label: 'Pro' },
   };
-
-  const currentLabel = options.find(opt => opt.value === value)?.label || value;
-
+  const { cls, icon, label } = map[plan] || map.free;
   return (
-    <div className="relative">
-      <button
-        onClick={() => !disabled && setIsOpen(!isOpen)}
-        disabled={disabled}
-        className="h-9 px-3 bg-slate-800 border border-white/10 rounded-lg text-slate-300 text-sm font-medium hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all duration-200 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        <span>{currentLabel}</span>
-        <svg 
-          className={`w-4 h-4 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} 
-          fill="none" 
-          stroke="currentColor" 
-          viewBox="0 0 24 24"
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
-
-      {isOpen && (
-        <>
-          <div 
-            className="fixed inset-0 z-10" 
-            onClick={() => setIsOpen(false)}
-          />
-          <div className="absolute top-full mt-1 w-full bg-slate-800 border border-white/10 rounded-lg shadow-lg z-20 py-1">
-            {options.map((option) => (
-              <button
-                key={option.value}
-                onClick={() => handleSelect(option.value)}
-                className="w-full px-3 py-2 text-left text-slate-300 text-sm hover:bg-slate-700 transition-colors duration-150 first:rounded-t-lg last:rounded-b-lg"
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
-        </>
-      )}
-    </div>
+    <span className={`badge ${cls}`}>
+      {icon && <i className={`ti ${icon}`} aria-hidden="true" />}
+      {label}
+    </span>
   );
+}
+
+function RoleBadge({ role }) {
+  return role === 'admin' ? (
+    <span className="badge badge-admin">
+      <i className="ti ti-shield" aria-hidden="true" />
+      Admin
+    </span>
+  ) : (
+    <span className="badge badge-user">
+      <i className="ti ti-user" aria-hidden="true" />
+      User
+    </span>
+  );
+}
+
+function StatusBadge({ status }) {
+  const map = {
+    active:   { cls: 'badge-active',   icon: 'ti-circle-check', label: 'Active' },
+    trialing: { cls: 'badge-trialing', icon: 'ti-clock',         label: 'Trialing' },
+    past_due: { cls: 'badge-past_due', icon: 'ti-alert-circle',  label: 'Past due' },
+    canceled: { cls: 'badge-canceled', icon: 'ti-minus',         label: 'Canceled' },
+  };
+  const entry = map[status];
+  if (!entry) return <span className="badge badge-canceled">—</span>;
+  return (
+    <span className={`badge ${entry.cls}`}>
+      <i className={`ti ${entry.icon}`} aria-hidden="true" />
+      {entry.label}
+    </span>
+  );
+}
+
+function formatDate(str) {
+  if (!str) return '—';
+  return new Date(str).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
 export default function AdminDashboard() {
@@ -90,14 +398,10 @@ export default function AdminDashboard() {
   const [actionLoading, setActionLoading] = useState({});
   const [message, setMessage] = useState(null);
 
-  // Redirect non-admins away
   useEffect(() => {
-    if (!adminLoading && !isAdmin) {
-      navigate('/', { replace: true });
-    }
+    if (!adminLoading && !isAdmin) navigate('/', { replace: true });
   }, [adminLoading, isAdmin, navigate]);
 
-  // Fetch users and stats
   useEffect(() => {
     if (isAdmin) fetchData();
   }, [isAdmin]);
@@ -106,153 +410,104 @@ export default function AdminDashboard() {
     try {
       setLoading(true);
       const headers = getAuthHeaders();
-
       const [usersRes, statsRes] = await Promise.all([
         fetch(`${API_URL}/admin/users`, { headers }),
         fetch(`${API_URL}/admin/stats`, { headers }),
       ]);
-
-      if (!usersRes.ok || !statsRes.ok) {
-        throw new Error('Failed to fetch admin data');
-      }
-
+      if (!usersRes.ok || !statsRes.ok) throw new Error('Failed to fetch admin data');
       const usersData = await usersRes.json();
       const statsData = await statsRes.json();
-
       setUsers(usersData.users);
       setStats(statsData.stats);
       setError(null);
     } catch (err) {
-      console.error('[Admin] Error fetching data:', err);
       setError(err.message);
     } finally {
       setLoading(false);
     }
   }
 
-  // Set user plan
   async function setPlan(userId, plan) {
     const key = `${userId}-plan`;
     try {
-      setActionLoading(prev => ({ ...prev, [key]: true }));
-
-      const response = await fetch(`${API_URL}/admin/users/${userId}/plan`, {
+      setActionLoading(p => ({ ...p, [key]: true }));
+      const res = await fetch(`${API_URL}/admin/users/${userId}/plan`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...getAuthHeaders(),
-        },
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
         body: JSON.stringify({ plan }),
       });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || 'Failed to update plan');
-      }
-
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Failed to update plan');
       showMessage(`✓ ${data.message}`, 'success');
       await fetchData();
     } catch (err) {
-      console.error('[Admin] Error setting plan:', err);
       showMessage(`✗ ${err.message}`, 'error');
     } finally {
-      setActionLoading(prev => ({ ...prev, [key]: false }));
+      setActionLoading(p => ({ ...p, [key]: false }));
     }
   }
 
-  // Remove plan (set to free)
   async function removePlan(userId) {
+    if (!confirm("Remove this user's plan and set to free?")) return;
     const key = `${userId}-remove`;
-    if (!confirm('Remove this user\'s plan and set to free?')) return;
-
     try {
-      setActionLoading(prev => ({ ...prev, [key]: true }));
-
-      const response = await fetch(`${API_URL}/admin/users/${userId}/plan`, {
+      setActionLoading(p => ({ ...p, [key]: true }));
+      const res = await fetch(`${API_URL}/admin/users/${userId}/plan`, {
         method: 'DELETE',
         headers: getAuthHeaders(),
       });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || 'Failed to remove plan');
-      }
-
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Failed to remove plan');
       showMessage(`✓ ${data.message}`, 'success');
       await fetchData();
     } catch (err) {
-      console.error('[Admin] Error removing plan:', err);
       showMessage(`✗ ${err.message}`, 'error');
     } finally {
-      setActionLoading(prev => ({ ...prev, [key]: false }));
+      setActionLoading(p => ({ ...p, [key]: false }));
     }
   }
 
-  // Toggle admin role
   async function toggleAdmin(userId, currentRole) {
     const newRole = currentRole === 'admin' ? 'user' : 'admin';
     const action = newRole === 'admin' ? 'grant admin to' : 'revoke admin from';
-    
     if (!confirm(`${action} this user?`)) return;
-
     const key = `${userId}-role`;
     try {
-      setActionLoading(prev => ({ ...prev, [key]: true }));
-
-      const response = await fetch(`${API_URL}/admin/users/${userId}/role`, {
+      setActionLoading(p => ({ ...p, [key]: true }));
+      const res = await fetch(`${API_URL}/admin/users/${userId}/role`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...getAuthHeaders(),
-        },
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
         body: JSON.stringify({ role: newRole }),
       });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || 'Failed to update role');
-      }
-
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Failed to update role');
       showMessage(`✓ ${data.message}`, 'success');
       await fetchData();
     } catch (err) {
-      console.error('[Admin] Error updating role:', err);
       showMessage(`✗ ${err.message}`, 'error');
     } finally {
-      setActionLoading(prev => ({ ...prev, [key]: false }));
+      setActionLoading(p => ({ ...p, [key]: false }));
     }
   }
 
-  // Delete user entirely
   async function deleteUser(userId, email) {
     const displayName = email || userId.slice(0, 20) + '...';
-    if (!confirm(`⚠️ PERMANENTLY DELETE user ${displayName}?\n\nThis will remove ALL their data (transactions, splits, purchases, bank connections, etc.) and their Supabase Auth account.\n\nThis action CANNOT be undone.`)) return;
-
+    if (!confirm(`⚠️ PERMANENTLY DELETE user ${displayName}?\n\nThis will remove ALL their data and cannot be undone.`)) return;
     const key = `${userId}-delete`;
     try {
-      setActionLoading(prev => ({ ...prev, [key]: true }));
-
-      const response = await fetch(`${API_URL}/admin/users/${userId}`, {
+      setActionLoading(p => ({ ...p, [key]: true }));
+      const res = await fetch(`${API_URL}/admin/users/${userId}`, {
         method: 'DELETE',
         headers: getAuthHeaders(),
       });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || 'Failed to delete user');
-      }
-
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Failed to delete user');
       showMessage(`✓ ${data.message}`, 'success');
       await fetchData();
     } catch (err) {
-      console.error('[Admin] Error deleting user:', err);
       showMessage(`✗ ${err.message}`, 'error');
     } finally {
-      setActionLoading(prev => ({ ...prev, [key]: false }));
+      setActionLoading(p => ({ ...p, [key]: false }));
     }
   }
 
@@ -261,217 +516,164 @@ export default function AdminDashboard() {
     setTimeout(() => setMessage(null), 5000);
   }
 
-  function formatDate(dateString) {
-    if (!dateString) return '—';
-    return new Date(dateString).toLocaleDateString();
-  }
-
-  if (loading) {
-    return (
-      <>
-        <Navbar />
-        <div className="admin-dashboard">
-          <div className="admin-loading">Loading admin dashboard...</div>
-        </div>
-      </>
+  const stateContent = () => {
+    if (loading) return <div className="adm-state">Loading admin dashboard...</div>;
+    if (error) return (
+      <div className="adm-state">
+        <h3>⚠️ Error loading dashboard</h3>
+        <p>{error}</p>
+        <button className="btn-retry" onClick={fetchData}>Retry</button>
+      </div>
     );
-  }
-
-  if (error) {
-    return (
-      <>
-        <Navbar />
-        <div className="admin-dashboard">
-          <div className="admin-error">
-            <h3>⚠️ Error Loading Admin Dashboard</h3>
-            <p>{error}</p>
-            <button onClick={fetchData} className="btn-retry">Retry</button>
-          </div>
-        </div>
-      </>
-    );
-  }
+    return null;
+  };
 
   return (
-    <div
-      className="container-fluid py-4 mt-5"
-      style={{ maxWidth: 1200, minHeight: "100vh", overflowY: "auto" }}
-    >
+    <>
+      <style>{styles}</style>
       <Navbar />
-      <div className="admin-dashboard">
-        <header className="admin-header">
-          <h1>🛡️ Admin Dashboard</h1>
-          <button onClick={fetchData} className="btn-refresh" disabled={loading}>
-            🔄 Refresh
+      <div className="adm-wrap" style={{ paddingTop: '5rem' }}>
+        <div className="adm-header">
+          <div>
+            <div className="adm-title">
+              <i className="ti ti-shield-check" aria-hidden="true" />
+              Admin dashboard
+            </div>
+            <div className="adm-subtitle">Manage users, plans, and roles</div>
+          </div>
+          <button className="btn-refresh" onClick={fetchData} disabled={loading}>
+            <i className="ti ti-refresh" aria-hidden="true" />
+            Refresh
           </button>
-        </header>
+        </div>
 
         {message && (
-          <div className={`admin-message ${message.type}`}>
+          <div className={`adm-msg ${message.type}`}>
+            <i className={`ti ${message.type === 'success' ? 'ti-circle-check' : 'ti-alert-circle'}`} aria-hidden="true" />
             {message.text}
           </div>
         )}
 
-        {/* Stats Cards */}
-        {stats && (
-          <div className="admin-stats">
-            <div className="stat-card">
-              <div className="stat-value">{stats.totalUsers}</div>
-              <div className="stat-label">Total Users</div>
-            </div>
-            <div className="stat-card">
-              <div className="stat-value">{stats.planBreakdown.free}</div>
-              <div className="stat-label">Free Plan</div>
-            </div>
-            <div className="stat-card">
-              <div className="stat-value">{stats.planBreakdown.plus}</div>
-              <div className="stat-label">Plus Plan</div>
-            </div>
-            <div className="stat-card">
-              <div className="stat-value">{stats.planBreakdown.pro}</div>
-              <div className="stat-label">Pro Plan</div>
-            </div>
-            <div className="stat-card">
-              <div className="stat-value">{stats.adminUsers}</div>
-              <div className="stat-label">Admins</div>
-            </div>
-          </div>
-        )}
+        {stateContent()}
 
-        {/* Users Table */}
-        <div className="users-section">
-          <h2>Users ({users.length})</h2>
-          <div className="overflow-x-auto">
-            <table className="w-full table-auto">
-              <thead>
-                <tr className="h-16">
-                  <th className="px-4 text-left font-semibold text-slate-300">User ID</th>
-                  <th className="px-4 text-left font-semibold text-slate-300">Email</th>
-                  <th className="px-4 text-left font-semibold text-slate-300">Role</th>
-                  <th className="px-4 text-left font-semibold text-slate-300">Current Plan</th>
-                  <th className="px-4 text-left font-semibold text-slate-300">Status</th>
-                  <th className="px-4 text-left font-semibold text-slate-300">Created</th>
-                  <th className="px-4 text-left font-semibold text-slate-300">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {users.map(user => (
-                  <tr key={user.id} className="h-16 border-b border-slate-700/50 hover:bg-slate-800/30">
-                    <td className="px-4 align-middle">
-                      <div className="flex items-center h-full">
-                        <span className="text-slate-300 font-mono text-sm" title={user.user_id}>
-                          {user.user_id.slice(0, 20)}...
-                        </span>
-                      </div>
-                    </td>
-                    <td className="px-4 align-middle">
-                      <div className="flex items-center h-full">
-                        <span className="text-slate-300">{user.email || '—'}</span>
-                      </div>
-                    </td>
-                    <td className="px-4 align-middle">
-                      <div className="flex items-center h-full">
-                        <span className={`inline-flex items-center h-8 px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                          user.role === 'admin' 
-                            ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30' 
-                            : 'bg-slate-600/50 text-slate-300 border border-slate-500/30'
-                        }`}>
-                          {user.role === 'admin' ? '🛡️ Admin' : '👤 User'}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="px-4 align-middle">
-                      <div className="flex items-center h-full">
-                        <span className={`inline-flex items-center h-8 px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                          user.plan === 'free' ? 'bg-slate-600/50 text-slate-300 border border-slate-500/30' :
-                          user.plan === 'plus' ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' :
-                          user.plan === 'pro' ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30' :
-                          'bg-slate-600/50 text-slate-300 border border-slate-500/30'
-                        }`}>
-                          {PLAN_LABELS[user.plan] || user.plan}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="px-4 align-middle">
-                      <div className="flex items-center h-full">
-                        <span className={`inline-flex items-center h-8 px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                          user.plan_status === 'active' ? 'bg-green-500/20 text-green-400 border border-green-500/30' :
-                          user.plan_status === 'trialing' ? 'bg-orange-500/20 text-orange-400 border border-orange-500/30' :
-                          user.plan_status === 'past_due' ? 'bg-red-500/20 text-red-400 border border-red-500/30' :
-                          user.plan_status === 'canceled' ? 'bg-gray-500/20 text-gray-400 border border-gray-500/30' :
-                          'bg-slate-600/50 text-slate-400 border border-slate-500/30'
-                        }`}>
-                          {user.plan_status || '—'}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="px-4 align-middle">
-                      <div className="flex items-center h-full">
-                        <span className="text-slate-300 text-sm">{formatDate(user.created_at)}</span>
-                      </div>
-                    </td>
-                    <td className="px-4 align-middle">
-                      <div className="flex items-center h-full gap-2">
-                        {/* Custom Plan Dropdown */}
-                        <CustomDropdown
-                          value={user.plan}
-                          onChange={(value) => setPlan(user.user_id, value)}
-                          disabled={actionLoading[`${user.user_id}-plan`]}
-                          options={[
-                            { value: PLANS.FREE, label: 'Free' },
-                            { value: PLANS.PLUS, label: 'Plus' },
-                            { value: PLANS.PRO, label: 'Pro' }
-                          ]}
-                        />
+        {!loading && !error && (
+          <>
+            {stats && (
+              <div className="stats-grid">
+                <div className="stat-card stat-purple">
+                  <div className="stat-val">{stats.totalUsers}</div>
+                  <div className="stat-label">Total users</div>
+                </div>
+                <div className="stat-card stat-blue">
+                  <div className="stat-val">{stats.planBreakdown?.free ?? 0}</div>
+                  <div className="stat-label">Free plan</div>
+                </div>
+                <div className="stat-card stat-teal">
+                  <div className="stat-val">{stats.planBreakdown?.plus ?? 0}</div>
+                  <div className="stat-label">Plus plan</div>
+                </div>
+                <div className="stat-card stat-coral">
+                  <div className="stat-val">{stats.planBreakdown?.pro ?? 0}</div>
+                  <div className="stat-label">Pro plan</div>
+                </div>
+                <div className="stat-card stat-amber">
+                  <div className="stat-val">{stats.adminUsers}</div>
+                  <div className="stat-label">Admins</div>
+                </div>
+              </div>
+            )}
 
-                        {/* Admin toggle */}
-                        <button
-                          onClick={() => toggleAdmin(user.user_id, user.role)}
-                          disabled={actionLoading[`${user.user_id}-role`]}
-                          className={`h-9 px-3 rounded-lg font-medium text-sm transition-all duration-200 flex items-center justify-center ${
-                            user.role === 'admin'
-                              ? 'bg-orange-600 hover:bg-orange-700 text-white'
-                              : 'bg-green-600 hover:bg-green-700 text-white'
-                          } disabled:opacity-50 disabled:cursor-not-allowed`}
-                          title={user.role === 'admin' ? 'Revoke Admin' : 'Grant Admin'}
-                        >
-                          {user.role === 'admin' ? '🛡️−' : '🛡️+'}
-                        </button>
+            <div className="section-head">
+              <div className="section-title">Users</div>
+              <span className="user-count">{users.length} total</span>
+            </div>
 
-                        {/* Remove plan button */}
-                        {user.plan !== PLANS.FREE && (
-                          <button
-                            onClick={() => removePlan(user.user_id)}
-                            disabled={actionLoading[`${user.user_id}-remove`]}
-                            className="h-9 px-3 rounded-lg bg-red-600 hover:bg-red-700 text-white font-medium text-sm transition-all duration-200 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
-                            title="Remove Plan (Set Free)"
-                          >
-                            ✗
-                          </button>
-                        )}
-
-                        {/* Delete user button */}
-                        <button
-                          onClick={() => deleteUser(user.user_id, user.email)}
-                          disabled={actionLoading[`${user.user_id}-delete`]}
-                          className="btn-delete-user"
-                          title="Permanently Delete User"
-                        >
-                          🗑️
-                        </button>
-                      </div>
-                    </td>
+            <div className="table-wrap">
+              <table className="adm-table">
+                <thead>
+                  <tr>
+                    <th>User ID</th>
+                    <th>Email</th>
+                    <th>Role</th>
+                    <th>Plan</th>
+                    <th>Status</th>
+                    <th>Created</th>
+                    <th>Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {users.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} style={{ textAlign: 'center', color: '#64748b', padding: '3rem' }}>
+                        No users found.
+                      </td>
+                    </tr>
+                  ) : (
+                    users.map(user => (
+                      <tr key={user.id}>
+                        <td>
+                          <span className="mono" title={user.user_id}>
+                            {user.user_id.slice(0, 18)}…
+                          </span>
+                        </td>
+                        <td>{user.email || '—'}</td>
+                        <td><RoleBadge role={user.role} /></td>
+                        <td><PlanBadge plan={user.plan} /></td>
+                        <td><StatusBadge status={user.plan_status} /></td>
+                        <td>{formatDate(user.created_at)}</td>
+                        <td>
+                          <div className="actions">
+                            <select
+                              className="plan-select"
+                              value={user.plan}
+                              disabled={actionLoading[`${user.user_id}-plan`]}
+                              onChange={e => setPlan(user.user_id, e.target.value)}
+                            >
+                              <option value={PLANS.FREE}>Free</option>
+                              <option value={PLANS.PLUS}>Plus</option>
+                              <option value={PLANS.PRO}>Pro</option>
+                            </select>
 
-          {users.length === 0 && (
-            <div className="no-users">No users found.</div>
-          )}
-        </div>
+                            <button
+                              className={`act-btn ${user.role === 'admin' ? 'revoke' : 'grant'}`}
+                              onClick={() => toggleAdmin(user.user_id, user.role)}
+                              disabled={actionLoading[`${user.user_id}-role`]}
+                              title={user.role === 'admin' ? 'Revoke admin' : 'Grant admin'}
+                            >
+                              <i className={`ti ${user.role === 'admin' ? 'ti-shield-off' : 'ti-shield-plus'}`} aria-hidden="true" />
+                              {user.role === 'admin' ? 'Revoke' : 'Grant'}
+                            </button>
+
+                            {user.plan !== PLANS.FREE && (
+                              <button
+                                className="act-btn remove"
+                                onClick={() => removePlan(user.user_id)}
+                                disabled={actionLoading[`${user.user_id}-remove`]}
+                                title="Remove plan (set to free)"
+                              >
+                                <i className="ti ti-x" aria-hidden="true" />
+                              </button>
+                            )}
+
+                            <button
+                              className="act-btn delete"
+                              onClick={() => deleteUser(user.user_id, user.email)}
+                              disabled={actionLoading[`${user.user_id}-delete`]}
+                              title="Permanently delete user"
+                            >
+                              <i className="ti ti-trash" aria-hidden="true" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
       </div>
-    </div>
+    </>
   );
 }

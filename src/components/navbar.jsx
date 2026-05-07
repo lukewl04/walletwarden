@@ -312,8 +312,11 @@ const Navbar = () => {
                       minWidth: '200px',
                       backgroundColor: 'var(--card-bg)',
                       border: '1px solid var(--card-border)',
-                      borderRadius: '0.375rem',
+                      borderRadius: '0.5rem',
                       zIndex: 1000,
+                      right: '8px',
+                      top: '48px',
+                      boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
                     }}
                   >
                     <div className="dropdown-header text-truncate small">
