@@ -103,6 +103,44 @@ app.use((req, res, next) => {
   next();
 });
 
+// Sync Auth0 user profile to the users table.
+// Called by AuthSync on every login — creates/updates the User row that all
+// other tables FK-reference.
+app.post('/api/me/sync', async (req, res) => {
+  try {
+    const userId = req.auth?.sub;
+
+    if (!userId) {
+      return res.status(401).json({ error: 'unauthorized' });
+    }
+
+    const { email, name, picture } = req.body;
+
+    const user = await prisma.user.upsert({
+      where: { id: userId },
+      update: {
+        email: email || null,
+        name: name || null,
+        picture: picture || null,
+      },
+      create: {
+        id: userId,
+        email: email || null,
+        name: name || null,
+        picture: picture || null,
+      },
+    });
+
+    return res.json(user);
+  } catch (err) {
+    console.error('[User Sync] Error:', err);
+    return res.status(500).json({
+      error: 'internal_error',
+      message: err.message,
+    });
+  }
+});
+
 // General error handling middleware
 app.use((err, req, res, next) => {
   console.error(`[${new Date().toISOString()}] Error on ${req.method} ${req.path}:`, err.message);

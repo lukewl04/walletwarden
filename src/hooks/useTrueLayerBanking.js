@@ -173,15 +173,24 @@ export default function useTrueLayerBanking({
 
         const result = await res.json();
 
+        if (debug) {
+          console.debug("[TrueLayer] Sync result:", result);
+        }
+
         if (result.inserted > 0) {
           setLastSyncMessage(
             `Synced ${result.accounts} account(s): ${result.inserted} new, ${
               result.skipped || 0
             } existing`
           );
+        } else if ((result.bankTransactionsInDb || 0) > 0) {
+          // Transactions already exist in DB from a previous sync
+          setLastSyncMessage(
+            `Bank data up to date (${result.bankTransactionsInDb} transactions synced).`
+          );
         } else if (result.accounts > 0) {
           setLastSyncMessage(
-            `Updated ${result.accounts} account balance(s). To sync new transactions, reconnect your bank.`
+            `Updated ${result.accounts} account balance(s). Transactions may still be syncing.`
           );
         } else {
           setLastSyncMessage("No updates available.");
@@ -198,6 +207,11 @@ export default function useTrueLayerBanking({
         } else {
           if (!silent) setLastSyncMessage(`Sync failed: ${err.message}`);
         }
+        // Even on sync failure, refresh to pick up any previously-synced bank transactions from DB
+        try {
+          await refreshTransactions();
+          await fetchBankTransactions();
+        } catch (_) { /* swallow */ }
       } finally {
         setBankSyncing(false);
       }
@@ -236,12 +250,17 @@ export default function useTrueLayerBanking({
         const data = await res.json();
         const connected = !!data.connected;
         setBankStatus({ connected });
+        if (debug) console.debug("[TrueLayer] Bank status:", { connected });
 
         if (connected) {
+          // Fetch balance, bank transactions for charts, AND refresh main transaction context
+          // The refreshTransactions call loads ALL transactions (including bank) from Supabase
+          // into the TransactionsContext, making them available to Recent Transactions & Tracker
+          if (debug) console.debug("[TrueLayer] Bank connected, fetching data from Supabase...");
           await fetchBankBalance();
           await fetchBankTransactions();
-          // Also refresh the main transactions list to include bank transactions
           await refreshTransactions();
+          if (debug) console.debug("[TrueLayer] Initial data load complete");
         } else {
           await fetchStoredBalance();
         }
@@ -280,6 +299,7 @@ export default function useTrueLayerBanking({
       let polls = 0;
       const POLL_MS = 2500;
       const MAX_POLLS = 36; // 36 × 2.5s = 90s
+      let transactionsDetected = false;
 
       // Kick off an immediate first fetch
       Promise.allSettled([fetchBankBalance(), refreshTransactions(), fetchBankTransactions()]);
@@ -287,7 +307,10 @@ export default function useTrueLayerBanking({
       pollTimerRef.current = setInterval(async () => {
         polls++;
         try {
-          await Promise.allSettled([fetchBankBalance(), refreshTransactions(), fetchBankTransactions()]);
+          const results = await Promise.allSettled([fetchBankBalance(), refreshTransactions(), fetchBankTransactions()]);
+          
+          // Check if we got bank transactions in the fetchBankTransactions result
+          // (setBankTransactions was called inside fetchBankTransactions)
         } catch (_) { /* swallow */ }
 
         // Progressive status messages
@@ -295,12 +318,28 @@ export default function useTrueLayerBanking({
           setLastSyncMessage("Balance loaded ✅  Syncing transactions…");
         }
 
-        if (polls >= MAX_POLLS) {
+        // Stop polling early if we've received both balance and done enough polls
+        // (give at least 15 seconds for first transactions to arrive)
+        if (balanceReceivedRef.current && polls >= 6) {
+          // After 15 seconds with balance, check if we can stop
+          transactionsDetected = true;
+        }
+
+        if (polls >= MAX_POLLS || (transactionsDetected && polls >= 10)) {
           clearInterval(pollTimerRef.current);
           pollTimerRef.current = null;
           setBankSyncing(false);
           setPostConnectRunning(false);
           setLastSyncMessage("Sync complete ✅");
+
+          // Final guaranteed refresh after a short delay to catch any stragglers
+          setTimeout(async () => {
+            try {
+              await refreshTransactions();
+              await fetchBankTransactions();
+              if (debug) console.debug("[TrueLayer] Final post-connect refresh done");
+            } catch (_) { /* swallow */ }
+          }, 3000);
         }
       }, POLL_MS);
 

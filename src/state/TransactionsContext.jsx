@@ -21,20 +21,15 @@ const TransactionsContext = createContext(null);
  * No localStorage caching - always fresh from database.
  */
 export function TransactionsProvider({ children }) {
-  const { isAuthenticated, getAccessTokenSilently } = useAuth0();
+  const { isAuthenticated } = useAuth0();
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const isDevMode = import.meta.env.VITE_DEV_MODE === 'true';
 
-  // Helper to get auth token - uses unique per-browser token in dev mode
-  // creates a unique id for each browser session, allowing devs to test auth flows without Auth0
-  const getToken = async () => {
-    if (isDevMode) {
-      return getUserToken(); // Generates unique ID per browser
-    }
-    return await getAccessTokenSilently({ audience: import.meta.env.VITE_AUTH0_AUDIENCE });
-  };
+  // All API calls use getAuthHeaders() from userToken.js which sends
+  // the Auth0 user sub (e.g. "google-oauth2|...") as the Bearer token.
+  // This matches the backend's req.auth.sub extraction.
 
   // Load transactions from Supabase on mount
   // 
@@ -49,9 +44,8 @@ export function TransactionsProvider({ children }) {
       }
 
       try {
-        const token = await getToken();
         console.log('[TransactionsContext] Fetching transactions from Supabase...');
-        console.log('[TransactionsContext] Using token:', token);
+        console.log('[TransactionsContext] Using token:', getUserToken());
         
         const res = await fetch(`${API_BASE}/transactions`, {
           headers: getAuthHeaders(),
@@ -63,7 +57,8 @@ export function TransactionsProvider({ children }) {
             const normalized = rows.map((r) => normalizeTransaction(r));
             const sorted = normalized.sort((a, b) => new Date(b.date) - new Date(a.date));
             setTransactions(sorted);
-            console.log('[TransactionsContext] Loaded', sorted.length, 'transactions from Supabase');
+            const bankCount = sorted.filter(t => t.source === 'bank').length;
+            console.log(`[TransactionsContext] Loaded ${sorted.length} transactions from Supabase (${bankCount} bank, ${sorted.length - bankCount} manual)`);
           }
         } else if (!res.ok) {
           console.error('[TransactionsContext] Failed to load:', res.status);
@@ -82,9 +77,8 @@ export function TransactionsProvider({ children }) {
   // Refresh transactions from Supabase
   const refreshTransactions = async () => {
     try {
-      const token = await getToken();
       const res = await fetch(`${API_BASE}/transactions`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: getAuthHeaders(),
       });
       
       if (res.ok) {
@@ -93,7 +87,8 @@ export function TransactionsProvider({ children }) {
           const normalized = rows.map((r) => normalizeTransaction(r));
           const sorted = normalized.sort((a, b) => new Date(b.date) - new Date(a.date));
           setTransactions(sorted);
-          console.log('[TransactionsContext] Refreshed', sorted.length, 'transactions');
+          const bankCount = sorted.filter(t => t.source === 'bank').length;
+          console.log(`[TransactionsContext] Refreshed ${sorted.length} transactions (${bankCount} bank, ${sorted.length - bankCount} manual)`);
         }
       }
     } catch (e) {
@@ -106,10 +101,9 @@ export function TransactionsProvider({ children }) {
     const norm = normalizeTransaction({ ...tx, id: tx.id || generateId() });
     
     try {
-      const token = await getToken();
       const res = await fetch(`${API_BASE}/transactions`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
         body: JSON.stringify(norm),
       });
       
@@ -129,7 +123,6 @@ export function TransactionsProvider({ children }) {
     const norms = (list || []).map((l) => normalizeTransaction({ ...l, id: l.id || generateId() }));
     
     try {
-      const token = await getToken();
       const res = await fetch(`${API_BASE}/transactions/bulk`, {
         method: 'POST',
         headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
@@ -150,7 +143,6 @@ export function TransactionsProvider({ children }) {
   // Delete a transaction
   const deleteTransaction = async (id) => {
     try {
-      const token = await getToken();
       const res = await fetch(`${API_BASE}/transactions/${encodeURIComponent(id)}`, {
         method: 'DELETE',
         headers: getAuthHeaders(),
@@ -169,7 +161,6 @@ export function TransactionsProvider({ children }) {
   // Update a transaction
   const updateTransaction = async (id, updates) => {
     try {
-      const token = await getToken();
       const res = await fetch(`${API_BASE}/transactions/${encodeURIComponent(id)}`, {
         method: 'PATCH',
         headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
@@ -189,8 +180,6 @@ export function TransactionsProvider({ children }) {
   // Clear all transactions - single bulk delete call
   const clearTransactions = async () => {
     try {
-      const token = await getToken();
-      
       // Bulk delete all transactions from Supabase
       const res = await fetch(`${API_BASE}/transactions/clear`, {
         method: 'DELETE',

@@ -146,6 +146,14 @@ export default function WardenInsights() {
     });
   }, [transactions]);
 
+  // Debug: log transaction source breakdown
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    const bankCount = parsed.filter(t => t.source === 'bank').length;
+    const manualCount = parsed.filter(t => t.source !== 'bank').length;
+    console.debug(`[WardenInsights] Parsed transactions: ${parsed.length} total (${bankCount} bank, ${manualCount} manual)`);
+  }, [parsed]);
+
   // When bank is connected, only use bank transactions for charts (to avoid double-counting old CSV imports)
   const chartTransactions = useMemo(() => {
     if (banking.isBankConnected && parsed.length > 0) {
@@ -1014,6 +1022,10 @@ export default function WardenInsights() {
                 <h2 className="h6 mb-0">Recent Transactions</h2>
                 <span className="text-muted small">
                   {filteredRecentTransactions.length} / {transactions.length} total
+                  {banking.isBankConnected && (() => {
+                    const bankCount = filteredRecentTransactions.filter(t => t.source === 'bank').length;
+                    return bankCount > 0 ? ` (${bankCount} bank)` : '';
+                  })()}
                 </span>
               </div>
 
@@ -1083,6 +1095,16 @@ export default function WardenInsights() {
                               {t.type === "income" ? "+ " : "− "}£
                               {Number(t.amount).toFixed(2)}
                             </span>
+
+                            {t.source === "bank" && (
+                              <span
+                                className="badge bg-info"
+                                style={{ fontSize: "0.6rem", padding: "0.2rem 0.4rem" }}
+                                title="From bank (TrueLayer)"
+                              >
+                                🏦
+                              </span>
+                            )}
 
                             {editingCategoryId === t.id ? (
                               <select

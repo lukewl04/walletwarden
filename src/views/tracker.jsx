@@ -1220,15 +1220,31 @@ export default function Tracker() {
     return { purchases: newPurchases.length, incomes: newIncomes.length };
   };
 
-  // Auto-sync from Warden Insights once data is loaded
+  // Auto-sync from Warden Insights — reactive to new bank transactions arriving
+  // Instead of a one-time guard, track the count of bank transactions we've seen.
+  // When the count increases (e.g. bank sync completes after page load), re-import.
+  const lastBankTxCount = useRef(0);
+  const importRunning = useRef(false);
+
   useEffect(() => {
-    if (autoSyncDone.current) return;
     if (isLoading || !dataLoadedFromBackend.current) return;
     if (!selectedSplit || !selectedSplitData) return;
     if (normalizedTransactions.length === 0) return;
+    if (importRunning.current) return;
+
+    // Count bank-sourced transactions currently in context
+    const currentBankCount = normalizedTransactions.filter(t => t.source === 'bank').length;
+    const isFirstRun = !autoSyncDone.current;
+    const hasNewBankTxns = currentBankCount > lastBankTxCount.current;
+
+    // Run import on first load, OR when new bank transactions appear
+    if (!isFirstRun && !hasNewBankTxns) return;
 
     autoSyncDone.current = true;
-    console.log("[Tracker] Auto-syncing from Warden Insights...");
+    lastBankTxCount.current = currentBankCount;
+    importRunning.current = true;
+
+    console.log(`[Tracker] Auto-syncing from Warden Insights (${normalizedTransactions.length} txns, ${currentBankCount} bank)...`);
     autoImportFromWardenInsights(selectedSplit, selectedSplitData)
       .then((result) => {
         if (result) {
@@ -1237,7 +1253,8 @@ export default function Tracker() {
           console.log("[Tracker] Auto-sync complete: nothing new to import");
         }
       })
-      .catch((err) => console.error("[Tracker] Auto-sync failed:", err));
+      .catch((err) => console.error("[Tracker] Auto-sync failed:", err))
+      .finally(() => { importRunning.current = false; });
   }, [isLoading, selectedSplit, selectedSplitData, normalizedTransactions]);
 
   // =========================

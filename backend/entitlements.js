@@ -11,6 +11,14 @@ const { getEntitlements, getCurrentWeekStart, PLANS } = require('./plans');
 
 // ── Load user plan from DB (with auto-provision for new users) ──────────
 async function loadUserPlan(prisma, userId, userEmail = null) {
+  // Ensure the User row exists first (FK constraint from user_plans -> users).
+  // This is the safety net for any request that arrives before /api/me/sync fires.
+  await prisma.user.upsert({
+    where: { id: userId },
+    update: userEmail ? { email: userEmail } : {},
+    create: { id: userId, email: userEmail || null },
+  });
+
   let row = await prisma.userPlan.findUnique({ where: { user_id: userId } });
 
   // Auto-provision Free plan for first-time users

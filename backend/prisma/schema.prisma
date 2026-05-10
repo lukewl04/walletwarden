@@ -9,6 +9,27 @@ datasource db {
   provider = "postgresql"
 }
 
+model User {
+  id        String   @id // Auth0 user ID, e.g. auth0|abc123
+  email     String?
+  name      String?
+  picture   String?
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now()) @updatedAt
+
+  transactions          Transaction[]
+  splits                Split[]
+  purchases             Purchase[]
+  income_settings       IncomeSetting[]
+  bank_connections      BankConnection[]
+  bank_accounts         BankAccount[]
+  bank_balance_snapshots BankBalanceSnapshot[]
+  user_plan             UserPlan?
+  bank_connection_usage BankConnectionUsage[]
+
+  @@map("users")
+}
+
 model Transaction {
   id          String   @id
   user_id     String
@@ -19,7 +40,7 @@ model Transaction {
   description String?
   source      String   @default("manual") // 'bank' or 'manual'
   created_at  DateTime @default(now())
-
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
   @@index([user_id])
   @@index([user_id, source])
   @@map("transactions")
@@ -33,7 +54,7 @@ model Split {
   categories String   // JSON stored as string
   created_at DateTime @default(now())
   updated_at DateTime @default(now()) @updatedAt
-
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
   @@index([user_id])
   @@map("splits")
 }
@@ -48,7 +69,7 @@ model Purchase {
   category       String
   description    String?
   created_at     DateTime @default(now())
-
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
   @@index([user_id])
   @@index([split_id])
   @@index([user_id, split_id])
@@ -67,7 +88,7 @@ model IncomeSetting {
   use_expected_when_no_actual Boolean  @default(true)
   created_at                  DateTime @default(now())
   updated_at                  DateTime @default(now()) @updatedAt
-
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
   @@index([user_id])
   @@map("income_settings")
 }
@@ -83,7 +104,7 @@ model BankConnection {
   refresh_token_tag     String?
   token_expires_at      DateTime?
   created_at            DateTime  @default(now())
-
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
   @@unique([user_id, provider], name: "user_id_provider")
   @@index([user_id])
   @@map("bank_connections")
@@ -100,7 +121,7 @@ model BankAccount {
   available_balance   Float?
   created_at          DateTime @default(now())
   updated_at          DateTime @default(now()) @updatedAt
-
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
   @@unique([user_id, provider, provider_account_id], name: "user_id_provider_provider_account_id")
   @@index([user_id])
   @@map("bank_accounts")
@@ -116,7 +137,7 @@ model BankBalanceSnapshot {
   account_name    String?
   provider_account_id String?
   synced_at       DateTime @default(now())
-
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
   @@unique([user_id, provider], name: "user_id_provider_balance")
   @@index([user_id])
   @@map("bank_balance_snapshots")
@@ -138,7 +159,7 @@ model UserPlan {
   cancelled_at            DateTime?
   created_at              DateTime  @default(now())
   updated_at              DateTime  @default(now()) @updatedAt
-
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
   @@index([user_id])
   @@index([stripe_subscription_id])
   @@map("user_plans")
@@ -151,7 +172,7 @@ model BankConnectionUsage {
   connections_used Int      @default(0)
   created_at       DateTime @default(now())
   updated_at       DateTime @default(now()) @updatedAt
-
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
   @@unique([user_id, week_start])
   @@index([user_id, week_start])
   @@map("bank_connection_usage")
