@@ -97,9 +97,12 @@ app.use(express.json({ limit: '10mb' }));
 // In production, this would validate JWT. In dev, the token IS the user_id.
 app.use((req, res, next) => {
   const authHeader = req.headers.authorization || '';
-  const token = authHeader.replace('Bearer ', '');
-  const email = req.headers['x-user-email'] || null; // Email from frontend
-  req.auth = { sub: token || 'dev-user', email };
+  const token = authHeader.replace('Bearer ', '').trim();
+  const email = req.headers['x-user-email'] || null;
+  // Only set auth if a real token was provided
+  if (token) {
+    req.auth = { sub: token, email };
+  }
   next();
 });
 
@@ -141,11 +144,6 @@ app.post('/api/me/sync', async (req, res) => {
   }
 });
 
-// General error handling middleware
-app.use((err, req, res, next) => {
-  console.error(`[${new Date().toISOString()}] Error on ${req.method} ${req.path}:`, err.message);
-  return res.status(500).json({ error: 'internal_error', message: err.message });
-});
 
 // Subscription & entitlements routes (must be before any route that checks req.entitlements)
 const { attachEntitlements } = require('./entitlements');
@@ -276,6 +274,13 @@ app.post('/api/transactions', async (req, res) => {
     const { id, type, amount, date, category, description } = req.body;
     if (!id || !type || !amount || !date) return res.status(400).json({ error: 'invalid_payload' });
 
+    // Ensure user row exists before inserting transaction (FK constraint)
+    await prisma.user.upsert({
+      where: { id: userId },
+      update: {},
+      create: { id: userId, email: req.auth?.email || null },
+    });
+
     await prisma.transaction.upsert({
       where: { id },
       update: {},
@@ -287,7 +292,7 @@ app.post('/api/transactions', async (req, res) => {
         date: date ? new Date(date) : undefined,
         category: category || null,
         description: description || null,
-        source: 'manual' // Mark as manually created
+        source: 'manual',
       }
     });
     return res.json({ ok: true });
@@ -817,6 +822,13 @@ app.post('/api/reset', async (req, res) => {
     return res.status(500).json({ error: 'internal_error', message: err.message });
   }
 });
+
+// General error handling middleware
+app.use((err, req, res, next) => {
+  console.error(`[${new Date().toISOString()}] Error on ${req.method} ${req.path}:`, err.message);
+  return res.status(500).json({ error: 'internal_error', message: err.message });
+});
+
 
 // Test database connection on startup
 async function testConnection() {
