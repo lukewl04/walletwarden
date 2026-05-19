@@ -19,24 +19,17 @@ async function loadUserPlan(prisma, userId, userEmail = null) {
     create: { id: userId, email: userEmail || null },
   });
 
-  let row = await prisma.userPlan.findUnique({ where: { user_id: userId } });
-
-  // Auto-provision Free plan for first-time users
-  if (!row) {
-    row = await prisma.userPlan.create({
-      data: {
-        user_id: userId,
-        email: userEmail,
-        plan: PLANS.FREE,
-      },
-    });
-  } else if (userEmail && row.email !== userEmail) {
-    // Update email if we have a new one and it's different
-    row = await prisma.userPlan.update({
-      where: { user_id: userId },
-      data: { email: userEmail },
-    });
-  }
+  // Upsert to avoid race conditions when multiple concurrent requests arrive
+  // for a brand-new user before any row exists.
+  const row = await prisma.userPlan.upsert({
+    where: { user_id: userId },
+    create: {
+      user_id: userId,
+      email: userEmail,
+      plan: PLANS.FREE,
+    },
+    update: userEmail ? { email: userEmail } : {},
+  });
 
   return row;
 }
