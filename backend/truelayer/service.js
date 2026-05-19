@@ -144,6 +144,12 @@ async function storeConnection(prisma, userId, tokenResponse) {
     encrypted = encryptToken(tokenResponse.refresh_token);
   }
 
+  // Encrypt access token (short-lived ~1h but still a credential; keep server-side only)
+  let encryptedAccess = null;
+  if (tokenResponse.access_token) {
+    encryptedAccess = encryptToken(tokenResponse.access_token);
+  }
+
   await prisma.bankConnection.upsert({
     where: {
       user_id_provider: {
@@ -152,7 +158,10 @@ async function storeConnection(prisma, userId, tokenResponse) {
       },
     },
     update: {
-      access_token: tokenResponse.access_token,
+      access_token: null, // Clear plaintext; stored encrypted below
+      encrypted_access_token: encryptedAccess ? encryptedAccess.ciphertext : null,
+      access_token_iv: encryptedAccess ? encryptedAccess.iv : null,
+      access_token_tag: encryptedAccess ? encryptedAccess.tag : null,
       encrypted_refresh_token: encrypted ? encrypted.ciphertext : null,
       refresh_token_iv: encrypted ? encrypted.iv : null,
       refresh_token_tag: encrypted ? encrypted.tag : null,
@@ -161,7 +170,10 @@ async function storeConnection(prisma, userId, tokenResponse) {
     create: {
       user_id: userId,
       provider: 'truelayer',
-      access_token: tokenResponse.access_token,
+      access_token: null, // Not stored as plaintext
+      encrypted_access_token: encryptedAccess ? encryptedAccess.ciphertext : null,
+      access_token_iv: encryptedAccess ? encryptedAccess.iv : null,
+      access_token_tag: encryptedAccess ? encryptedAccess.tag : null,
       encrypted_refresh_token: encrypted ? encrypted.ciphertext : null,
       refresh_token_iv: encrypted ? encrypted.iv : null,
       refresh_token_tag: encrypted ? encrypted.tag : null,
@@ -213,8 +225,8 @@ async function getValidAccessToken(prisma, userId) {
       const newTokens = await client.refreshToken({
         refresh_token: refreshToken,
       });
-      await storeConnection(prisma, userId, newTokens);
-      return newTokens.access_token;
+      await storeConnection(prisma, userId, newTokens); // stores encrypted in DB
+      return newTokens.access_token; // return plaintext from memory (just received from TrueLayer)
     } catch (err) {
       console.error('Failed to refresh token:', err.message);
       // Token refresh failed - connection may need re-auth
@@ -222,7 +234,16 @@ async function getValidAccessToken(prisma, userId) {
     }
   }
 
-  return connection.access_token;
+  // Decrypt access token: prefer encrypted version; fall back to legacy plaintext for old rows
+  if (connection.encrypted_access_token && connection.access_token_iv && connection.access_token_tag) {
+    return decryptToken({
+      ciphertext: connection.encrypted_access_token,
+      iv: connection.access_token_iv,
+      tag: connection.access_token_tag,
+    });
+  }
+  // Legacy fallback: plaintext token stored before encryption was introduced
+  return connection.access_token || null;
 }
 // AES-256-GCM encryption helpers
 function getEncryptionKey() {
@@ -346,7 +367,8 @@ async function syncAccountsAndTransactions(prisma, userId, { fromDate, toDate } 
     throw err;
   }
   
-  // Upsert accounts and fetch balances
+  // Upsert accounts and fetch balances; build map of provider_account_id -> local UUID
+  const bankAccountIdMap = {}; // provider_account_id -> BankAccount.id
   for (const acc of accounts) {
     let balance = null;
     try {
@@ -356,7 +378,7 @@ async function syncAccountsAndTransactions(prisma, userId, { fromDate, toDate } 
       console.error(`Failed to fetch balance for account ${acc.account_id}:`, err.message);
     }
     
-    await prisma.bankAccount.upsert({
+    const bankAcctRecord = await prisma.bankAccount.upsert({
       where: {
         user_id_provider_provider_account_id: {
           user_id: userId,
@@ -380,6 +402,7 @@ async function syncAccountsAndTransactions(prisma, userId, { fromDate, toDate } 
         available_balance: balance?.available || null,
       },
     });
+    bankAccountIdMap[acc.account_id] = bankAcctRecord.id;
   }
 
   // ── Filter: skip pot/savings accounts, detect internal transfers ─────
@@ -408,12 +431,13 @@ async function syncAccountsAndTransactions(prisma, userId, { fromDate, toDate } 
 
       // Filter out internal transfers and normalize in one pass
       const normalized = [];
+      const localBankAccountId = bankAccountIdMap[acc.account_id] || null;
       for (const tx of transactions) {
         if (isInternalTransfer(tx, accountNameSet)) {
           totalInternal++;
           continue;
         }
-        normalized.push(normalizeTransaction(tx, userId));
+        normalized.push(normalizeTransaction(tx, userId, { bankAccountId: localBankAccountId }));
       }
 
       // Batch insert using createMany (FAST — one DB round-trip per account)
@@ -473,7 +497,8 @@ async function quickSyncLatest(prisma, userId, { limit = 30, daysBack = 60 } = {
   // Fetch accounts
   const accounts = await client.getAccounts({ access_token: accessToken });
 
-  // Upsert accounts + balances (same as full sync)
+  // Upsert accounts + balances; build map of provider_account_id -> local UUID
+  const bankAccountIdMap = {}; // provider_account_id -> BankAccount.id
   for (const acc of accounts) {
     let balance = null;
     try {
@@ -482,7 +507,7 @@ async function quickSyncLatest(prisma, userId, { limit = 30, daysBack = 60 } = {
       console.error(`Failed to fetch balance for account ${acc.account_id}:`, err.message);
     }
 
-    await prisma.bankAccount.upsert({
+    const bankAcctRecord = await prisma.bankAccount.upsert({
       where: {
         user_id_provider_provider_account_id: {
           user_id: userId,
@@ -506,6 +531,7 @@ async function quickSyncLatest(prisma, userId, { limit = 30, daysBack = 60 } = {
         available_balance: balance?.available || null,
       },
     });
+    bankAccountIdMap[acc.account_id] = bankAcctRecord.id;
   }
 
   // Fetch transactions for each account (short window), then take top N overall
@@ -525,7 +551,7 @@ async function quickSyncLatest(prisma, userId, { limit = 30, daysBack = 60 } = {
       });
 
       for (const tx of txs) {
-        allTx.push(tx);
+        allTx.push({ tx, providerAccountId: acc.account_id });
       }
     } catch (err) {
       if (err.message.includes('403')) {
@@ -538,17 +564,19 @@ async function quickSyncLatest(prisma, userId, { limit = 30, daysBack = 60 } = {
 
   // Sort newest first
   allTx.sort((a, b) => {
-    const da = new Date(a.timestamp || 0).getTime();
-    const db = new Date(b.timestamp || 0).getTime();
+    const da = new Date(a.tx.timestamp || 0).getTime();
+    const db = new Date(b.tx.timestamp || 0).getTime();
     return db - da;
   });
 
   // Filter out internal transfers before selecting latest
-  const externalTx = allTx.filter(tx => !isInternalTransfer(tx, accountNameSet));
+  const externalTx = allTx.filter(({ tx }) => !isInternalTransfer(tx, accountNameSet));
   console.log(`[TrueLayer] QUICK: ${allTx.length} raw → ${externalTx.length} after removing internal transfers`);
 
   const latest = externalTx.slice(0, limit);
-  const normalized = latest.map((tx) => normalizeTransaction(tx, userId));
+  const normalized = latest.map(({ tx, providerAccountId }) =>
+    normalizeTransaction(tx, userId, { bankAccountId: bankAccountIdMap[providerAccountId] || null })
+  );
 
   // Bulk insert (FAST) — relies on id being stable (tl_${transaction_id})
   const beforeCount = normalized.length;
@@ -578,9 +606,13 @@ async function quickSyncLatest(prisma, userId, { limit = 30, daysBack = 60 } = {
 
 /**
  * Normalize TrueLayer transaction to our Transaction table format
+ * @param {Object} tx - Raw TrueLayer transaction
+ * @param {string} userId - User ID
+ * @param {Object} [opts]
+ * @param {string|null} [opts.bankAccountId] - Local BankAccount UUID (for FK)
  */
-function normalizeTransaction(tx, userId) {
-  // TrueLayer transaction IDs are stable
+function normalizeTransaction(tx, userId, { bankAccountId = null } = {}) {
+  // TrueLayer transaction IDs are stable — used as the PK to prevent duplicates on re-sync
   const id = `tl_${tx.transaction_id}`;
   
   // Determine type based on amount sign
@@ -609,7 +641,11 @@ function normalizeTransaction(tx, userId) {
     date,
     category,
     description,
-    source: 'bank', // Mark as bank transaction
+    source: 'bank',
+    // Bank-sync dedup fields — also enforced by uq_bank_sync_dedup partial index in DB
+    provider: 'truelayer',
+    provider_transaction_id: tx.transaction_id || null,
+    bank_account_id: bankAccountId,
   };
 }
 

@@ -393,7 +393,7 @@ router.get("/balance", async (req, res) => {
     // Log all accounts for debugging
     console.log(`[Balance API DB] User ${userId} has ${accounts.length} account(s):`);
     accounts.forEach((a, i) => {
-      console.log(`  [${i}] "${a.account_name}" £${(a.balance || 0).toFixed(2)}`);
+      console.log(`  [${i}] "${a.account_name}" £${(Number(a.balance) || 0).toFixed(2)}`);
     });
 
     // Prefer "current/main" account - exclude pots/savings
@@ -408,16 +408,16 @@ router.get("/balance", async (req, res) => {
       accounts.find(a => /\b(current|personal|main)\b/i.test(a.account_name || "")) ||
       accounts[0];
 
-    console.log(`[Balance API DB] Selected main: "${mainAccount.account_name}" £${(mainAccount.balance || 0).toFixed(2)}`);
+    console.log(`[Balance API DB] Selected main: "${mainAccount.account_name}" £${(Number(mainAccount.balance) || 0).toFixed(2)}`);
 
     return res.json({
-      totalBalance: mainAccount.balance ?? 0,
-      availableBalance: mainAccount.available_balance ?? 0,
+      totalBalance: Number(mainAccount.balance ?? 0),
+      availableBalance: Number(mainAccount.available_balance ?? 0),
       currency: mainAccount.currency || "GBP",
       accounts: accounts.map((a) => ({
         name: a.account_name,
-        balance: a.balance,
-        available: a.available_balance,
+        balance: Number(a.balance ?? 0),
+        available: Number(a.available_balance ?? 0),
         currency: a.currency,
       })),
       source: 'db',
@@ -460,7 +460,7 @@ router.get('/balance-cached', async (req, res) => {
     // Log all accounts for debugging
     console.log(`[Balance Cached] User ${userId} has ${accounts.length} account(s):`);
     accounts.forEach((a, i) => {
-      console.log(`  [${i}] "${a.account_name}" £${(a.balance || 0).toFixed(2)}`);
+      console.log(`  [${i}] "${a.account_name}" £${(Number(a.balance) || 0).toFixed(2)}`);
     });
 
     // Pick "main" account - exclude pots/savings (Monzo uses "Pot" prefix for savings pots)
@@ -478,11 +478,11 @@ router.get('/balance-cached', async (req, res) => {
 
     const lastSyncedAt = mainAccount.updated_at;
 
-    console.log(`[Balance Cached] Selected main: "${mainAccount.account_name}" £${(mainAccount.balance || 0).toFixed(2)}`);
+    console.log(`[Balance Cached] Selected main: "${mainAccount.account_name}" £${(Number(mainAccount.balance) || 0).toFixed(2)}`);
 
     return res.json({
-      totalBalance: mainAccount.balance ?? null,
-      availableBalance: mainAccount.available_balance ?? null,
+      totalBalance: mainAccount.balance != null ? Number(mainAccount.balance) : null,
+      availableBalance: mainAccount.available_balance != null ? Number(mainAccount.available_balance) : null,
       currency: mainAccount.currency || 'GBP',
       lastSyncedAt,
       source: 'cached_db',

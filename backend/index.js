@@ -216,8 +216,8 @@ app.get('/api/transactions', async (req, res) => {
     const manualCount = rows.length - bankCount;
     console.log(`[Transactions] GET /api/transactions for ${userId}: ${rows.length} total (${bankCount} bank, ${manualCount} manual)`);
 
-    // Convert date fields to ISO string for frontend compatibility
-    return res.json(rows.map(r => ({ ...r, date: r.date ? new Date(r.date).toISOString() : null })));
+    // Convert date and Decimal amount for frontend
+    return res.json(rows.map(r => ({ ...r, date: r.date ? new Date(r.date).toISOString() : null, amount: Number(r.amount) })));
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'internal_error', message: err.message });
@@ -388,8 +388,8 @@ app.get('/api/splits', async (req, res) => {
         created_at: true
       }
     });
-    // Parse JSON categories
-    const parsed = rows.map(r => ({ ...r, categories: JSON.parse(r.categories) }));
+    // categories is stored as native jsonb — Prisma returns it already parsed
+    const parsed = rows.map(r => ({ ...r }));
     
     // Cache the result
     setCache(cacheKey, parsed);
@@ -416,7 +416,7 @@ app.post('/api/splits', async (req, res) => {
       update: {
         name,
         frequency,
-        categories: JSON.stringify(categories),
+        categories, // Json type — pass array directly (no JSON.stringify needed)
         updated_at: new Date()
       },
       create: {
@@ -424,7 +424,7 @@ app.post('/api/splits', async (req, res) => {
         user_id: userId,
         name,
         frequency,
-        categories: JSON.stringify(categories)
+        categories // Json type — pass array directly
       }
     });
     
@@ -687,10 +687,13 @@ app.get('/api/income-settings', async (req, res) => {
       }
     });
     
-    // Cache the result
-    setCache(cacheKey, rows);
+    // Convert Decimal expected_amount to Number for frontend
+    const result = rows.map(r => ({ ...r, expected_amount: Number(r.expected_amount) }));
     
-    return res.json(rows);
+    // Cache the result
+    setCache(cacheKey, result);
+    
+    return res.json(result);
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'internal_error', message: err.message });
@@ -733,7 +736,7 @@ app.post('/api/income-settings', async (req, res) => {
     // Invalidate cache
     invalidateCache(`income:${userId}`);
     
-    return res.json(saved);
+    return res.json({ ...saved, expected_amount: Number(saved.expected_amount) });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'internal_error', message: err.message });
