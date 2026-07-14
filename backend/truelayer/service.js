@@ -5,6 +5,7 @@
 
 const crypto = require('crypto');
 const client = require('./client');
+const { suggestCategory } = require('../../src/utils/categories');
 
 // ── Helpers: pot / internal-transfer detection ─────────────────────────
 
@@ -340,6 +341,11 @@ async function syncAccountsAndTransactions(prisma, userId, { fromDate, toDate } 
     throw error;
   }
 
+  // Load user's personal category rules
+const userRules = await prisma.userCategoryRule.findMany({
+  where: { user_id: userId },
+});
+
   // Default date range: last 2 years (to get full transaction history)
   const now = new Date();
   const defaultFrom = new Date(now);
@@ -437,7 +443,7 @@ async function syncAccountsAndTransactions(prisma, userId, { fromDate, toDate } 
           totalInternal++;
           continue;
         }
-        normalized.push(normalizeTransaction(tx, userId, { bankAccountId: localBankAccountId }));
+            normalized.push(normalizeTransaction(tx, userId, { bankAccountId: localBankAccountId, userRules }));
       }
 
       // Batch insert using createMany (FAST — one DB round-trip per account)
@@ -484,6 +490,11 @@ async function quickSyncLatest(prisma, userId, { limit = 30, daysBack = 60 } = {
     error.code = 'TOKEN_EXPIRED';
     throw error;
   }
+
+  // Load user's personal category rules
+const userRules = await prisma.userCategoryRule.findMany({
+  where: { user_id: userId },
+});
 
   const now = new Date();
   const fromDate = new Date(now);
@@ -611,27 +622,20 @@ async function quickSyncLatest(prisma, userId, { limit = 30, daysBack = 60 } = {
  * @param {Object} [opts]
  * @param {string|null} [opts.bankAccountId] - Local BankAccount UUID (for FK)
  */
-function normalizeTransaction(tx, userId, { bankAccountId = null } = {}) {
-  // TrueLayer transaction IDs are stable — used as the PK to prevent duplicates on re-sync
+function normalizeTransaction(tx, userId, { bankAccountId = null, userRules = [] } = {}) {
   const id = `tl_${tx.transaction_id}`;
-  
-  // Determine type based on amount sign
-  // TrueLayer: negative = money out, positive = money in
   const rawAmount = parseFloat(tx.amount) || 0;
   const type = rawAmount < 0 ? 'expense' : 'income';
   const amount = Math.abs(rawAmount);
-  
-  // Date as Date object for Prisma DateTime
-  const date = tx.timestamp
-    ? new Date(tx.timestamp)
-    : new Date();
-  
-  // Description from merchant or transaction description
+  const date = tx.timestamp ? new Date(tx.timestamp) : new Date();
   const description = tx.merchant_name || tx.description || '';
-  
-  // Category: TrueLayer provides transaction_category
-  // Map to "Other" for now (could map to our categories later)
-  const category = tx.transaction_category || 'Other';
+
+  // 1. Check user's personal rules first
+  const descLower = description.toLowerCase();
+  const matchedRule = userRules.find(r => descLower.includes(r.keyword));
+
+  // 2. Fall back to keyword suggest
+  const category = matchedRule ? matchedRule.category : suggestCategory(description);
 
   return {
     id,
@@ -642,7 +646,6 @@ function normalizeTransaction(tx, userId, { bankAccountId = null } = {}) {
     category,
     description,
     source: 'bank',
-    // Bank-sync dedup fields — also enforced by uq_bank_sync_dedup partial index in DB
     provider: 'truelayer',
     provider_transaction_id: tx.transaction_id || null,
     bank_account_id: bankAccountId,

@@ -21,6 +21,7 @@ model User {
   splits                Split[]
   purchases             Purchase[]
   income_settings       IncomeSetting[]
+  categoryRules UserCategoryRule[]
   bank_connections      BankConnection[]
   bank_accounts         BankAccount[]
   bank_balance_snapshots BankBalanceSnapshot[]
@@ -100,6 +101,20 @@ model IncomeSetting {
   user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
   @@index([user_id])
   @@map("income_settings")
+}
+
+model UserCategoryRule {
+  id         String   @id @default(uuid())
+  user_id    String
+  keyword    String
+  category   String
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, keyword])
+  @@map("user_category_rules")
 }
 
 // TrueLayer Open Banking Integration

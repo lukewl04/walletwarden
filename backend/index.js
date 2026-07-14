@@ -874,3 +874,69 @@ testConnection().then(connected => {
     process.exit(1);
   });
 });
+
+// ── User Category Rules ─────────────────────────────────────────────────
+
+// Get all rules for current user
+app.get('/api/category-rules', async (req, res) => {
+  try {
+    const userId = req.auth?.sub;
+    if (!userId) return res.status(401).json({ error: 'unauthorized' });
+
+    const rules = await prisma.userCategoryRule.findMany({
+      where: { user_id: userId },
+      orderBy: { created_at: 'desc' },
+    });
+    return res.json(rules);
+  } catch (err) {
+    console.error('[CategoryRules] GET error:', err);
+    return res.status(500).json({ error: 'internal_error', message: err.message });
+  }
+});
+
+// Save a rule (upsert by keyword)
+app.post('/api/category-rules', async (req, res) => {
+  try {
+    const userId = req.auth?.sub;
+    if (!userId) return res.status(401).json({ error: 'unauthorized' });
+
+    const { keyword, category } = req.body;
+    if (!keyword || !category) return res.status(400).json({ error: 'keyword and category are required' });
+
+    const rule = await prisma.userCategoryRule.upsert({
+  where: { user_id_keyword: { user_id: userId, keyword: keyword.toLowerCase().trim() } },
+  update: { category },
+  create: { user_id: userId, keyword: keyword.toLowerCase().trim(), category },
+});
+
+// Retroactively update existing transactions matching this keyword
+await prisma.transaction.updateMany({
+  where: {
+    user_id: userId,
+    description: { contains: keyword, mode: 'insensitive' },
+  },
+  data: { category },
+});
+
+return res.json(rule);
+  } catch (err) {
+    console.error('[CategoryRules] POST error:', err);
+    return res.status(500).json({ error: 'internal_error', message: err.message });
+  }
+});
+
+// Delete a rule
+app.delete('/api/category-rules/:id', async (req, res) => {
+  try {
+    const userId = req.auth?.sub;
+    if (!userId) return res.status(401).json({ error: 'unauthorized' });
+
+    await prisma.userCategoryRule.deleteMany({
+      where: { id: req.params.id, user_id: userId },
+    });
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error('[CategoryRules] DELETE error:', err);
+    return res.status(500).json({ error: 'internal_error', message: err.message });
+  }
+});
